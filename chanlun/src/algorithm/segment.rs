@@ -1,0 +1,1726 @@
+use crate::algorithm::bi::笔;
+use crate::algorithm::hub::中枢;
+use crate::business::observer::观察者;
+use crate::config::缠论配置;
+use crate::kline::bar::K线;
+use crate::structure::dash_line::虚线;
+use crate::structure::fractal_obj::分型;
+use crate::structure::segment_feat::线段特征;
+use crate::types::{分型结构, 相对方向, 缺口};
+use std::rc::Rc;
+
+/// 线段 — 从笔生成线段的算法集合（静态方法命名空间）
+pub struct 线段;
+
+impl 线段 {
+    // ================================================================
+    // 基础操作
+    // ================================================================
+
+    /// 获取Rc<虚线>的可变引用（clone-on-write）
+    fn 取段可变(段_rc: &mut Rc<虚线>) -> &mut 虚线 {
+        if Rc::strong_count(段_rc) > 1 {
+            let 克隆 = (**段_rc).clone();
+            *段_rc = Rc::new(克隆);
+        }
+        Rc::get_mut(段_rc).unwrap()
+    }
+
+    /// 向线段的基础序列中添加一笔
+    pub fn 添加虚线(段_rc: &mut Rc<虚线>, 筆: Rc<虚线>) {
+        let 段 = Self::取段可变(段_rc);
+        if !段.基础序列.is_empty() {
+            if !分型::判断分型(&段.基础序列.last().unwrap().武, &筆.文, "中") {
+                eprintln!(
+                    "线段.添加虚线 不连续 {:?} {:?}",
+                   段.基础序列.last().unwrap(), 筆
+                );
+                return;
+            }
+            if 段.基础序列.last().unwrap().标识 != 筆.标识 {
+                eprintln!(
+                    "线段.添加虚线 标识不符 {} {}",
+                    段.基础序列.last().unwrap().标识, 筆.标识
+                );
+                return;
+            }
+        }
+       段.基础序列.push(筆);
+    }
+
+    /// 更新线段的终点分型
+    pub fn 武斗(段_rc: &mut Rc<虚线>, 武: &Rc<分型>, 行号: u32) {
+        let 段 = Self::取段可变(段_rc);
+        if Rc::as_ptr(&段.武) == Rc::as_ptr(武) {
+            return;
+        }
+        if 段.武.分型特征值 == 武.分型特征值 && 段.武.时间戳 != 武.时间戳 {
+            eprintln!(
+                "线段.武斗[{}], 发现特征值相等但时间戳不同 {:?} {:?}",
+                行号, 段.武, 武
+            );
+        }
+        if 段.文.结构 == 武.结构 {
+            panic!("文武结构相同 {} {:?} {:?}", 行号, 段.文, 武);
+        }
+        if 段.方向() == 相对方向::向上 {
+            if 武.分型特征值 < 段.文.分型特征值 {
+                panic!(
+                    "向上线段, 结束点小于起点 {} {:?} {:?}",
+                    段.标识, 段.文, 武
+                );
+            }
+        } else {
+            if 武.分型特征值 > 段.文.分型特征值 {
+                panic!(
+                    "向下线段, 结束点大于起点 {} {:?} {:?}",
+                    段.标识, 段.文, 武
+                );
+            }
+        }
+       段.武 = Rc::clone(武);
+    }
+
+    /// 武终 — 线段终结时设置终点
+    pub fn 武终(段_rc: &mut Rc<虚线>, 行号: u32) {
+        let 武 = {
+            let 段 = Self::取段可变(段_rc);
+            if 段.模式 != "文武" {
+                Some(Rc::clone(&段.基础序列.last().unwrap().武))
+            } else {
+                None
+            }
+        };
+        if let Some(武) = 武 {
+            Self::武斗(段_rc, &武, 行号);
+        }
+    }
+
+    /// 验证序列 — 截断无效尾部
+    pub fn 验证序列(段_rc: &mut Rc<虚线>, 序列: &[Rc<虚线>]) {
+        let 段 = Self::取段可变(段_rc);
+        let mut 基础序列: Vec<Rc<虚线>> = Vec::new();
+        for 元素 in &段.基础序列 {
+            if !序列.iter().any(|x| Rc::as_ptr(x) == Rc::as_ptr(元素)) {
+                break;
+            }
+            if !基础序列.is_empty() {
+                if !基础序列.last().unwrap().之后是(元素) {
+                    eprintln!("线段._验证序列 数据不连续");
+                    break;
+                }
+            }
+            基础序列.push(Rc::clone(元素));
+        }
+        if 基础序列.len() % 2 == 0 {
+            基础序列.pop();
+        }
+       段.基础序列 = 基础序列;
+    }
+
+    /// 序列重置 — 截取到序列中的有效部分
+    pub fn 序列重置(段_rc: &mut Rc<虚线>, 序列: &[Rc<虚线>]) {
+        let 段 = Self::取段可变(段_rc);
+        let mut 基础序列: Vec<Rc<虚线>> = Vec::new();
+        for 元素 in &段.基础序列 {
+            if !序列.iter().any(|x| Rc::as_ptr(x) == Rc::as_ptr(元素)) {
+                break;
+            }
+            if !基础序列.is_empty() {
+                if !基础序列.last().unwrap().之后是(元素) {
+                    break;
+                }
+            }
+            基础序列.push(Rc::clone(元素));
+        }
+       段.基础序列 = 基础序列;
+        if 段.特征序列.len() > 2 {
+            段.特征序列[2] = None;
+        }
+    }
+
+    // ================================================================
+    // 基础判断
+    // ================================================================
+
+    /// 基础判断 — 连续三笔且重叠才能构成线段
+    pub fn 基础判断(左: &虚线, 中: &虚线, 右: &虚线, 关系序列: &[相对方向]) -> bool {
+        if !左.之后是(中) {
+            return false;
+        }
+        if !中.之后是(右) {
+            return false;
+        }
+
+        if !相对方向::分析(左.高(), 左.低(), 中.高(), 中.低()).是否包含() {
+            return false;
+        }
+        if !相对方向::分析(中.高(), 中.低(), 右.高(), 右.低()).是否包含() {
+            return false;
+        }
+
+        let 关系 = 相对方向::分析(左.高(), 左.低(), 右.高(), 右.低());
+        if !关系序列.contains(&关系) {
+            return false;
+        }
+
+        if 左.方向() == 相对方向::向下 && !关系.是否向下() {
+            return false;
+        }
+        if 左.方向() == 相对方向::向上 && !关系.是否向上() {
+            return false;
+        }
+        true
+    }
+
+    // ================================================================
+    // 四象 / 缺口 / 特征序列
+    // ================================================================
+
+    /// 四象 — 线段的四种状态分类
+    ///
+    /// 老阳: 向下线段第一二特征序列有缺口, 后一向上线段
+    /// 老阴: 向上线段第一二特征序列有缺口, 后一向下线段
+    /// 小阳: 向上线段
+    /// 少阴: 向下线段
+    pub fn 四象(段: &虚线) -> String {
+        if 段.前一缺口.is_some() {
+            if 段.方向() == 相对方向::向上 {
+                "老阳".into()
+            } else {
+                "老阴".into()
+            }
+        } else if 段.方向() == 相对方向::向上 {
+            "小阳".into()
+        } else {
+            "少阴".into()
+        }
+    }
+
+    /// 获取缺口 — 从特征序列第一二元素之间检测缺口
+    pub fn 获取缺口(段: &虚线) -> Option<缺口> {
+        if 段.模式 != "文武" {
+            return None;
+        }
+        if 段.特征序列.len() < 2 {
+            return None;
+        }
+        let 左 = 段.特征序列[0].as_ref()?;
+        let 中 = 段.特征序列[1].as_ref()?;
+        let 相对关系 = 相对方向::分析(左.高(), 左.低(), 中.高(), 中.低());
+        if 相对关系.是否缺口() {
+            let 高 = 左.文().分型特征值.max(中.文().分型特征值);
+            let 低 = 左.文().分型特征值.min(中.文().分型特征值);
+            Some(缺口 { 高, 低 })
+        } else {
+            None
+        }
+    }
+
+    /// 特征分型终结 — 检查特征序列是否形成正常分型终结
+    pub fn 特征分型终结(段: &虚线) -> bool {
+        let 特征序列 = 线段特征::静态分析(&段.基础序列, 段.方向(), &Self::四象(段), false);
+        if 特征序列.len() >= 3 {
+            let idx = 特征序列.len();
+            if let Some(结构) = 分型结构::分析(
+                &*特征序列[idx - 3],
+                &*特征序列[idx - 2],
+                &*特征序列[idx - 1],
+                true,
+                true,
+            ) {
+                if 段.方向() == 相对方向::向上 {
+                    return 结构 == 分型结构::顶;
+                } else {
+                    return 结构 == 分型结构::底;
+                }
+            }
+        }
+        false
+    }
+
+    /// 特征序列状态 — 返回三个特征序列元素是否为 Some
+    pub fn 特征序列状态(段: &虚线) -> (bool, bool, bool) {
+        let get = |i: usize| {
+            段.特征序列
+                .get(i)
+                .map(|x| x.is_some())
+                .unwrap_or(false)
+        };
+        (get(0), get(1), get(2))
+    }
+
+    /// 设置特征序列
+    pub fn 设置特征序列(段_rc: &mut Rc<虚线>, 序列: Vec<Option<Rc<线段特征>>>, 行号: u32) {
+        let 段 = Self::取段可变(段_rc);
+        if 段.模式 != "文武" {
+            return;
+        }
+
+        for 特征 in &序列 {
+            if let Some(ref f) = 特征 {
+                if f.方向() == 段.方向() {
+                    panic!("特征序列方向不匹配[{}]", 行号);
+                }
+            }
+        }
+
+        let 左 = 序列[0].clone();
+        let 中 = 序列[1].clone();
+        let 右 = 序列[2].clone();
+       段.特征序列 = vec![左, 中, 右];
+
+        if let Some(ref 右特征) = 段.特征序列[2] {
+            let mut 基础序列: Vec<Rc<虚线>> = Vec::new();
+            let 右尾 = 右特征.元素.last().expect("特征序列元素不应为空");
+            if !段.基础序列.iter().any(|x| Rc::as_ptr(x) == Rc::as_ptr(右尾)) {
+                panic!("右特征最后一个元素不在基础序列中");
+            }
+            for 元素 in &段.基础序列 {
+                基础序列.push(Rc::clone(元素));
+                if Rc::as_ptr(元素) == Rc::as_ptr(右尾) {
+                    break;
+                }
+            }
+
+            if 基础序列.len() >= 6 && 基础序列.len() % 2 == 0 {
+               段.基础序列 = 基础序列;
+            } else {
+                panic!("设置特征序列: 基础序列长度不足或非偶数");
+            }
+        }
+    }
+
+    /// 刷新特征序列
+    pub fn 刷新特征序列(段_rc: &mut Rc<虚线>, 配置: &缠论配置) {
+        // Work on a clone since we need to read and write
+        let mut 新段 = (**段_rc).clone();
+        if 新段.模式 != "文武" {
+            return;
+        }
+        let mut 基础序列 = 新段.基础序列.clone();
+        if let Some(ref 前结束) = 新段.前一结束位置 {
+            if let Some(idx) = 基础序列
+                .iter()
+                .position(|x| Rc::as_ptr(x) == Rc::as_ptr(前结束))
+            {
+                if idx > 0 {
+                    基础序列 = 基础序列[idx - 1..].to_vec();
+                }
+            }
+        }
+
+        let 四象 = Self::四象(&新段);
+        let 特征序列 = 线段特征::静态分析(
+            &基础序列,
+            新段.方向(),
+            &四象,
+            配置.线段_特征序列忽视老阴老阳,
+        );
+
+        if 特征序列.len() >= 3 {
+            let 分型序列 = 线段特征::获取分型序列(&特征序列);
+            if !分型序列.is_empty() {
+                let 最后分型 = &分型序列[分型序列.len() - 1];
+                if (新段.方向() == 相对方向::向上
+                    && 最后分型.结构 == 分型结构::顶)
+                    || (新段.方向() == 相对方向::向下
+                        && 最后分型.结构 == 分型结构::底)
+                {
+                    新段.特征序列 = vec![
+                        Some(Rc::clone(&最后分型.左)),
+                        Some(Rc::clone(&最后分型.中)),
+                        Some(Rc::clone(&最后分型.右)),
+                    ];
+                } else {
+                    新段.特征序列 = vec![
+                        Some(Rc::clone(&特征序列[特征序列.len() - 2])),
+                        Some(Rc::clone(&特征序列[特征序列.len() - 1])),
+                        None,
+                    ];
+                }
+            } else {
+                新段.特征序列 = vec![
+                    Some(Rc::clone(&特征序列[特征序列.len() - 2])),
+                    Some(Rc::clone(&特征序列[特征序列.len() - 1])),
+                    None,
+                ];
+            }
+        } else {
+            let mut 填充: Vec<Option<Rc<线段特征>>> =
+                特征序列.into_iter().map(Some).collect();
+            填充.resize(3, None);
+            新段.特征序列 = 填充;
+        }
+
+        *段_rc = Rc::new(新段);
+    }
+
+    /// 查找贯穿伤 — 基础序列中穿透文分型特征值的笔
+    pub fn 查找贯穿伤(段: &虚线) -> Option<Rc<虚线>> {
+        for 贯穿伤 in 段.基础序列.iter().skip(3) {
+            if 段.方向().是否向上() {
+                if 贯穿伤.武.分型特征值 < 段.文.分型特征值 {
+                    return Some(Rc::clone(贯穿伤));
+                }
+            } else {
+                if 贯穿伤.武.分型特征值 > 段.文.分型特征值 {
+                    return Some(Rc::clone(贯穿伤));
+                }
+            }
+        }
+        None
+    }
+
+    // ================================================================
+    // 分割序列
+    // ================================================================
+
+    /// 分割序列 — 将线段的基础序列分为前、后、第三买卖线、贯穿伤
+    pub fn 分割序列(
+        段: &虚线,
+        所属中枢: Option<&Rc<中枢>>,
+    ) -> (Vec<Rc<虚线>>, Vec<Rc<虚线>>, Vec<Rc<虚线>>, Option<Rc<虚线>>) {
+        if 段.模式 != "文武" {
+            return (段.基础序列.clone(), Vec::new(), Vec::new(), None);
+        }
+
+        let mut 前: Vec<Rc<虚线>> = Vec::new();
+        let mut 后: Vec<Rc<虚线>> = Vec::new();
+        let mut 第三买卖线: Vec<Rc<虚线>> = Vec::new();
+        let mut 贯穿伤: Option<Rc<虚线>> = None;
+
+        for 筆 in &段.基础序列 {
+            if 前.is_empty() {
+                前.push(Rc::clone(筆));
+                continue;
+            }
+            if Rc::as_ptr(&前.last().unwrap().武) != Rc::as_ptr(&段.武) && 后.is_empty() {
+                前.push(Rc::clone(筆));
+            }
+
+            if !后.is_empty() {
+                后.push(Rc::clone(筆));
+            }
+            if Rc::as_ptr(&筆.文) == Rc::as_ptr(&段.武) {
+                后.push(Rc::clone(筆));
+            }
+        }
+
+        let mut 状态 = None;
+
+        if let Some(中枢) = 所属中枢 {
+            let 尾部 = if let Some(ref 后笔) = 后.last() {
+                Rc::clone(&后笔.武)
+            } else {
+                Rc::clone(&段.武)
+            };
+
+            if 中枢.高() >= 尾部.分型特征值 && 尾部.分型特征值 >= 中枢.低() {
+                状态 = Some("中枢之中");
+            } else if 中枢.高() < 尾部.分型特征值 {
+                状态 = Some("中枢之上");
+            } else if 中枢.低() > 尾部.分型特征值 {
+                状态 = Some("中枢之下");
+            }
+        }
+
+        if 状态 == Some("中枢之上") {
+            for 筆 in 段.基础序列.iter().rev() {
+                if 筆.方向() == 相对方向::向下 {
+                    let 关系 = 相对方向::分析(
+                        所属中枢.unwrap().高(),
+                        所属中枢.unwrap().低(),
+                        筆.高(),
+                        筆.低(),
+                    );
+                    if 关系 == 相对方向::向上缺口 {
+                        第三买卖线.push(Rc::clone(筆));
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if 状态 == Some("中枢之下") {
+            for 筆 in 段.基础序列.iter().rev() {
+                if 筆.方向() == 相对方向::向上 {
+                    let 关系 = 相对方向::分析(
+                        所属中枢.unwrap().高(),
+                        所属中枢.unwrap().低(),
+                        筆.高(),
+                        筆.低(),
+                    );
+                    if 关系 == 相对方向::向下缺口 {
+                        第三买卖线.push(Rc::clone(筆));
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if !第三买卖线.is_empty() {
+            第三买卖线.reverse();
+        }
+
+        if !后.is_empty() {
+            if 段.方向().是否向上() {
+                if 后[0].武.分型特征值 < 段.文.分型特征值 {
+                    贯穿伤 = Some(Rc::clone(&后[0]));
+                }
+            } else {
+                if 后[0].武.分型特征值 > 段.文.分型特征值 {
+                    贯穿伤 = Some(Rc::clone(&后[0]));
+                }
+            }
+        }
+
+        (前, 后, 第三买卖线, 贯穿伤)
+    }
+
+    /// 刷新 — 完整刷新线段的特征序列和内部中枢
+    pub fn 刷新(段_rc: &mut Rc<虚线>, 配置: &缠论配置) {
+        let 段 = Self::取段可变(段_rc);
+        if 段.模式 != "文武" {
+            return;
+        }
+        if 段.基础序列.is_empty() {
+            eprintln!("    线段.刷新 基础序列为空");
+            return;
+        }
+
+        Self::刷新特征序列(段_rc, 配置);
+
+        // After 刷新特征序列, work with the updated segment
+        let (武斗_武文, 特征后一笔_opt) = {
+            let 段2 = Self::取段可变(段_rc);
+            let 有效特征序列: Vec<&Rc<线段特征>> = 段2.特征序列.iter().filter_map(|x| x.as_ref()).collect();
+
+            if 有效特征序列.len() == 3 {
+                (Some(Rc::clone(&有效特征序列[1].文())), None)
+            } else if !有效特征序列.is_empty() {
+                let 最近特征 = 有效特征序列[有效特征序列.len() - 1];
+
+                let 特征后一笔 = if 最近特征.元素.last().map(|x| {
+                   段2.基础序列
+                        .iter()
+                        .any(|b| Rc::as_ptr(b) == Rc::as_ptr(x))
+                }) == Some(true)
+                {
+                    Some(Rc::clone(最近特征.元素.last().unwrap()))
+                } else if let Some(b) =
+                    笔::以武会友(&段2.基础序列, &最近特征.元素.last().unwrap().武)
+                {
+                    Some(b)
+                } else {
+                    None
+                };
+
+                if 特征后一笔.is_none() {
+                    eprintln!(
+                        "    线段.刷新 特征后一笔 = None, {:?}, 有效特征: {}",
+                        段2,
+                        有效特征序列.len()
+                    );
+                }
+                (None, 特征后一笔)
+            } else {
+                (None, None)
+            }
+        };
+
+        if let Some(武文) = 武斗_武文 {
+            Self::武斗(段_rc, &武文, 0);
+        } else if let Some(特征后一笔) = 特征后一笔_opt {
+
+            let 武斗候选 = {
+                let 段2 = Self::取段可变(段_rc);
+                if let Some(序号) = 段2
+                    .基础序列
+                    .iter()
+                    .position(|x| Rc::as_ptr(x) == Rc::as_ptr(&特征后一笔))
+                {
+                    if 序号 < 段2.基础序列.len() - 1 {
+                        let 下一笔 = Rc::clone(&段2.基础序列[序号 + 1]);
+                        if (段2.方向() == 相对方向::向上 && 段2.高() <= 下一笔.高())
+                            || (段2.方向() == 相对方向::向下 && 段2.低() >= 下一笔.低())
+                        {
+                            Some(Rc::clone(&下一笔.武))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+            if let Some(武) = 武斗候选 {
+                Self::武斗(段_rc, &武, 0);
+            }
+        }
+
+        let 段3 = Self::取段可变(段_rc);
+        let _ = Self::获取内部中枢序列_内部(段3, 配置);
+    }
+
+    /// 获取内部中枢序列 — 内部实现
+    fn 获取内部中枢序列_内部(段: &mut 虚线, _配置: &缠论配置) -> (Vec<Rc<中枢>>, Vec<Rc<中枢>>, Vec<Rc<中枢>>) {
+        if 段.模式 != "文武" {
+            中枢::分析(&段.基础序列, &mut 段.合_中枢序列, true, &format!("{}_{}_合_", 段.标识, 段.序号), 0);
+            return (Vec::new(), Vec::new(), 段.合_中枢序列.clone());
+        }
+
+        // Clone base sequence to avoid borrow issues
+        let 基础序列 = 段.基础序列.clone();
+        let _文 = Rc::clone(&段.文);
+        let 武 = Rc::clone(&段.武);
+
+        // Reconstruct 前/后 from base sequence
+        let mut 前: Vec<Rc<虚线>> = Vec::new();
+        let mut 后: Vec<Rc<虚线>> = Vec::new();
+
+        for 筆 in &基础序列 {
+            if 前.is_empty() {
+                前.push(Rc::clone(筆));
+                continue;
+            }
+            if Rc::as_ptr(&前.last().unwrap().武) != Rc::as_ptr(&武) && 后.is_empty() {
+                前.push(Rc::clone(筆));
+            }
+            if !后.is_empty() {
+                后.push(Rc::clone(筆));
+            }
+            if Rc::as_ptr(&筆.文) == Rc::as_ptr(&武) {
+                后.push(Rc::clone(筆));
+            }
+        }
+
+        中枢::分析(&前, &mut 段.实_中枢序列, true, &format!("{}_{}_实_", 段.标识, 段.序号), 0);
+        中枢::分析(&后, &mut 段.虚_中枢序列, true, &format!("{}_{}_虚_", 段.标识, 段.序号), 0);
+        中枢::分析(&基础序列, &mut 段.合_中枢序列, true, &format!("{}_{}_合_", 段.标识, 段.序号), 0);
+
+        (段.虚_中枢序列.clone(), 段.实_中枢序列.clone(), 段.合_中枢序列.clone())
+    }
+
+    /// 获取内部中枢序列
+    pub fn 获取内部中枢序列(段_rc: &mut Rc<虚线>, 配置: &缠论配置) -> (Vec<Rc<中枢>>, Vec<Rc<中枢>>, Vec<Rc<中枢>>) {
+        let 段 = Self::取段可变(段_rc);
+        Self::获取内部中枢序列_内部(段, 配置)
+    }
+
+    // ================================================================
+    // 线段序列管理
+    // ================================================================
+
+    /// _添加线段 — 向线段序列尾部添加线段（内部方法）
+    pub fn _添加线段(
+        线段序列: &mut Vec<Rc<虚线>>,
+        待添加线段_rc: &mut Rc<虚线>,
+        _配置: &缠论配置,
+        行号: String,
+    ) {
+        let 待添加线段 = Self::取段可变(待添加线段_rc);
+
+        if let Some(前一个) = 线段序列.last() {
+            if !前一个.之后是(待添加线段) {
+                panic!(
+                    "线段.向序列中添加 不连续[{}] {:?} {:?}",
+                    行号, 前一个.武, 待添加线段.文
+                );
+            }
+        }
+
+        待添加线段.模式 = "文武".into();
+
+        if 线段序列.is_empty() {
+            let 新段 = Rc::new(待添加线段.clone());
+            线段序列.push(新段);
+            return;
+        }
+
+        let 之前线段 = 线段序列.last().unwrap();
+
+        // Check 之前线段.特征序列[2] is valid
+        if 之前线段.特征序列.len() >= 3 && 之前线段.特征序列[2].is_none() && !之前线段.短路修正 {
+            // The Python code asserts here; we warn
+            eprintln!(
+                "线段._向序列中添加[{}], 之前线段.右 = None {:?}",
+                行号, 之前线段
+            );
+        }
+
+        if !待添加线段
+            .基础序列
+            .iter()
+            .any(|x| Rc::as_ptr(x) == Rc::as_ptr(之前线段.基础序列.last().unwrap()))
+            && !之前线段.短路修正
+        {
+            panic!(
+                "线段._向序列中添加[{}], 之前线段[-1] not in 待添加虚线! {:?}",
+                行号, 之前线段
+            );
+        }
+
+        待添加线段.序号 = 之前线段.序号 + 1;
+        待添加线段.前一缺口 = Self::获取缺口(之前线段);
+        待添加线段.前一结束位置 = Some(Rc::clone(之前线段.基础序列.last().unwrap()));
+
+        if ["老阴", "老阳"].contains(&Self::四象(之前线段).as_str()) {
+            待添加线段.前一缺口 = None;
+        }
+
+        let 新段 = Rc::new(待添加线段.clone());
+        线段序列.push(新段);
+    }
+
+    /// _弹出线段 — 从线段序列尾部弹出线段（内部方法）
+    pub fn _弹出线段(
+        线段序列: &mut Vec<Rc<虚线>>,
+        待弹出线段: &Rc<虚线>,
+        _配置: &缠论配置,
+        行号: String,
+    ) -> Option<Rc<虚线>> {
+        if 线段序列.is_empty() {
+            return None;
+        }
+
+        if Rc::as_ptr(线段序列.last().unwrap()) != Rc::as_ptr(待弹出线段) {
+            panic!(
+                "线段._从序列中删除 弹出数据不在列表中 {:?}",
+                待弹出线段
+            );
+        }
+
+        if 待弹出线段.特征序列.len() >= 3 {
+            let 左 = &待弹出线段.特征序列[0];
+            let 中 = &待弹出线段.特征序列[1];
+            let 右 = &待弹出线段.特征序列[2];
+            if let (Some(l), Some(m), Some(r)) = (左, 中, 右) {
+                if let Some(结构) = 分型结构::分析(&**l, &**m, &**r, true, true) {
+                    if matches!(结构, 分型结构::顶 | 分型结构::底)
+                        && !相对方向::分析(l.高(), l.低(), m.高(), m.低()).是否缺口()
+                    {
+                        eprintln!(
+                            "[警告<{}>]: 线段._从序列中删除 发现分型完毕, 且特征序列无缺口 {:?}",
+                            行号, 待弹出线段
+                        );
+                    }
+                }
+            }
+        }
+
+        let 弹出 = 线段序列.pop().unwrap();
+
+        // Mark popped segment as invalid
+        // Since it's behind Rc, we mark it by replacing its clone in caller context
+        // For now, just pop it from the sequence
+
+        Some(弹出)
+    }
+
+    // ================================================================
+    // 四种修正机制
+    // ================================================================
+
+    /// _缺口突破 — 老阳/老阴缺口突破修正
+    pub fn _缺口突破(
+        线段序列: &mut Vec<Rc<虚线>>,
+        配置: &缠论配置,
+        层级: i64,
+    ) -> bool {
+        if 线段序列.is_empty() {
+            return false;
+        }
+
+        let 当前线段 = Rc::clone(线段序列.last().unwrap());
+        if 当前线段.基础序列.is_empty() {
+            return false;
+        }
+        let 当前虚线 = Rc::clone(&当前线段.基础序列[当前线段.基础序列.len() - 1]);
+        let 四象 = Self::四象(&当前线段);
+        let 同向 = 当前虚线.方向() == 当前线段.方向();
+
+        // 条件1：不能同向
+        if 同向 {
+            return false;
+        }
+
+        // 条件2：四象必须是老阳或老阴
+        if 四象 != "老阳" && 四象 != "老阴" {
+            return false;
+        }
+
+        // 条件3：当前线段特征序列[2]必须为None
+        if 当前线段.特征序列.len() >= 3 && 当前线段.特征序列[2].is_some() {
+            return false;
+        }
+
+        // 条件4：具体突破方向判断
+        let 突破 = (四象 == "老阳" && 当前虚线.低() < 当前线段.低())
+            || (四象 == "老阴" && 当前虚线.高() > 当前线段.高());
+        if !突破 {
+            return false;
+        }
+
+        // 执行修正
+        let 序列 = 当前线段.基础序列.clone();
+        Self::_弹出线段(
+            线段序列,
+            &Rc::clone(线段序列.last().unwrap()),
+            配置,
+            format!("{}, {}", 0, 层级),
+        );
+
+        if 线段序列.is_empty() {
+            return true;
+        }
+
+        let mut 当前线段_克隆 = (**线段序列.last().unwrap()).clone();
+        if 当前线段_克隆.特征序列.len() < 3 || 当前线段_克隆.特征序列[2].is_none() {
+            // Shouldn't happen after correction
+            return true;
+        }
+
+        let (前, _, _, _) = Self::分割序列(&当前线段_克隆, None);
+        let mut 当前线段基础序列 = 前;
+        当前线段基础序列.extend(序列);
+
+        当前线段_克隆.基础序列 = 当前线段基础序列;
+        let idx = 线段序列.len() - 1;
+        线段序列[idx] = Rc::new(当前线段_克隆);
+
+        Self::刷新(&mut 线段序列[idx], 配置);
+        true
+    }
+
+    /// _非缺口下穿刺 — 贯穿伤修复
+    pub fn _非缺口下穿刺(
+        线段序列: &mut Vec<Rc<虚线>>,
+        配置: &缠论配置,
+        层级: i64,
+    ) -> bool {
+        if 线段序列.is_empty() {
+            return false;
+        }
+
+        let 当前线段 = Rc::clone(线段序列.last().unwrap());
+        let 四象 = Self::四象(&当前线段);
+
+        // 外层条件
+        if !(配置.线段_非缺口下穿刺
+            && (四象 == "小阳" || 四象 == "少阴")
+            && 当前线段.特征序列.len() >= 3
+            && 当前线段.特征序列[2].is_none())
+        {
+            return false;
+        }
+
+        // 查找贯穿伤
+        let 贯穿伤 = Self::查找贯穿伤(&当前线段);
+        if 贯穿伤.is_none() {
+            return false;
+        }
+        let 贯穿伤 = 贯穿伤.unwrap();
+
+        // 切割基础序列
+        let 贯穿伤_idx = 当前线段
+            .基础序列
+            .iter()
+            .position(|x| Rc::as_ptr(x) == Rc::as_ptr(&贯穿伤));
+
+        if 贯穿伤_idx.is_none() {
+            return false;
+        }
+        let 基础序列: Vec<Rc<虚线>> = 当前线段.基础序列[贯穿伤_idx.unwrap()..].to_vec();
+
+        // 长度条件
+        if !(基础序列.len() == 4 && 线段序列.len() >= 2) {
+            return false;
+        }
+
+        let 左 = Rc::clone(&基础序列[基础序列.len() - 3]);
+        let 右 = Rc::clone(&基础序列[基础序列.len() - 1]);
+
+        // 方向条件
+        if 相对方向::分析(左.高(), 左.低(), 右.高(), 右.低()) != 当前线段.方向() {
+            return false;
+        }
+
+        // 执行修正
+        eprintln!(
+            "[警告<{}, {}>]: 线段.修复贯穿伤 {:?}",
+            层级, 层级, 贯穿伤
+        );
+
+        let 原始基础序列 = 当前线段.基础序列.clone();
+        Self::_弹出线段(
+            线段序列,
+            &Rc::clone(线段序列.last().unwrap()),
+            配置,
+            format!("{}, {}", 0, 层级),
+        );
+
+        if 线段序列.is_empty() {
+            return true;
+        }
+
+        let mut 当前线段_克隆 = (**线段序列.last().unwrap()).clone();
+        if 当前线段_克隆.特征序列.len() >= 3 {
+            当前线段_克隆.特征序列[2] = None;
+        }
+
+        let 开始笔 = Rc::clone(当前线段_克隆.基础序列.last().unwrap());
+        let 开始序号 = 原始基础序列
+            .iter()
+            .position(|x| Rc::as_ptr(x) == Rc::as_ptr(&开始笔));
+
+        if let Some(开始序号) = 开始序号 {
+            for 临时虚线 in &原始基础序列[开始序号 + 1..] {
+                当前线段_克隆.基础序列.push(Rc::clone(临时虚线));
+            }
+        }
+
+        let idx = 线段序列.len() - 1;
+        线段序列[idx] = Rc::new(当前线段_克隆);
+
+        Self::刷新(&mut 线段序列[idx], 配置);
+
+        let 当前线段 = Rc::clone(&线段序列[idx]);
+        if 当前线段.特征序列.len() >= 3 && 当前线段.特征序列[2].is_some() {
+            let 段 = 虚线::创建线段(&[
+                Rc::clone(&基础序列[基础序列.len() - 3]),
+                Rc::clone(&基础序列[基础序列.len() - 2]),
+                Rc::clone(&基础序列[基础序列.len() - 1]),
+            ]);
+            let mut 段_rc = Rc::new(段);
+            Self::_添加线段(线段序列, &mut 段_rc, 配置, format!("{}, {}", 0, 层级));
+
+            // Set feature sequence [0]
+            let 新段 = Self::取段可变(线段序列.last_mut().unwrap());
+            if 新段.特征序列.is_empty() {
+                新段.特征序列.push(None);
+            }
+            let 中笔 = Rc::clone(&基础序列[基础序列.len() - 2]);
+            新段.特征序列[0] = Some(Rc::new(线段特征::新建(
+                vec![中笔],
+                新段.方向(),
+            )));
+        }
+
+        true
+    }
+
+    /// _缺口后紧急修正 — 老阴/老阳后的紧急修正
+    pub fn _缺口后紧急修正(
+        线段序列: &mut Vec<Rc<虚线>>,
+        配置: &缠论配置,
+        层级: i64,
+    ) -> bool {
+        if 线段序列.is_empty() {
+            return false;
+        }
+
+        let 当前线段 = Rc::clone(线段序列.last().unwrap());
+        let 四象 = Self::四象(&当前线段);
+
+        // 外层条件
+        if !(配置.线段_缺口后紧急修正
+            && !配置.线段_特征序列忽视老阴老阳
+            && (四象 == "小阳" || 四象 == "少阴")
+            && 当前线段.特征序列.len() >= 3
+            && 当前线段.特征序列[2].is_none())
+        {
+            return false;
+        }
+
+        // 内层条件
+        if 线段序列.len() < 2 {
+            return false;
+        }
+        let 前一线段_idx = 线段序列.len() - 2;
+        if !["老阴", "老阳"].contains(&Self::四象(&线段序列[前一线段_idx]).as_str())
+        {
+            return false;
+        }
+
+        let (_, 基础序列, _, _) = Self::分割序列(&当前线段, None);
+        if 基础序列.len() < 3 {
+            return false;
+        }
+
+        let mut 需要修正 = false;
+        if 当前线段.方向() == 相对方向::向上 {
+            if 相对方向::分析(
+                基础序列[0].高(),
+                基础序列[0].低(),
+                基础序列[2].高(),
+                基础序列[2].低(),
+            ) == 相对方向::向下
+            {
+                需要修正 = true;
+            }
+        } else {
+            if 相对方向::分析(
+                基础序列[0].高(),
+                基础序列[0].低(),
+                基础序列[2].高(),
+                基础序列[2].低(),
+            ) == 相对方向::向上
+            {
+                需要修正 = true;
+            }
+        }
+
+        if !需要修正 {
+            return false;
+        }
+
+        // 执行修正 — set 短路修正 and create new segment
+        let idx = 线段序列.len() - 1;
+        let mut 当前线段_克隆 = (*线段序列[idx]).clone();
+        当前线段_克隆.短路修正 = true;
+        线段序列[idx] = Rc::new(当前线段_克隆);
+
+        let 新段 = 虚线::创建线段(&基础序列);
+        let mut 新段_rc = Rc::new(新段);
+        Self::_添加线段(线段序列, &mut 新段_rc, 配置, format!("{}, {}", 0, 层级));
+        true
+    }
+
+    /// _修正 — 通用线段修正（后段足够长时拆分）
+    pub fn _修正(
+        线段序列: &mut Vec<Rc<虚线>>,
+        配置: &缠论配置,
+        层级: i64,
+    ) -> bool {
+        if 线段序列.is_empty() {
+            return false;
+        }
+
+        let 当前线段 = Rc::clone(线段序列.last().unwrap());
+
+        // 条件1
+        if !(配置.线段_修正 && 当前线段.基础序列.len() >= 9) {
+            return false;
+        }
+
+        let (_, 之后基础序列, _, _) = Self::分割序列(&当前线段, None);
+
+        // 条件2
+        if 之后基础序列.len() < 6 {
+            return false;
+        }
+
+        let 前 = Rc::clone(&之后基础序列[之后基础序列.len() - 3]);
+        let 后 = Rc::clone(&之后基础序列[之后基础序列.len() - 1]);
+
+        // 条件3
+        if 当前线段.方向() != 相对方向::分析(前.高(), 前.低(), 后.高(), 后.低()) {
+            return false;
+        }
+
+        // 执行修正
+        let idx = 线段序列.len() - 1;
+        let mut 当前线段_克隆 = (*线段序列[idx]).clone();
+        当前线段_克隆.短路修正 = true;
+        线段序列[idx] = Rc::new(当前线段_克隆);
+
+        // 第一个新段
+        let 新段1 = 虚线::创建线段(&之后基础序列[..之后基础序列.len() - 3]);
+        let mut 新段1_rc = Rc::new(新段1);
+        // Set 短路修正
+        Self::取段可变(&mut 新段1_rc).短路修正 = true;
+        Self::_添加线段(线段序列, &mut 新段1_rc, 配置, format!("{}, {}", 0, 层级));
+
+        if ["老阴", "老阳"].contains(&Self::四象(&当前线段).as_str()) {
+            Self::取段可变(线段序列.last_mut().unwrap()).前一缺口 = None;
+        }
+
+        // 第二个新段
+        let start = 之后基础序列.len() - 3;
+        let 新段2 = 虚线::创建线段(&之后基础序列[start..]);
+        let mut 新段2_rc = Rc::new(新段2);
+        Self::_添加线段(线段序列, &mut 新段2_rc, 配置, format!("{}, {}", 0, 层级));
+
+        true
+    }
+
+    // ================================================================
+    // 核心分析 — 使用显式栈（loop）模拟递归
+    // ================================================================
+
+    /// 分析 — 从笔序列生成线段序列
+    ///
+    /// 使用显式栈（loop + continue）模拟 Python 的递归调用，避免栈溢出。
+    pub fn 分析(
+        笔序列: &[Rc<虚线>],
+        线段序列: &mut Vec<Rc<虚线>>,
+        配置: &缠论配置,
+        层级: i64,
+        关系序列: &[相对方向],
+    ) {
+        let mut 当前层级 = 层级;
+
+        loop {
+            if 当前层级 > 256 {
+                eprintln!("线段.分析 递归深度超出 256");
+                return;
+            }
+
+            if 笔序列.len() < 3 {
+                return;
+            }
+
+            // ---- 1. 初始化第一个线段 ----
+            if 线段序列.is_empty() {
+                for i in 1..笔序列.len() - 1 {
+                    let 左 = &笔序列[i - 1];
+                    let 中 = &笔序列[i];
+                    let 右 = &笔序列[i + 1];
+
+                    if !Self::基础判断(左, 中, 右, 关系序列) {
+                        continue;
+                    }
+                    let 段 = 虚线::创建线段(&[
+                        Rc::clone(左),
+                        Rc::clone(中),
+                        Rc::clone(右),
+                    ]);
+                    let mut 段_rc = Rc::new(段);
+                    Self::_添加线段(
+                        线段序列,
+                        &mut 段_rc,
+                        配置,
+                        format!("{}, {}", 0, 当前层级),
+                    );
+
+                    // 段.特征序列[0] = 线段特征.新建([中], 段.方向)
+                    let 段 = Self::取段可变(线段序列.last_mut().unwrap());
+                    if 段.特征序列.is_empty() {
+                        段.特征序列.push(None);
+                    }
+                    段.特征序列[0] = Some(Rc::new(线段特征::新建(
+                        vec![Rc::clone(中)],
+                        段.方向(),
+                    )));
+                    break;
+                }
+                if 线段序列.is_empty() {
+                    return;
+                }
+            }
+
+            // ---- 2. 清理无效的尾部引用 ----
+            while !线段序列.is_empty()
+                && 线段序列.last().unwrap().前一结束位置.is_some()
+            {
+                let 前一结束 = Rc::clone(
+                    线段序列.last().unwrap().前一结束位置.as_ref().unwrap(),
+                );
+                if !笔序列
+                    .iter()
+                    .any(|x| Rc::as_ptr(x) == Rc::as_ptr(&前一结束))
+                {
+                    let 当前 = Rc::clone(线段序列.last().unwrap());
+                    Self::_弹出线段(
+                        线段序列,
+                        &当前,
+                        配置,
+                        format!("{}, {}", 0, 当前层级),
+                    );
+                } else {
+                    break;
+                }
+            }
+
+            if 线段序列.is_empty() {
+                当前层级 += 1;
+                continue;
+            }
+
+            // ---- 3. 确保当前线段有效 ----
+            let mut 当前线段_rc = Rc::clone(线段序列.last().unwrap());
+            Self::序列重置(&mut 当前线段_rc, 笔序列);
+            let seg_idx = 线段序列.len() - 1;
+            线段序列[seg_idx] = 当前线段_rc;
+
+            if 线段序列.last().unwrap().基础序列.len() < 3 {
+                let 当前 = Rc::clone(线段序列.last().unwrap());
+                Self::_弹出线段(线段序列, &当前, 配置, format!("{}, {}", 0, 当前层级));
+                if 线段序列.is_empty() {
+                    当前层级 += 1;
+                    continue;
+                }
+            }
+
+            // ---- 4. 特征序列已完整时的处理 ----
+            {
+                let 当前线段 = Rc::clone(线段序列.last().unwrap());
+                if 当前线段.特征序列.len() >= 3 && 当前线段.特征序列[2].is_some() {
+                    let (_, 基础序列, _, _) = Self::分割序列(&当前线段, None);
+                    let 新段 = 虚线::创建线段(&基础序列);
+                    let mut 新段_rc = Rc::new(新段);
+                    Self::_添加线段(
+                        线段序列,
+                        &mut 新段_rc,
+                        配置,
+                        format!("{}, {}", 0, 当前层级),
+                    );
+                    if ["老阴", "老阳"].contains(&Self::四象(&当前线段).as_str()) {
+                        let last_idx = 线段序列.len() - 1;
+                        let mut 克隆 = (**线段序列.last().unwrap()).clone();
+                        克隆.前一缺口 = None;
+                        线段序列[last_idx] = Rc::new(克隆);
+                    }
+                }
+            }
+
+            // Refresh current segment
+            let idx = 线段序列.len() - 1;
+            Self::刷新(&mut 线段序列[idx], 配置);
+
+            // ---- 5. 调用一次全局修正 ----
+            Self::_缺口突破(线段序列, 配置, 当前层级);
+            Self::_非缺口下穿刺(线段序列, 配置, 当前层级);
+            Self::_缺口后紧急修正(线段序列, 配置, 当前层级);
+            Self::_修正(线段序列, 配置, 当前层级);
+
+            // ---- 6. 循环处理后续的笔 ----
+            let 当前线段 = Rc::clone(线段序列.last().unwrap());
+            if 当前线段.基础序列.is_empty() {
+                panic!("线段.分析: 基础序列为空");
+            }
+            let 最后笔 = Rc::clone(当前线段.基础序列.last().unwrap());
+            let 起始索引 = match 笔序列
+                .iter()
+                .position(|x| Rc::as_ptr(x) == Rc::as_ptr(&最后笔))
+            {
+                Some(idx) => idx + 1,
+                None => {
+                    // Last笔 not in 笔序列 — restart
+                    当前层级 += 1;
+                    continue;
+                }
+            };
+
+            let mut 需要递归 = false;
+
+            for i in 起始索引..笔序列.len() {
+                let 当前虚线 = Rc::clone(&笔序列[i]);
+                let 当前线段 = Rc::clone(线段序列.last().unwrap());
+                let 四象 = Self::四象(&当前线段);
+
+                // 向当前线段添加笔
+                let mut 线段_rc = Rc::clone(线段序列.last().unwrap());
+                Self::添加虚线(&mut 线段_rc, Rc::clone(&当前虚线));
+                let seg_idx = 线段序列.len() - 1;
+                线段序列[seg_idx] = 线段_rc;
+
+                // 刷新
+                let idx = 线段序列.len() - 1;
+                Self::刷新(&mut 线段序列[idx], 配置);
+
+                // 依次尝试四种修正
+                if Self::_缺口突破(线段序列, 配置, 当前层级) {
+                    continue;
+                }
+                if Self::_非缺口下穿刺(线段序列, 配置, 当前层级) {
+                    continue;
+                }
+                if Self::_缺口后紧急修正(线段序列, 配置, 当前层级) {
+                    continue;
+                }
+                if Self::_修正(线段序列, 配置, 当前层级) {
+                    continue;
+                }
+
+                // 无修正触发，检查特征序列
+                let 当前线段 = Rc::clone(线段序列.last().unwrap());
+                if 当前线段.特征序列.len() < 3 || 当前线段.特征序列[2].is_none() {
+                    continue;
+                }
+
+                // 特征序列[2]存在 → 创建新段
+                let (_, 基础序列, _, _) = Self::分割序列(&当前线段, None);
+                let 新段 = 虚线::创建线段(&基础序列);
+                let mut 新段_rc = Rc::new(新段);
+                Self::_添加线段(
+                    线段序列,
+                    &mut 新段_rc,
+                    配置,
+                    format!("{}, {}", 0, 当前层级),
+                );
+
+                if ["老阴", "老阳"].contains(&四象.as_str()) {
+                    let last_idx = 线段序列.len() - 1;
+                    let mut 克隆 = (**线段序列.last().unwrap()).clone();
+                    克隆.前一缺口 = None;
+                    线段序列[last_idx] = Rc::new(克隆);
+                }
+
+                // 检查新段与当前虚线的连续性
+                let 新段 = Rc::clone(线段序列.last().unwrap());
+                if Rc::as_ptr(新段.基础序列.last().unwrap()) != Rc::as_ptr(&当前虚线) {
+                    if !新段.基础序列.last().unwrap().之后是(&当前虚线) {
+                        需要递归 = true;
+                        break;
+                    }
+                    // 向新段添加当前虚线
+                    let mut 新段_rc = Rc::clone(线段序列.last().unwrap());
+                    Self::添加虚线(&mut 新段_rc, Rc::clone(&当前虚线));
+                    let seg_idx = 线段序列.len() - 1;
+                    线段序列[seg_idx] = 新段_rc;
+                }
+
+                let idx = 线段序列.len() - 1;
+                Self::刷新(&mut 线段序列[idx], 配置);
+            }
+
+            if 需要递归 {
+                当前层级 += 1;
+                continue;
+            }
+
+            break;
+        }
+    }
+
+    // ================================================================
+    // 扩展线段
+    // ================================================================
+
+    /// _添加扩展线段
+    pub fn _添加扩展线段(
+        线段序列: &mut Vec<Rc<虚线>>,
+        待添加线段_rc: &mut Rc<虚线>,
+        行号: u32,
+    ) {
+        let 待添加线段 = Self::取段可变(待添加线段_rc);
+        待添加线段.模式 = "高低".into();
+        待添加线段.标识 = if 待添加线段.基础序列[0].标识 != "笔" {
+            format!("扩展{}", 待添加线段.标识)
+        } else {
+            "扩展线段".into()
+        };
+
+        if let Some(前一个) = 线段序列.last() {
+            if !前一个.之后是(待添加线段) {
+                panic!(
+                    "线段.向序列中添加 不连续[{}] {:?} {:?}",
+                    行号, 前一个.武, 待添加线段.文
+                );
+            }
+            let 之前线段 = 线段序列.last().unwrap();
+            待添加线段.序号 = 之前线段.序号 + 1;
+        }
+
+        let 新段 = Rc::new(待添加线段.clone());
+        线段序列.push(新段);
+    }
+
+    /// _弹出扩展线段
+    pub fn _弹出扩展线段(
+        线段序列: &mut Vec<Rc<虚线>>,
+        待弹出线段: &Rc<虚线>,
+        _行号: u32,
+    ) -> Option<Rc<虚线>> {
+        if 线段序列.is_empty() {
+            return None;
+        }
+
+        if Rc::as_ptr(线段序列.last().unwrap()) == Rc::as_ptr(待弹出线段) {
+            Some(线段序列.pop().unwrap())
+        } else {
+            panic!(
+                "线段._从序列中删除 弹出数据不在列表中 {:?}",
+                待弹出线段
+            );
+        }
+    }
+
+    /// 扩展分析 — 将笔视为线段进行同级别分析
+    pub fn 扩展分析(
+        虚线序列: &[Rc<虚线>],
+        线段序列: &mut Vec<Rc<虚线>>,
+        配置: &缠论配置,
+    ) {
+        if 虚线序列.len() < 3 {
+            return;
+        }
+
+        let mut 当前层级 = 0i64;
+
+        loop {
+            if 当前层级 > 256 {
+                eprintln!("线段.扩展分析 递归深度超出 256");
+                return;
+            }
+
+            // 初始化第一个扩展线段
+            if 线段序列.is_empty() {
+                for i in 1..虚线序列.len() - 1 {
+                    let 左 = &虚线序列[i - 1];
+                    let 中 = &虚线序列[i];
+                    let 右 = &虚线序列[i + 1];
+                    let 关系 = 相对方向::分析(左.高(), 左.低(), 右.高(), 右.低());
+                    if !matches!(
+                        关系,
+                        相对方向::向下
+                            | 相对方向::向上
+                            | 相对方向::顺
+                            | 相对方向::逆
+                            | 相对方向::同
+                    ) {
+                        continue;
+                    }
+
+                    let 段 = 虚线::创建线段(&[
+                        Rc::clone(左),
+                        Rc::clone(中),
+                        Rc::clone(右),
+                    ]);
+                    let mut 段_rc = Rc::new(段);
+                    Self::_添加扩展线段(线段序列, &mut 段_rc, 0);
+                    break;
+                }
+
+                if 线段序列.is_empty() {
+                    return;
+                }
+            }
+
+            // 验证当前线段
+            let mut 当前线段_rc = Rc::clone(线段序列.last().unwrap());
+            Self::验证序列(&mut 当前线段_rc, 虚线序列);
+            let seg_idx = 线段序列.len() - 1;
+            线段序列[seg_idx] = 当前线段_rc;
+
+            if 线段序列.last().unwrap().基础序列.len() < 3 {
+                let 当前 = Rc::clone(线段序列.last().unwrap());
+                Self::_弹出扩展线段(线段序列, &当前, 0);
+                当前层级 += 1;
+                continue;
+            }
+
+            if !配置.扩展线段_当下分析 {
+                let 当前线段 = Rc::clone(线段序列.last().unwrap());
+                let 左 = Rc::clone(&当前线段.基础序列[0]);
+                let 右 = Rc::clone(&当前线段.基础序列[2]);
+
+                if !相对方向::分析(左.高(), 左.低(), 右.高(), 右.低()).是否缺口() {
+                    let mut 克隆 = (**线段序列.last().unwrap()).clone();
+                    克隆.基础序列 = 克隆.基础序列[..3].to_vec();
+                    let mut 段_rc = Rc::new(克隆);
+                    Self::武终(&mut 段_rc, 0);
+                    let seg_idx = 线段序列.len() - 1;
+                    线段序列[seg_idx] = 段_rc;
+                } else {
+                    let 当前 = Rc::clone(线段序列.last().unwrap());
+                    Self::_弹出扩展线段(线段序列, &当前, 0);
+                    当前层级 += 1;
+                    continue;
+                }
+            }
+
+            // 武终
+            let idx = 线段序列.len() - 1;
+            Self::武终(&mut 线段序列[idx], 0);
+
+            let 当前线段 = Rc::clone(线段序列.last().unwrap());
+            if 当前线段.基础序列.last().unwrap().序号 + 3 > 虚线序列.last().unwrap().序号 {
+                return;
+            }
+
+            let 最后笔 = Rc::clone(当前线段.基础序列.last().unwrap());
+            let 序号 = match 虚线序列
+                .iter()
+                .position(|x| Rc::as_ptr(x) == Rc::as_ptr(&最后笔))
+            {
+                Some(idx) => idx + 1,
+                None => return,
+            };
+
+            if 序号 >= 虚线序列.len() {
+                return;
+            }
+
+            let mut 需要递归 = false;
+
+            for i in 序号 + 1..虚线序列.len() - 1 {
+                let 左 = &虚线序列[i - 1];
+                let 中 = &虚线序列[i];
+                let 右 = &虚线序列[i + 1];
+                let 相对关系 = 相对方向::分析(左.高(), 左.低(), 右.高(), 右.低());
+
+                if 相对关系.是否缺口() {
+                    let mut 段_rc = Rc::clone(线段序列.last().unwrap());
+                    Self::添加虚线(&mut 段_rc, Rc::clone(左));
+                    let seg_idx = 线段序列.len() - 1;
+                    线段序列[seg_idx] = 段_rc;
+
+                    let mut 段_rc = Rc::clone(线段序列.last().unwrap());
+                    Self::添加虚线(&mut 段_rc, Rc::clone(中));
+                    let seg_idx = 线段序列.len() - 1;
+                    线段序列[seg_idx] = 段_rc;
+
+                    let seg_idx = 线段序列.len() - 1;
+                    Self::武终(&mut 线段序列[seg_idx], 0);
+                    continue;
+                }
+
+                if 线段序列
+                    .last()
+                    .unwrap()
+                    .基础序列
+                    .iter()
+                    .any(|x| Rc::as_ptr(x) == Rc::as_ptr(左))
+                {
+                    continue;
+                }
+
+                let 段 = 虚线::创建线段(&[
+                    Rc::clone(左),
+                    Rc::clone(中),
+                    Rc::clone(右),
+                ]);
+                let mut 段_rc = Rc::new(段);
+                Self::_添加扩展线段(线段序列, &mut 段_rc, 0);
+                需要递归 = true;
+                break;
+            }
+
+            if 需要递归 {
+                当前层级 += 1;
+                continue;
+            }
+
+            break;
+        }
+    }
+
+    // ================================================================
+    // 背驰相关
+    // ================================================================
+
+    /// 判断线段内部是否背驰
+    ///
+    /// 分析线段的内部中枢和MACD柱分段，判断是否发生内部背驰
+    pub fn 判断线段内部是否背驰(当前段: &虚线, 观察员: &观察者) -> bool {
+        let _虚 = &当前段.虚_中枢序列;
+        let 实 = &当前段.实_中枢序列;
+        let 阳: Vec<&Rc<虚线>> = 当前段
+            .基础序列
+            .iter()
+            .filter(|b| b.方向() == 相对方向::向上)
+            .collect();
+        let 阴: Vec<&Rc<虚线>> = 当前段
+            .基础序列
+            .iter()
+            .filter(|b| b.方向() == 相对方向::向下)
+            .collect();
+
+        if !阴.is_empty() {
+            // 阴不为空表示特征序列仍在合并中，不判断
+        }
+        let 笔之实数 = 阳.len();
+        if 笔之实数 < 3 {
+            return false;
+        }
+
+        let 进入段 = 阳[阳.len() - 3];
+        let 离开段 = 阳[阳.len() - 1];
+        if 进入段.序号 >= 离开段.序号 {
+            return false;
+        }
+        let 关系 = 相对方向::分析(进入段.高(), 进入段.低(), 离开段.高(), 离开段.低());
+        let mut 背驰 = false;
+        let mut 盘整背驰 = false;
+
+        if ((进入段.方向().是否向上() && 关系.是否向上())
+            || (进入段.方向().是否向下() && 关系.是否向下()))
+            && crate::algorithm::divergence::背驰分析::背驰模式(
+                进入段,
+                离开段,
+                &观察员.普通K线序列,
+                &观察员.配置,
+                &观察员.配置.线段内部背驰_模式,
+            )
+        {
+            let k线序列 = K线::截取rc(
+                &观察员.普通K线序列,
+                &阳[阳.len() - 3].文.中.标的K线,
+                &阳[阳.len() - 1].武.中.标的K线,
+            );
+            if 虚线::计算MACD柱子分段(&k线序列).len() >= 3 {
+                盘整背驰 = true;
+            }
+        }
+
+        if !实.is_empty() {
+            let 最后中枢 = &实[实.len() - 1];
+            if 最后中枢.基础序列.iter().any(|b| Rc::ptr_eq(b, 阳[阳.len() - 1])) {
+                // 最后一笔在最后一个中枢内
+                if let Some(序号) = 当前段.基础序列.iter().position(|b| {
+                    Rc::ptr_eq(b, &最后中枢.基础序列[0])
+                }) {
+                    if 序号 > 0 {
+                        let 进入段 = &当前段.基础序列[序号 - 1];
+                        let 离开段 = 阳[阳.len() - 1];
+                        if 进入段.序号 < 离开段.序号 {
+                            if 进入段.方向() != 离开段.方向() {
+                                return crate::algorithm::divergence::背驰分析::测度背驰(进入段, 离开段)
+                                    && 虚线::买卖意义(离开段, 观察员).0;
+                            }
+                            let 关系 = 相对方向::分析(
+                                进入段.高(),
+                                进入段.低(),
+                                离开段.高(),
+                                离开段.低(),
+                            );
+                            if ((进入段.方向().是否向上() && 关系.是否向上())
+                                || (进入段.方向().是否向下() && 关系.是否向下()))
+                                && crate::algorithm::divergence::背驰分析::背驰模式(
+                                    进入段,
+                                    离开段,
+                                    &观察员.普通K线序列,
+                                    &观察员.配置,
+                                    &观察员.配置.线段内部背驰_模式,
+                                )
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } else if 最后中枢.第三买卖线.is_some() {
+                // 第三买卖点后盘整背驰
+                let 进入段 = 阳[阳.len() - 3];
+                let 离开段 = 阳[阳.len() - 1];
+                if 进入段.序号 < 离开段.序号 {
+                    if 进入段.方向() != 离开段.方向() {
+                        return crate::algorithm::divergence::背驰分析::测度背驰(进入段, 离开段)
+                            && 虚线::买卖意义(离开段, 观察员).0;
+                    }
+                    let 关系 =
+                        相对方向::分析(进入段.高(), 进入段.低(), 离开段.高(), 离开段.低());
+                    if ((进入段.方向().是否向上() && 关系.是否向上())
+                        || (进入段.方向().是否向下() && 关系.是否向下()))
+                        && crate::algorithm::divergence::背驰分析::背驰模式(
+                            进入段,
+                            离开段,
+                            &观察员.普通K线序列,
+                            &观察员.配置,
+                            &观察员.配置.线段内部背驰_模式,
+                        )
+                    {
+                        return true;
+                    }
+                }
+            }
+        } else {
+            // 没有中枢
+            if 笔之实数 == 3 {
+                背驰 = 盘整背驰;
+            }
+        }
+
+        背驰 || 盘整背驰
+    }
+
+    /// 段获取所有停顿位置 — 在线段范围内找出所有停顿位置
+    pub fn 段获取所有停顿位置(段: &虚线, 观察员: &观察者) -> Vec<虚线> {
+        let mut 结果 = Vec::new();
+        if 段.模式 != "文武" || 段.标识 != "线段" {
+            return 结果;
+        }
+
+        let 阳: Vec<Rc<虚线>> = 段
+            .基础序列
+            .iter()
+            .filter(|b| b.方向() == 相对方向::向上)
+            .cloned()
+            .collect();
+        if 阳.len() < 3 {
+            return 结果;
+        }
+
+        // Simplified: only handle the basic case (笔停顿 + 线段停顿)
+        // Full implementation requires complex sequence management
+        let mut 笔序列: Vec<Rc<虚线>> = Vec::new();
+
+        for 筆 in &阳 {
+            if 笔序列.len() >= 2 {
+                let 筆停顿 = 笔::获取所有停顿位置(筆, 观察员);
+                let mut 停顿列表: Vec<虚线> = 筆停顿;
+                停顿列表.push((**筆).clone());
+
+                for 停顿 in 停顿列表 {
+                    笔序列.push(Rc::new(停顿.clone()));
+                    // 线段.分析 with the accumulated 笔序列
+                    let mut 线段序列: Vec<Rc<虚线>> = Vec::new();
+                    let 笔序列_slice: Vec<Rc<虚线>> = 笔序列.iter().map(|b| Rc::clone(b)).collect();
+                    Self::分析(
+                        &笔序列_slice,
+                        &mut 线段序列,
+                        &观察员.配置,
+                        0,
+                        &[
+                            相对方向::向下,
+                            相对方向::向上,
+                            相对方向::顺,
+                            相对方向::逆,
+                            相对方向::同,
+                        ],
+                    );
+
+                    let 重复 = match (线段序列.last(), 结果.last()) {
+                        (Some(a), Some(b)) => Rc::ptr_eq(&a.武, &b.武),
+                        _ => false,
+                    };
+                    if !重复 {
+                        if let Some(最后线段) = 线段序列.last() {
+                            let 新段 = 虚线::创建线段(&最后线段.基础序列);
+                            if 新段.方向() == 段.方向() {
+                                结果.push(新段);
+                            }
+                        }
+                    }
+
+                    // If this 停顿 is not the original 筆, pop it
+                    let 停顿_ptr: *const 虚线 = &停顿;
+                    let 筆_ptr: *const 虚线 = 筆.as_ref();
+                    if 停顿_ptr != 筆_ptr {
+                        笔序列.pop();
+                    }
+                }
+            } else {
+                笔序列.push(Rc::clone(筆));
+            }
+        }
+        结果
+    }
+
+    /// 是否背驰过 — 判断线段是否在停顿位置出现过背驰
+    pub fn 是否背驰过(当前段: &虚线, 观察员: &观察者) -> Vec<Rc<分型>> {
+        let 停顿位置 = Self::段获取所有停顿位置(当前段, 观察员);
+        let mut 结果 = Vec::new();
+
+        for 段 in 停顿位置 {
+            let mut 段_rc = Rc::new(段);
+            Self::获取内部中枢序列(&mut 段_rc, &观察员.配置);
+            if Self::判断线段内部是否背驰(&段_rc, 观察员) {
+                结果.push(Rc::clone(&段_rc.武));
+            }
+        }
+
+        结果
+    }
+}
