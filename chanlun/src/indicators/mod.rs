@@ -1,9 +1,9 @@
-pub mod macd;
 pub mod kdj;
+pub mod macd;
 pub mod rsi;
 
-pub use macd::平滑异同移动平均线;
 pub use kdj::随机指标;
+pub use macd::平滑异同移动平均线;
 pub use rsi::相对强弱指数;
 
 /// K线取值 —— 根据计算方式从K线提取对应的价格

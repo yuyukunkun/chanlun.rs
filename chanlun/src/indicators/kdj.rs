@@ -87,7 +87,13 @@ impl 随机指标 {
     }
 
     /// 基于前一个 KDJ 增量计算当前 KDJ
-    pub fn 增量计算(前一个KDJ: &Self, 当前最高价: f64, 当前最低价: f64, 当前收盘价: f64, 当前时间: i64) -> Self {
+    pub fn 增量计算(
+        前一个KDJ: &Self,
+        当前最高价: f64,
+        当前最低价: f64,
+        当前收盘价: f64,
+        当前时间: i64,
+    ) -> Self {
         let N = 前一个KDJ.N;
         let M1 = 前一个KDJ.M1;
         let M2 = 前一个KDJ.M2;

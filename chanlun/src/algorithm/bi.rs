@@ -12,7 +12,11 @@ pub struct 笔;
 
 impl 笔 {
     /// 获取可成笔的缠K数量（考虑弱化模式）
-    pub fn 获取缠K数量(缠K序列: &[Rc<缠论K线>], 笔序列: &[Rc<虚线>], 配置: &缠论配置) -> usize {
+    pub fn 获取缠K数量(
+        缠K序列: &[Rc<缠论K线>],
+        笔序列: &[Rc<虚线>],
+        配置: &缠论配置,
+    ) -> usize {
         let 实际数量 = 缠K序列.len();
         if 实际数量 >= 配置.笔内元素数量 as usize {
             return 实际数量;
@@ -31,13 +35,19 @@ impl 笔 {
 
             if !笔序列.is_empty() {
                 // Try both high and low points (Python: 根据缠K找笔(笔序列, 实际高点) or 根据缠K找笔(笔序列, 实际低点))
-                let 筆 = 实际高点.as_ref()
+                let 筆 = 实际高点
+                    .as_ref()
                     .and_then(|h| Self::根据缠K找笔(笔序列, h, 1))
-                    .or_else(|| 实际低点.as_ref().and_then(|l| Self::根据缠K找笔(笔序列, l, 1)));
+                    .or_else(|| {
+                        实际低点
+                            .as_ref()
+                            .and_then(|l| Self::根据缠K找笔(笔序列, l, 1))
+                    });
 
                 if let Some(ref 筆) = 筆 {
                     if let (Some(ref 高_k), Some(ref 低_k)) = (&实际高点, &实际低点) {
-                        let 原始数量 = 1 + (低_k.标的K线.序号 - 高_k.标的K线.序号).unsigned_abs() as usize;
+                        let 原始数量 =
+                            1 + (低_k.标的K线.序号 - 高_k.标的K线.序号).unsigned_abs() as usize;
                         // 向上笔
                         if 筆.方向().是否向上() && 低_k.低 < 筆.低() {
                             if 原始数量 >= 配置.笔弱化_原始数量 as usize {
@@ -62,15 +72,25 @@ impl 笔 {
         if 缠K序列.len() < 2 {
             return 缠K序列.first().cloned();
         }
-        let max_高 = 缠K序列.iter().map(|k| k.高).fold(f64::NEG_INFINITY, f64::max);
+        let max_高 = 缠K序列
+            .iter()
+            .map(|k| k.高)
+            .fold(f64::NEG_INFINITY, f64::max);
         // 排除最高值
         let filtered: Vec<&Rc<缠论K线>> = 缠K序列.iter().filter(|k| k.高 != max_高).collect();
         if filtered.is_empty() {
             return 缠K序列.first().cloned();
         }
         // 筛选次高值
-        let second_高 = filtered.iter().map(|k| k.高).fold(f64::NEG_INFINITY, f64::max);
-        let mut candidates: Vec<&Rc<缠论K线>> = filtered.iter().filter(|k| k.高 == second_高).copied().collect();
+        let second_高 = filtered
+            .iter()
+            .map(|k| k.高)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let mut candidates: Vec<&Rc<缠论K线>> = filtered
+            .iter()
+            .filter(|k| k.高 == second_高)
+            .copied()
+            .collect();
         // 按时间戳排序
         candidates.sort_by(|a, b| a.时间戳.cmp(&b.时间戳));
         if 取舍 {
@@ -93,7 +113,11 @@ impl 笔 {
         }
         // 筛选次低值
         let second_低 = filtered.iter().map(|k| k.低).fold(f64::INFINITY, f64::min);
-        let mut candidates: Vec<&Rc<缠论K线>> = filtered.iter().filter(|k| k.低 == second_低).copied().collect();
+        let mut candidates: Vec<&Rc<缠论K线>> = filtered
+            .iter()
+            .filter(|k| k.低 == second_低)
+            .copied()
+            .collect();
         // 按时间戳排序
         candidates.sort_by(|a, b| a.时间戳.cmp(&b.时间戳));
         if 取舍 {
@@ -108,7 +132,10 @@ impl 笔 {
         if 缠K序列.is_empty() {
             return None;
         }
-        let max_高 = 缠K序列.iter().map(|k| k.高).fold(f64::NEG_INFINITY, f64::max);
+        let max_高 = 缠K序列
+            .iter()
+            .map(|k| k.高)
+            .fold(f64::NEG_INFINITY, f64::max);
         let mut candidates: Vec<&Rc<缠论K线>> = 缠K序列.iter().filter(|k| k.高 == max_高).collect();
         if candidates.is_empty() {
             return Some(Rc::clone(&缠K序列[0]));
@@ -142,30 +169,84 @@ impl 笔 {
     }
 
     /// 判断笔的相对关系是否合理
-    pub fn 相对关系(筆: &虚线, _配置: &缠论配置) -> bool {
-        let 文 = &筆.文;
-        let 武 = &筆.武;
+    pub fn 相对关系(筆: &虚线, 配置: &缠论配置) -> bool {
+        let 文分型 = &筆.文;
+        let 武分型 = &筆.武;
 
-        // 向上笔：文(底)低 → 武(顶)高
-        if 筆.方向().是否向上() {
-            return 武.分型特征值 > 文.分型特征值;
+        let 相对关系 = if 配置.笔内起始分型包含整笔 {
+            let 文中_rc = Rc::clone(&文分型.中);
+            let 武中_rc = Rc::clone(&武分型.中);
+            let 文_元素: [Option<&Rc<缠论K线>>; 3] =
+                [文分型.左.as_ref(), Some(&文中_rc), 文分型.右.as_ref()];
+            let 有效序列: Vec<&Rc<缠论K线>> = 文_元素.iter().filter_map(|x| *x).collect();
+            let 文高 = 有效序列
+                .iter()
+                .map(|k| k.高)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let 文低 = 有效序列.iter().map(|k| k.低).fold(f64::INFINITY, f64::min);
+
+            let 武_右: Option<&Rc<缠论K线>> = if 配置.笔内起始分型包含整笔_包括右 {
+                武分型.右.as_ref()
+            } else {
+                None
+            };
+            let 武_元素: [Option<&Rc<缠论K线>>; 3] = [武分型.左.as_ref(), Some(&武中_rc), 武_右];
+            let 有效序列: Vec<&Rc<缠论K线>> = 武_元素.iter().filter_map(|x| *x).collect();
+            let 武高 = 有效序列
+                .iter()
+                .map(|k| k.高)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let 武低 = 有效序列.iter().map(|k| k.低).fold(f64::INFINITY, f64::min);
+
+            crate::types::相对方向::分析(文高, 文低, 武高, 武低)
+        } else {
+            let 相对关系 = crate::types::相对方向::分析(
+                文分型.中.高,
+                文分型.中.低,
+                武分型.中.高,
+                武分型.中.低,
+            );
+            if 配置.笔内原始K线包含整笔 {
+                let 文标的 = &文分型.中.标的K线;
+                let 武标的 = &武分型.中.标的K线;
+                if crate::types::相对方向::分析(文标的.高, 文标的.低, 武标的.高, 武标的.低)
+                    .是否包含()
+                {
+                    return false;
+                }
+            }
+            相对关系
+        };
+
+        if 筆.方向() == crate::types::相对方向::向下 {
+            return 相对关系.是否向下();
         }
-        // 向下笔：文(顶)高 → 武(底)低
-        武.分型特征值 < 文.分型特征值
+        相对关系.是否向上()
     }
 
     /// 以文会友 — 根据起点分型找笔
     pub fn 以文会友(笔序列: &[Rc<虚线>], 文: &Rc<分型>) -> Option<Rc<虚线>> {
-        笔序列.iter().find(|b| Rc::as_ptr(&b.文) == Rc::as_ptr(文)).cloned()
+        笔序列
+            .iter()
+            .find(|b| Rc::as_ptr(&b.文) == Rc::as_ptr(文))
+            .cloned()
     }
 
     /// 以武会友 — 根据终点分型找笔
     pub fn 以武会友(笔序列: &[Rc<虚线>], 武: &Rc<分型>) -> Option<Rc<虚线>> {
-        笔序列.iter().find(|b| Rc::as_ptr(&b.武) == Rc::as_ptr(武)).cloned()
+        笔序列
+            .iter()
+            .rev()
+            .find(|b| Rc::as_ptr(&b.武) == Rc::as_ptr(武))
+            .cloned()
     }
 
     /// 根据缠K找对应的笔
-    pub fn 根据缠K找笔(笔序列: &[Rc<虚线>], 缠K: &Rc<缠论K线>, 偏移: i64) -> Option<Rc<虚线>> {
+    pub fn 根据缠K找笔(
+        笔序列: &[Rc<虚线>],
+        缠K: &Rc<缠论K线>,
+        偏移: i64,
+    ) -> Option<Rc<虚线>> {
         // Python iterates in reverse: for 筆 in 笔序列[::-1]
         for b in 笔序列.iter().rev() {
             // Python: 筆.文.中.序号 - 偏移 <= 缠K.序号 <= 筆.武.中.序号
@@ -282,7 +363,8 @@ impl 笔 {
             let 之前分型 = Rc::clone(分型序列.last().unwrap());
 
             // Python line 2338: 时序检查 — skip out-of-order fractals
-            if 之前分型.时间戳 > 当前分型.时间戳 && 之前分型.中.序号 - 当前分型.中.序号 > 1 {
+            if 之前分型.时间戳 > 当前分型.时间戳 && 之前分型.中.序号 - 当前分型.中.序号 > 1
+            {
                 continue;
             }
 
@@ -310,8 +392,12 @@ impl 笔 {
 
             // Python line 2350: 分型结构相反 → 可能成笔
             if 之前分型.结构 != 当前分型.结构 {
-                let 文_idx = 缠K序列.iter().position(|k| Rc::as_ptr(k) == Rc::as_ptr(&之前分型.中));
-                let 武_idx = 缠K序列.iter().position(|k| Rc::as_ptr(k) == Rc::as_ptr(&当前分型.中));
+                let 文_idx = 缠K序列
+                    .iter()
+                    .position(|k| Rc::as_ptr(k) == Rc::as_ptr(&之前分型.中));
+                let 武_idx = 缠K序列
+                    .iter()
+                    .position(|k| Rc::as_ptr(k) == Rc::as_ptr(&当前分型.中));
 
                 if let (Some(文_idx), Some(武_idx)) = (文_idx, 武_idx) {
                     let 基础序列 = &缠K序列[文_idx..=武_idx];
@@ -339,7 +425,9 @@ impl 笔 {
 
                         // Python line 2369-2372: 武将
                         let 武将 = match 当前分型.结构 {
-                            分型结构::底 => Self::实际低点(基础序列, 配置.笔内相同终点取舍),
+                            分型结构::底 => {
+                                Self::实际低点(基础序列, 配置.笔内相同终点取舍)
+                            }
                             _ => Self::实际高点(基础序列, 配置.笔内相同终点取舍),
                         };
 
@@ -377,7 +465,9 @@ impl 笔 {
                     } else {
                         // Python line 2388-2390: 元素不足 → 右元素扩展
                         if let Some(ref 右) = 当前分型.右 {
-                            if let Some(临时分型) = 分型::从缠K序列中获取分型(缠K序列, 右) {
+                            if let Some(临时分型) =
+                                分型::从缠K序列中获取分型(缠K序列, 右)
+                            {
                                 栈.push(栈项::分型(Rc::new(临时分型), 递归层次 + 1));
                                 continue;
                             }
@@ -398,8 +488,7 @@ impl 笔 {
                     let 被替换分型 = Rc::clone(&之前分型);
                     Self::弹出旧笔(分型序列, 笔序列);
 
-                    if let Some(k线序列) =
-                        缠论K线::截取(缠K序列, &被替换分型.中, &当前分型.中)
+                    if let Some(k线序列) = 缠论K线::截取(缠K序列, &被替换分型.中, &当前分型.中)
                     {
                         let 武将 = match 被替换分型.结构 {
                             分型结构::顶 => {
@@ -490,7 +579,8 @@ impl 笔 {
 
         // Python line 2337-2341: 时序检查
         let 之前分型 = Rc::clone(分型序列.last().unwrap());
-        if 之前分型.时间戳 > 当前分型.时间戳 && 之前分型.中.序号 - 当前分型.中.序号 > 1 {
+        if 之前分型.时间戳 > 当前分型.时间戳 && 之前分型.中.序号 - 当前分型.中.序号 > 1
+        {
             println!("时序错误-{}, {}, {}", 递归层次, 之前分型, 当前分型);
             return 递归层次;
         }
@@ -509,7 +599,13 @@ impl 笔 {
                 if 破位 {
                     Self::弹出旧笔(分型序列, 笔序列);
                     return Self::分析递归(
-                        当前分型, 分型序列, 笔序列, 缠K序列, _普K序列, 递归层次 + 1, 配置,
+                        当前分型,
+                        分型序列,
+                        笔序列,
+                        缠K序列,
+                        _普K序列,
+                        递归层次 + 1,
+                        配置,
                     );
                 }
             }
@@ -518,7 +614,8 @@ impl 笔 {
         // Python line 2350: 分型结构相反 → 可能成笔
         let 之前分型 = Rc::clone(分型序列.last().unwrap());
         if 之前分型.结构 != 当前分型.结构 {
-            if let Some(基础序列) = 缠论K线::截取(缠K序列, &之前分型.中, &当前分型.中) {
+            if let Some(基础序列) = 缠论K线::截取(缠K序列, &之前分型.中, &当前分型.中)
+            {
                 let 当前笔 = Rc::new(虚线::创建笔(
                     Rc::clone(&之前分型),
                     Rc::clone(&当前分型),
@@ -549,7 +646,11 @@ impl 笔 {
                                     配置,
                                 );
                                 return Self::分析递归(
-                                    当前分型, 分型序列, 笔序列, 缠K序列, _普K序列,
+                                    当前分型,
+                                    分型序列,
+                                    笔序列,
+                                    缠K序列,
+                                    _普K序列,
                                     递归层次 + 1,
                                     配置,
                                 );
@@ -559,9 +660,7 @@ impl 笔 {
 
                     // Python line 2369-2375: 武将 and笔形成
                     let 武将 = match 当前分型.结构 {
-                        分型结构::底 => {
-                            Self::实际低点(&基础序列, 配置.笔内相同终点取舍)
-                        }
+                        分型结构::底 => Self::实际低点(&基础序列, 配置.笔内相同终点取舍),
                         _ => Self::实际高点(&基础序列, 配置.笔内相同终点取舍),
                     };
 
@@ -578,9 +677,7 @@ impl 笔 {
                     // Python line 2378-2385: 笔次级成笔
                     if 配置.笔次级成笔 {
                         let 武将 = match 当前分型.结构 {
-                            分型结构::底 => {
-                                Self::次低(&基础序列, 配置.笔内相同终点取舍)
-                            }
+                            分型结构::底 => Self::次低(&基础序列, 配置.笔内相同终点取舍),
                             _ => Self::次高(&基础序列, 配置.笔内相同终点取舍),
                         };
                         if let Some(ref 武将_k) = 武将 {
@@ -595,8 +692,7 @@ impl 笔 {
                 } else {
                     // Python line 2388-2390: 元素不足 → 右元素扩展
                     if let Some(ref 右) = 当前分型.右 {
-                        if let Some(临时分型) =
-                            分型::从缠K序列中获取分型(缠K序列, 右)
+                        if let Some(临时分型) = 分型::从缠K序列中获取分型(缠K序列, 右)
                         {
                             return Self::分析递归(
                                 Rc::new(临时分型),
@@ -626,13 +722,10 @@ impl 笔 {
                 let 被替换分型 = Rc::clone(&之前分型);
                 Self::弹出旧笔(分型序列, 笔序列);
 
-                if let Some(k线序列) =
-                    缠论K线::截取(缠K序列, &被替换分型.中, &当前分型.中)
+                if let Some(k线序列) = 缠论K线::截取(缠K序列, &被替换分型.中, &当前分型.中)
                 {
                     let 武将 = match 被替换分型.结构 {
-                        分型结构::顶 => {
-                            Self::实际低点(&k线序列, 配置.笔内相同终点取舍)
-                        }
+                        分型结构::顶 => Self::实际低点(&k线序列, 配置.笔内相同终点取舍),
                         _ => Self::实际高点(&k线序列, 配置.笔内相同终点取舍),
                     };
 
@@ -667,10 +760,11 @@ impl 笔 {
                                                 || ck.分型 == Some(分型结构::顶)
                                             {
                                                 if let Some(错过分型) =
-                                                    分型::从缠K序列中获取分型(缠K序列, ck)
+                                                    分型::从缠K序列中获取分型(
+                                                        缠K序列, ck,
+                                                    )
                                                 {
-                                                    let 错过分型_rc =
-                                                        Rc::new(错过分型);
+                                                    let 错过分型_rc = Rc::new(错过分型);
                                                     递归层次 = Self::分析递归(
                                                         Rc::clone(&错过分型_rc),
                                                         分型序列,
@@ -687,7 +781,11 @@ impl 笔 {
                                 }
 
                                 return Self::分析递归(
-                                    当前分型, 分型序列, 笔序列, 缠K序列, _普K序列,
+                                    当前分型,
+                                    分型序列,
+                                    笔序列,
+                                    缠K序列,
+                                    _普K序列,
                                     递归层次 + 1,
                                     配置,
                                 );
@@ -700,7 +798,13 @@ impl 笔 {
                     分型::向序列中添加(分型序列, 当前分型);
                 } else {
                     return Self::分析递归(
-                        当前分型, 分型序列, 笔序列, 缠K序列, _普K序列, 递归层次 + 1, 配置,
+                        当前分型,
+                        分型序列,
+                        笔序列,
+                        缠K序列,
+                        _普K序列,
+                        递归层次 + 1,
+                        配置,
                     );
                 }
             }
@@ -714,20 +818,17 @@ impl 笔 {
         分型序列: &mut Vec<Rc<分型>>,
         笔序列: &mut Vec<Rc<虚线>>,
         新分型: Rc<分型>,
-        新笔: Rc<虚线>,
+        mut 新笔: Rc<虚线>,
     ) {
         分型序列.push(新分型);
-        let 序号 = if 笔序列.is_empty() {
-            0
-        } else {
-            笔序列.last().unwrap().序号 + 1
-        };
-        let mut 虚线笔 = (*新笔).clone();
-        虚线笔.序号 = 序号;
-        if 虚线笔.武.左.is_none() && 虚线笔.武.右.is_none() {
-            虚线笔.有效性 = false;
+        if !笔序列.is_empty() {
+            let seg = Rc::make_mut(&mut 新笔);
+            seg.序号 = 笔序列.last().unwrap().序号 + 1;
+            if seg.武.左.is_none() && seg.武.右.is_none() {
+                seg.有效性 = false;
+            }
         }
-        笔序列.push(Rc::new(虚线笔));
+        笔序列.push(新笔);
     }
 
     /// 自检 — 验证笔的有效性（文为实际高/低点，武为实际低/高点）
@@ -735,13 +836,15 @@ impl 笔 {
         let 笔序列 = &观察员.笔序列;
         let 配置 = &观察员.配置;
         let 基础序列 = 筆.获取缠K序列(&观察员.缠论K线序列);
-        if Self::获取缠K数量(&基础序列, 笔序列, 配置) >= 配置.笔内元素数量 as usize {
+        if Self::获取缠K数量(&基础序列, 笔序列, 配置) >= 配置.笔内元素数量 as usize
+        {
             if 筆.方向() == 相对方向::向下 {
                 if let (Some(实际高), Some(实际低)) = (
                     Self::实际高点(&基础序列, false),
                     Self::实际低点(&基础序列, 配置.笔内相同终点取舍),
                 ) {
-                    if Rc::ptr_eq(&筆.文.中, &实际高) && Rc::ptr_eq(&筆.武.中, &实际低) {
+                    if Rc::ptr_eq(&筆.文.中, &实际高) && Rc::ptr_eq(&筆.武.中, &实际低)
+                    {
                         return true;
                     }
                 }
@@ -751,7 +854,8 @@ impl 笔 {
                     Self::实际低点(&基础序列, false),
                     Self::实际高点(&基础序列, 配置.笔内相同终点取舍),
                 ) {
-                    if Rc::ptr_eq(&筆.文.中, &实际低) && Rc::ptr_eq(&筆.武.中, &实际高) {
+                    if Rc::ptr_eq(&筆.文.中, &实际低) && Rc::ptr_eq(&筆.武.中, &实际高)
+                    {
                         return true;
                     }
                 }

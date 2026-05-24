@@ -35,7 +35,10 @@ impl 中枢 {
     pub fn 图表标题(&self) -> String {
         format!(
             "{}:{}:{}:{}",
-            self.文().中.标识, self.文().中.周期, self.标识, self.序号
+            self.文().中.标识,
+            self.文().中.周期,
+            self.标识,
+            self.序号
         )
     }
 
@@ -91,6 +94,15 @@ impl 中枢 {
         self.第三买卖线 = Some(线);
     }
 
+    /// 获取序列 — 基础序列 + 第三买卖线（若有）
+    pub fn 获取序列(&self) -> Vec<Rc<虚线>> {
+        let mut 序列: Vec<Rc<虚线>> = self.基础序列.clone();
+        if let Some(ref 三买) = self.第三买卖线 {
+            序列.push(Rc::clone(三买));
+        }
+        序列
+    }
+
     pub fn 获取数据文本(&self) -> String {
         let 第三买卖线_str = match &self.第三买卖线 {
             Some(x) => format!("{}", x),
@@ -115,22 +127,156 @@ impl 中枢 {
     }
 
     /// 校验中枢合法性
-    pub fn 校验合法性(&self, 虚线序列: &[Rc<虚线>], _中枢序列: &[Rc<中枢>]) -> bool {
-        // 1. 检查基础序列中的元素是否仍在虚线序列中
+    pub fn 校验合法性(&mut self, 序列: &[Rc<虚线>]) -> bool {
+        let mut 有效序列 = self.基础序列.clone();
+        let mut 无效序列: Vec<Rc<虚线>> = Vec::new();
         for 元素 in &self.基础序列 {
-            if !虚线序列.iter().any(|x| Rc::as_ptr(x) == Rc::as_ptr(元素)) {
+            if !序列.iter().any(|x| Rc::as_ptr(x) == Rc::as_ptr(元素)) {
+                无效序列.push(Rc::clone(元素));
+            }
+        }
+
+        if !无效序列.is_empty() {
+            let 无效 = &无效序列[0];
+            if let Some(pos) = self
+                .基础序列
+                .iter()
+                .position(|x| Rc::as_ptr(x) == Rc::as_ptr(无效))
+            {
+                有效序列 = self.基础序列[..pos].to_vec();
+            }
+        }
+
+        if 有效序列.len() < 3 {
+            self.第三买卖线 = None;
+            self.本级_第三买卖线 = None;
+            return false;
+        }
+
+        self.基础序列 = 有效序列;
+
+        let 中枢高 = self.高();
+        let 中枢低 = self.低();
+        有效序列 = Vec::new();
+        for 元素 in &self.基础序列 {
+            if crate::types::相对方向::分析(中枢高, 中枢低, 元素.高(), 元素.低()).是否缺口()
+            {
+                break;
+            }
+            有效序列.push(Rc::clone(元素));
+        }
+        self.基础序列 = 有效序列;
+
+        if self.基础序列.len() < 3 {
+            return false;
+        }
+
+        for i in 1..self.基础序列.len() {
+            let 前 = &self.基础序列[i - 1];
+            let 后 = &self.基础序列[i];
+            if !前.之后是(后) {
                 return false;
             }
         }
-        // 2. 检查前三根重叠是否有效
-        if self.基础序列.len() >= 3 {
-            let 高 = self.高();
-            let 低 = self.低();
-            if 高 <= 低 {
+
+        if !crate::types::相对方向::分析(
+            self.基础序列[0].高(),
+            self.基础序列[0].低(),
+            self.基础序列[2].高(),
+            self.基础序列[2].低(),
+        )
+        .是否缺口()
+        {
+            let 重叠高 = self.高();
+            let 重叠低 = self.低();
+            if 重叠低 > 重叠高 {
                 return false;
+            }
+        }
+
+        if let Some(ref 三买线) = self.第三买卖线.clone() {
+            if 序列.iter().any(|x| Rc::as_ptr(x) == Rc::as_ptr(三买线)) {
+                if !self.基础序列.last().unwrap().之后是(三买线) {
+                    self.第三买卖线 = None;
+                } else if !crate::types::相对方向::分析(
+                    self.高(),
+                    self.低(),
+                    三买线.高(),
+                    三买线.低(),
+                )
+                .是否缺口()
+                {
+                    self.添加虚线(Rc::clone(三买线));
+                    self.第三买卖线 = None;
+                }
+            } else {
+                self.第三买卖线 = None;
             }
         }
         true
+    }
+
+    /// 完整性 — 详见教你炒股票43：有关背驰的补习课
+    /// 不完整时下一个中枢大概率会与当前中枢发生扩展
+    pub fn 完整性(&self, 虚实: &str) -> bool {
+        if self.基础序列[0].标识 == "笔" {
+            return self.第三买卖线.is_some();
+        }
+
+        let 线段内部中枢 = if 虚实 == "合" {
+            &self.基础序列.last().unwrap().合_中枢序列
+        } else {
+            &self.基础序列.last().unwrap().实_中枢序列
+        };
+        for 内部中枢 in 线段内部中枢 {
+            if crate::types::相对方向::分析(
+                self.高(),
+                self.低(),
+                内部中枢.高(),
+                内部中枢.低(),
+            )
+            .是否缺口()
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// 获取扩展中枢 — 当基础序列 >= 9 时生成扩展中枢
+    pub fn 获取扩展中枢(
+        &self, 扩展中枢: &mut Vec<Rc<中枢>>, 配置: &crate::config::缠论配置
+    ) {
+        if self.基础序列.len() >= 9 {
+            let mut 扩展线段: Vec<Rc<虚线>> = Vec::new();
+            crate::algorithm::segment::线段::扩展分析(&self.基础序列, &mut 扩展线段, 配置);
+            中枢::分析(
+                &扩展线段,
+                扩展中枢,
+                false,
+                &format!("{}_扩展中枢_", self.标识),
+                0,
+            );
+        }
+    }
+
+    /// 当前状态 — 详见教你炒股票49：利润率最大的操作模式
+    /// 返回当前中枢最后一段所处的位置关系：中枢之中/中枢之上/中枢之下
+    pub fn 当前状态(&self) -> &str {
+        let 最后 = self.基础序列.last().unwrap();
+        let 尾部_中 = if 最后.标识 == "笔" {
+            &最后.武.中
+        } else {
+            &最后.基础序列.last().unwrap().武.中
+        };
+        let 关系 = crate::types::相对方向::分析(self.高(), self.低(), 尾部_中.高, 尾部_中.低);
+        if 关系 == crate::types::相对方向::向上缺口 {
+            "中枢之上"
+        } else if 关系 == crate::types::相对方向::向下缺口 {
+            "中枢之下"
+        } else {
+            "中枢之中"
+        }
     }
 
     // ---- 关联函数 ----
@@ -140,22 +286,27 @@ impl 中枢 {
         if !左.之后是(中) || !中.之后是(右) {
             return false;
         }
-        let 高 = [左.高(), 中.高(), 右.高()]
-            .iter()
-            .copied()
-            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap_or(0.0);
-        let 低 = [左.低(), 中.低(), 右.低()]
-            .iter()
-            .copied()
-            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap_or(0.0);
-        高 > 低
+        let 关系 = crate::types::相对方向::分析(左.高(), 左.低(), 右.高(), 右.低());
+        matches!(
+            关系,
+            crate::types::相对方向::向下
+                | crate::types::相对方向::向上
+                | crate::types::相对方向::顺
+                | crate::types::相对方向::逆
+                | crate::types::相对方向::同
+        )
     }
 
     /// 创建中枢
-    pub fn 创建(左: Rc<虚线>, 中: Rc<虚线>, 右: Rc<虚线>, 级别: i64, 标识: &str) -> Self {
-        Self::new(0, format!("{}中枢<{}>", 标识, 中.标识), 级别, vec![左, 中, 右])
+    pub fn 创建(
+        左: Rc<虚线>, 中: Rc<虚线>, 右: Rc<虚线>, 级别: i64, 标识: &str
+    ) -> Self {
+        Self::new(
+            0,
+            format!("{}中枢<{}>", 标识, 中.标识),
+            级别,
+            vec![左, 中, 右],
+        )
     }
 
     /// 从序列中获取中枢
@@ -177,27 +328,32 @@ impl 中枢 {
     }
 
     /// 向中枢序列尾部添加
-    pub fn 向中枢序列尾部添加(中枢序列: &mut Vec<Rc<中枢>>, 待添加中枢: Rc<中枢>) {
-        // Dedup
+    pub fn 向中枢序列尾部添加(
+        中枢序列: &mut Vec<Rc<中枢>>, mut 待添加中枢: Rc<中枢>
+    ) {
         if let Some(前一个) = 中枢序列.last() {
-            if 前一个.高() == 待添加中枢.高() && 前一个.低() == 待添加中枢.低() {
-                return;
+            let 新 = Rc::make_mut(&mut 待添加中枢);
+            新.序号 = 前一个.序号 + 1;
+            // Python: assert seq[-1].获取序列()[-1].序号 <= new.获取序列()[-1].序号
+            let 前_seq = 前一个.获取序列();
+            let new_seq = 新.获取序列();
+            if let (Some(前_last), Some(new_last)) = (前_seq.last(), new_seq.last()) {
+                if 前_last.序号 > new_last.序号 {
+                    panic!(
+                        "向中枢序列尾部添加 序号错误 前last={} > new_last={}",
+                        前_last.序号, new_last.序号
+                    );
+                }
             }
         }
-        // Set序号: Python — if中枢序列: 待添加中枢.序号 = 中枢序列[-1].序号 + 1 else: stays 0
-        if let Some(前一个) = 中枢序列.last() {
-            let 新序号 = 前一个.序号 + 1;
-            // Clone to mutate since Rc is immutable
-            let mut cloned = (*待添加中枢).clone();
-            cloned.序号 = 新序号;
-            中枢序列.push(Rc::new(cloned));
-        } else {
-            中枢序列.push(待添加中枢);
-        }
+        中枢序列.push(待添加中枢);
     }
 
     /// 从中枢序列尾部弹出
-    pub fn 从中枢序列尾部弹出(中枢序列: &mut Vec<Rc<中枢>>, 待弹出: &Rc<中枢>) -> Option<Rc<中枢>> {
+    pub fn 从中枢序列尾部弹出(
+        中枢序列: &mut Vec<Rc<中枢>>,
+        待弹出: &Rc<中枢>,
+    ) -> Option<Rc<中枢>> {
         if 中枢序列.last().map(|x| Rc::as_ptr(x)) == Some(Rc::as_ptr(待弹出)) {
             中枢序列.pop()
         } else {
@@ -228,13 +384,17 @@ impl 中枢 {
 
                 if Self::基础检查(左, 中, 右) {
                     // Python: 序号 = 虚线序列.index(左)
-                    let 序号 = 虚线序列.iter().position(|x| Rc::as_ptr(x) == Rc::as_ptr(左)).unwrap_or(i - 1);
+                    let 序号 = 虚线序列
+                        .iter()
+                        .position(|x| Rc::as_ptr(x) == Rc::as_ptr(左))
+                        .unwrap_or(i - 1);
                     if 跳过首部 && (左.序号 == 0 || 序号 == 0) {
                         continue;
                     }
                     if 序号 >= 2 {
                         let 前 = &虚线序列[序号 - 2];
-                        let 同向相对关系 = crate::types::相对方向::分析(前.高(), 前.低(), 左.高(), 左.低());
+                        let 同向相对关系 =
+                            crate::types::相对方向::分析(前.高(), 前.低(), 左.高(), 左.低());
                         if 同向相对关系.是否向上() && 左.方向().是否向上() {
                             continue;
                         }
@@ -259,46 +419,58 @@ impl 中枢 {
         }
 
         // 增量更新
-        let 当前中枢_idx = 中枢序列.len() - 1;
-        let 当前中枢 = Rc::clone(&中枢序列[当前中枢_idx]);
+        let mut 当前中枢_idx = 中枢序列.len() - 1;
 
-        if !当前中枢.校验合法性(虚线序列, 中枢序列) {
+        // Validate in-place via Rc::make_mut — avoids full中枢 struct clone
+        let needs_pop = {
+            let cur = Rc::make_mut(&mut 中枢序列[当前中枢_idx]);
+            !cur.校验合法性(虚线序列)
+        };
+        if needs_pop {
+            let 当前中枢 = Rc::clone(&中枢序列[当前中枢_idx]);
             Self::从中枢序列尾部弹出(中枢序列, &当前中枢);
             Self::分析(虚线序列, 中枢序列, 跳过首部, 标识, 层级);
             return;
         }
 
         // 找到当前中枢最后一个元素在虚线序列中的位置
-        let 最后元素 = &当前中枢.基础序列[当前中枢.基础序列.len() - 1];
-        let 起始索引 = match 虚线序列
-            .iter()
-            .position(|x| Rc::as_ptr(x) == Rc::as_ptr(最后元素))
-        {
-            Some(idx) => idx + 1,
-            None => return,
+        let 起始索引 = {
+            let cur = &中枢序列[当前中枢_idx];
+            let 最后元素 = &cur.基础序列[cur.基础序列.len() - 1];
+            match 虚线序列
+                .iter()
+                .position(|x| Rc::as_ptr(x) == Rc::as_ptr(最后元素))
+            {
+                Some(idx) => idx + 1,
+                None => return,
+            }
         };
 
-        let 中枢高 = 当前中枢.高();
-        let 中枢低 = 当前中枢.低();
+        let mut 中枢高 = 中枢序列[当前中枢_idx].高();
+        let mut 中枢低 = 中枢序列[当前中枢_idx].低();
         let mut 候选序列: Vec<Rc<虚线>> = Vec::new();
-
-        let mut 新当前中枢 = (*当前中枢).clone();
 
         for i in 起始索引..虚线序列.len() {
             let 当前虚线 = Rc::clone(&虚线序列[i]);
 
             // 检查是否超出中枢范围（缺口）
-            if crate::types::相对方向::分析(中枢高, 中枢低, 当前虚线.高(), 当前虚线.低()).是否缺口() {
+            if crate::types::相对方向::分析(中枢高, 中枢低, 当前虚线.高(), 当前虚线.低()).是否缺口()
+            {
                 候选序列.push(当前虚线.clone());
 
                 // Python: if 当前中枢.基础序列[-1].之后是(当前虚线):
-                if 新当前中枢.基础序列.last().unwrap().之后是(&当前虚线) {
-                    新当前中枢.设置第三买卖线(当前虚线.clone());
+                let needs_三买 = {
+                    let cur = &中枢序列[当前中枢_idx];
+                    cur.基础序列.last().unwrap().之后是(&当前虚线)
+                };
+                if needs_三买 {
+                    Rc::make_mut(&mut 中枢序列[当前中枢_idx])
+                        .设置第三买卖线(当前虚线.clone());
                 }
             } else {
                 if 候选序列.is_empty() {
                     // 仍在范围内：延伸中枢
-                    新当前中枢.添加虚线(当前虚线);
+                    Rc::make_mut(&mut 中枢序列[当前中枢_idx]).添加虚线(当前虚线);
                 } else {
                     候选序列.push(当前虚线);
                 }
@@ -306,12 +478,20 @@ impl 中枢 {
 
             // 候选序列积满3个：尝试创建新中枢
             while 候选序列.len() >= 3 {
-                let 起始方向 = 新当前中枢.基础序列.last().unwrap().方向().翻转();
+                let 起始方向 = 中枢序列[当前中枢_idx]
+                    .基础序列
+                    .last()
+                    .unwrap()
+                    .方向()
+                    .翻转();
                 match Self::从序列中获取中枢(&候选序列, 起始方向, 标识) {
                     Some(新中枢) => {
-                        中枢序列[当前中枢_idx] = Rc::new(新当前中枢.clone());
                         Self::向中枢序列尾部添加(中枢序列, 新中枢);
-                        return;
+                        // Python: 当前中枢 = 新中枢
+                        当前中枢_idx = 中枢序列.len() - 1;
+                        中枢高 = 中枢序列[当前中枢_idx].高();
+                        中枢低 = 中枢序列[当前中枢_idx].低();
+                        候选序列.clear();
                     }
                     None => {
                         候选序列.remove(0); // 滑动窗口
@@ -319,9 +499,6 @@ impl 中枢 {
                 }
             }
         }
-
-        // 更新当前中枢
-        中枢序列[当前中枢_idx] = Rc::new(新当前中枢);
     }
 }
 

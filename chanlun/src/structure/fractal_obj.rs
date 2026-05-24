@@ -15,7 +15,9 @@ pub struct 分型 {
 }
 
 impl 分型 {
-    pub fn new(左: Option<Rc<缠论K线>>, 中: Rc<缠论K线>, 右: Option<Rc<缠论K线>>) -> Self {
+    pub fn new(
+        左: Option<Rc<缠论K线>>, 中: Rc<缠论K线>, 右: Option<Rc<缠论K线>>
+    ) -> Self {
         let 结构 = 中.分型.unwrap_or(分型结构::散);
         let 时间戳 = 中.时间戳;
         let 分型特征值 = 中.分型特征值;
@@ -40,59 +42,93 @@ impl 分型 {
         ))
     }
 
-    /// 分型强度
-    pub fn 强度(&self) -> f64 {
-        match self.结构 {
-            分型结构::顶 | 分型结构::上 => {
-                if let Some(ref 左) = self.左 {
-                    self.中.高 - 左.高
-                } else {
-                    0.0
-                }
-            }
-            分型结构::底 | 分型结构::下 => {
-                if let Some(ref 左) = self.左 {
-                    左.低 - self.中.低
-                } else {
-                    0.0
-                }
-            }
-            分型结构::散 => 0.0,
+    /// 分型强度 — 返回 "强"/"中"/"弱"/"未知"
+    pub fn 强度(&self) -> &str {
+        if self.结构 != 分型结构::底 && self.结构 != 分型结构::顶 {
+            return "未知";
         }
+        if self.右.is_none() || self.左.is_none() {
+            return "未知";
+        }
+
+        if let Some(ref 关系组) = self.关系组() {
+            if self.结构 == 分型结构::底 {
+                if 关系组.2.是否向下() {
+                    return "弱";
+                } else if 关系组.2.是否向上() {
+                    return "强";
+                } else {
+                    return "中";
+                }
+            } else if self.结构 == 分型结构::顶 {
+                if 关系组.2.是否向上() {
+                    return "弱";
+                } else if 关系组.2.是否向下() {
+                    return "强";
+                } else {
+                    return "中";
+                }
+            }
+        }
+
+        if let (Some(ref 左), Some(ref 右)) = (&self.左, &self.右) {
+            if self.结构 == 分型结构::底 {
+                if 右.标的K线.收盘价 > 左.标的K线.高 {
+                    return "强";
+                } else if 右.标的K线.收盘价 > self.中.标的K线.高 {
+                    return "中";
+                } else {
+                    return "弱";
+                }
+            } else if self.结构 == 分型结构::顶 {
+                if 右.标的K线.收盘价 < 左.标的K线.低 {
+                    return "强";
+                } else if 右.标的K线.收盘价 < self.中.标的K线.低 {
+                    return "中";
+                } else {
+                    return "弱";
+                }
+            }
+        }
+        "未知"
     }
 
-    /// MACD柱子分型匹配
+    /// MACD柱子分型匹配 — 检查左中右MACD柱形成顶/底形态
     pub fn 与MACD柱子分型匹配(&self) -> bool {
-        match self.结构 {
-            分型结构::顶 | 分型结构::上 => {
-                if let Some(ref 左) = self.左 {
-                    左.与MACD柱子匹配()
-                } else {
-                    false
+        if let (Some(ref 左), Some(ref 右)) = (&self.左, &self.右) {
+            if self.结构 == 分型结构::底 {
+                if let (Some(ref 左macd), Some(ref 中macd), Some(ref 右macd)) =
+                    (&左.标的K线.macd, &self.中.标的K线.macd, &右.标的K线.macd)
+                {
+                    return 左macd.MACD柱 > 中macd.MACD柱 && 中macd.MACD柱 < 右macd.MACD柱;
                 }
             }
-            分型结构::底 | 分型结构::下 => {
-                if let Some(ref 右) = self.右 {
-                    右.与MACD柱子匹配()
-                } else {
-                    false
+            if self.结构 == 分型结构::顶 {
+                if let (Some(ref 左macd), Some(ref 中macd), Some(ref 右macd)) =
+                    (&左.标的K线.macd, &self.中.标的K线.macd, &右.标的K线.macd)
+                {
+                    return 左macd.MACD柱 < 中macd.MACD柱 && 中macd.MACD柱 > 右macd.MACD柱;
                 }
             }
-            分型结构::散 => false,
         }
+        false
     }
 
     /// 判断两个分型是否匹配
-    pub fn 判断分型(左: &分型, 右: &分型, 模式: &str) -> bool {
+    pub fn 判断分型(左: &Rc<分型>, 右: &Rc<分型>, 模式: &str) -> bool {
         match 模式 {
-            "中" => 左.中.序号 == 右.中.序号,
+            "中" => Rc::as_ptr(左) == Rc::as_ptr(右),
             _ => false,
         }
     }
 
     /// 从缠K序列中获取以指定缠K为中元素的分型
-    pub fn 从缠K序列中获取分型(K线序列: &[Rc<缠论K线>], 中: &Rc<缠论K线>) -> Option<Self> {
-        let idx = K线序列.iter().position(|k| Rc::as_ptr(k) == Rc::as_ptr(中))?;
+    pub fn 从缠K序列中获取分型(
+        K线序列: &[Rc<缠论K线>], 中: &Rc<缠论K线>
+    ) -> Option<Self> {
+        let idx = K线序列
+            .iter()
+            .position(|k| Rc::as_ptr(k) == Rc::as_ptr(中))?;
         let 左 = if idx > 0 {
             Some(Rc::clone(&K线序列[idx - 1]))
         } else {
@@ -108,41 +144,18 @@ impl 分型 {
 
     /// 向分型序列中添加新分型
     pub fn 向序列中添加(分型序列: &mut Vec<Rc<分型>>, 当前分型: Rc<分型>) {
-        if let Some(前一个) = 分型序列.last() {
-            if 前一个.时间戳 == 当前分型.时间戳 {
-                // 同一时间戳: 比较强度，保留更强的
-                match 当前分型.结构 {
-                    分型结构::顶 | 分型结构::上 => {
-                        if 当前分型.分型特征值 >= 前一个.分型特征值 {
-                            分型序列.pop();
-                            分型序列.push(当前分型);
-                        }
-                        return;
-                    }
-                    分型结构::底 | 分型结构::下 => {
-                        if 当前分型.分型特征值 <= 前一个.分型特征值 {
-                            分型序列.pop();
-                            分型序列.push(当前分型);
-                        }
-                        return;
-                    }
-                    分型结构::散 => {}
-                }
+        if 分型序列.is_empty() {
+            if 当前分型.结构 != 分型结构::顶 && 当前分型.结构 != 分型结构::底
+            {
+                panic!("首次添加分型不为 顶底 {:?}", 当前分型);
             }
-            // 相同结构只保留更强的
+        } else {
+            let 前一个 = &分型序列[分型序列.len() - 1];
             if 前一个.结构 == 当前分型.结构 {
-                if (当前分型.结构 == 分型结构::顶 || 当前分型.结构 == 分型结构::上)
-                    && 当前分型.分型特征值 >= 前一个.分型特征值
-                {
-                    分型序列.pop();
-                    分型序列.push(当前分型);
-                } else if (当前分型.结构 == 分型结构::底 || 当前分型.结构 == 分型结构::下)
-                    && 当前分型.分型特征值 <= 前一个.分型特征值
-                {
-                    分型序列.pop();
-                    分型序列.push(当前分型);
-                }
-                return;
+                panic!("分型相同无法添加 {:?} {:?}", 前一个, 当前分型);
+            }
+            if 前一个.右.is_none() {
+                eprintln!("分型.向序列中添加, 分型异常 {:?}", 前一个);
             }
         }
         分型序列.push(当前分型);

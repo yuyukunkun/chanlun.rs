@@ -4,7 +4,11 @@ pub fn format_f64_g(value: f64) -> String {
         return "nan".to_string();
     }
     if value.is_infinite() {
-        return if value > 0.0 { "inf".to_string() } else { "-inf".to_string() };
+        return if value > 0.0 {
+            "inf".to_string()
+        } else {
+            "-inf".to_string()
+        };
     }
 
     // Use high precision then trim trailing zeros

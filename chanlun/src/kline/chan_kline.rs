@@ -1,5 +1,7 @@
 use crate::config::缠论配置;
-use crate::indicators::{K线取值, 平滑异同移动平均线, 随机指标, 相对强弱指数};
+use crate::indicators::{
+    平滑异同移动平均线, 相对强弱指数, 随机指标, K线取值
+};
 use crate::kline::bar::K线;
 use crate::structure::fractal_obj::分型;
 use crate::types::分型结构;
@@ -142,12 +144,14 @@ impl 缠论K线 {
         if let Some(基) = 基线.first() {
             for k in 基线.iter().rev() {
                 if 基.周期 < k线.周期 {
-                    if k线.时间戳 <= k.时间戳 && k.时间戳 <= k线.时间戳 + k线.周期 {
+                    if k线.时间戳 <= k.时间戳 && k.时间戳 <= k线.时间戳 + k线.周期
+                    {
                         if (k线.分型特征值 - k.分型特征值).abs() < f64::EPSILON {
                             return k.时间戳;
                         }
                     }
-                } else if k.时间戳 <= k线.时间戳 && k线.时间戳 <= k.时间戳 + k.周期 {
+                } else if k.时间戳 <= k线.时间戳 && k线.时间戳 <= k.时间戳 + k.周期
+                {
                     if (k线.分型特征值 - k.分型特征值).abs() < f64::EPSILON {
                         return k.时间戳;
                     }
@@ -207,7 +211,7 @@ impl 缠论K线 {
     /// 返回 (新缠K, 模式) — 模式: "添加"/"替换"/None
     pub fn 兼并(
         之前缠K: Option<&缠论K线>,
-        当前缠K: &缠论K线,
+        当前缠K: &mut 缠论K线,
         当前普K: &K线,
         配置: &缠论配置,
     ) -> (Option<Rc<缠论K线>>, Option<String>) {
@@ -234,40 +238,50 @@ impl 缠论K线 {
             return (Some(Rc::new(新缠K)), Some("添加".into()));
         }
 
-        // 包含关系 — 合并到当前缠K
-        // 取值方向：向下 → 取低低、高高（即全部取最低）；向上 → 取高高、低低（即全部取最高）
-        // 方向由之前缠K与当前缠K的关系决定
+        // 重复提交检测 — 当序号相同时认为是重复提交K线
+        if 当前普K.序号 == 当前缠K.原始结束序号 {
+            return (None, None);
+        }
+
+        // 序号连续性检查
+        if 当前普K.序号 - 1 != 当前缠K.原始结束序号 && 当前普K.序号 != 当前缠K.原始结束序号
+        {
+            panic!(
+                "兼并: 不可追加不连续元素 缠K.原始结束序号: {}, 当前普K.序号: {}",
+                当前缠K.原始结束序号, 当前普K.序号
+            );
+        }
+
+        // 包含关系 — 原地合并到当前缠K
         let 取值函数: fn(f64, f64) -> f64 = if let Some(之前) = 之前缠K {
-            if 相对方向::分析(之前.高, 之前.低, 当前缠K.高, 当前缠K.低).是否向下() {
+            if 相对方向::分析(之前.高, 之前.低, 当前缠K.高, 当前缠K.低).是否向下()
+            {
                 f64::min
             } else {
                 f64::max
             }
         } else {
-            f64::max // 默认向上取max
+            f64::max
         };
-
-        let mut 合并后 = 当前缠K.镜像();
 
         // 逆序包含时更新时间和标的K线
         if 关系 != 相对方向::顺 {
-            合并后.时间戳 = 当前普K.时间戳;
-            合并后.标的K线 = Rc::new(当前普K.clone());
+            当前缠K.时间戳 = 当前普K.时间戳;
+            当前缠K.标的K线 = Rc::new(当前普K.clone());
         }
-        合并后.高 = 取值函数(合并后.高, 当前普K.高);
-        合并后.低 = 取值函数(合并后.低, 当前普K.低);
-        合并后.原始结束序号 = 当前普K.序号;
-        合并后.方向 = 当前普K.方向();
+        当前缠K.高 = 取值函数(当前缠K.高, 当前普K.高);
+        当前缠K.低 = 取值函数(当前缠K.低, 当前普K.低);
+        当前缠K.原始结束序号 = 当前普K.序号;
+        当前缠K.方向 = 当前普K.方向();
 
         if let Some(之前) = 之前缠K {
-            合并后.序号 = 之前.序号 + 1;
+            当前缠K.序号 = 之前.序号 + 1;
         }
 
         if 配置.缠K合并替换 {
-            (Some(Rc::new(合并后)), Some("替换".into()))
+            (Some(Rc::new(当前缠K.镜像())), Some("替换".into()))
         } else {
-            // 兼并：返回新值让调用方决定是原地修改还是替换
-            (Some(Rc::new(合并后)), Some("兼并".into()))
+            (None, None)
         }
     }
 
@@ -275,7 +289,7 @@ impl 缠论K线 {
     ///
     /// 返回 (状态, 形态)
     pub fn 分析(
-        当前K线: &mut K线,
+        mut 当前K线: K线,
         缠K序列: &mut Vec<Rc<缠论K线>>,
         普K序列: &mut Vec<Rc<K线>>,
         配置: &缠论配置,
@@ -286,14 +300,26 @@ impl 缠论K线 {
         if 普K序列.is_empty() {
             if 配置.计算指标 {
                 当前K线.macd = Some(平滑异同移动平均线::首次计算(
-                    K线取值(当前K线.开盘价, 当前K线.高, 当前K线.低, 当前K线.收盘价, &配置.指标计算方式),
+                    K线取值(
+                        当前K线.开盘价,
+                        当前K线.高,
+                        当前K线.低,
+                        当前K线.收盘价,
+                        &配置.指标计算方式,
+                    ),
                     当前K线.时间戳,
                     配置.平滑异同移动平均线_快线周期,
                     配置.平滑异同移动平均线_慢线周期,
                     配置.平滑异同移动平均线_信号周期,
                 ));
                 当前K线.rsi = Some(相对强弱指数::首次计算(
-                    K线取值(当前K线.开盘价, 当前K线.高, 当前K线.低, 当前K线.收盘价, &配置.指标计算方式),
+                    K线取值(
+                        当前K线.开盘价,
+                        当前K线.高,
+                        当前K线.低,
+                        当前K线.收盘价,
+                        &配置.指标计算方式,
+                    ),
                     当前K线.时间戳,
                     配置.相对强弱指数_周期,
                     配置.相对强弱指数_超买阈值,
@@ -312,7 +338,7 @@ impl 缠论K线 {
                     配置.随机指标_超卖阈值,
                 ));
             }
-            let 当前K线_rc = Rc::new(当前K线.clone());
+            let 当前K线_rc = Rc::new(当前K线);
             普K序列.push(当前K线_rc);
         } else {
             let 之前普K = 普K序列.last().unwrap();
@@ -324,14 +350,26 @@ impl 缠论K线 {
                         if let Some(ref prev_macd) = 普K序列[普K序列.len() - 2].macd {
                             当前K线.macd = Some(平滑异同移动平均线::增量计算(
                                 prev_macd,
-                                K线取值(当前K线.开盘价, 当前K线.高, 当前K线.低, 当前K线.收盘价, &配置.指标计算方式),
+                                K线取值(
+                                    当前K线.开盘价,
+                                    当前K线.高,
+                                    当前K线.低,
+                                    当前K线.收盘价,
+                                    &配置.指标计算方式,
+                                ),
                                 当前K线.时间戳,
                             ));
                         }
                         if let Some(ref prev_rsi) = 普K序列[普K序列.len() - 2].rsi {
                             当前K线.rsi = Some(相对强弱指数::增量计算(
                                 prev_rsi,
-                                K线取值(当前K线.开盘价, 当前K线.高, 当前K线.低, 当前K线.收盘价, &配置.指标计算方式),
+                                K线取值(
+                                    当前K线.开盘价,
+                                    当前K线.高,
+                                    当前K线.低,
+                                    当前K线.收盘价,
+                                    &配置.指标计算方式,
+                                ),
                                 当前K线.时间戳,
                             ));
                         }
@@ -347,7 +385,7 @@ impl 缠论K线 {
                     }
                 }
                 普K序列.pop();
-                普K序列.push(Rc::new(当前K线.clone()));
+                普K序列.push(Rc::new(当前K线));
             } else {
                 if 之前普K.时间戳 > 当前K线.时间戳 {
                     panic!("时序错误: 之前={}, 当前={}", 之前普K.时间戳, 当前K线.时间戳);
@@ -357,14 +395,26 @@ impl 缠论K线 {
                     if let Some(ref prev_macd) = 之前普K.macd {
                         当前K线.macd = Some(平滑异同移动平均线::增量计算(
                             prev_macd,
-                            K线取值(当前K线.开盘价, 当前K线.高, 当前K线.低, 当前K线.收盘价, &配置.指标计算方式),
+                            K线取值(
+                                当前K线.开盘价,
+                                当前K线.高,
+                                当前K线.低,
+                                当前K线.收盘价,
+                                &配置.指标计算方式,
+                            ),
                             当前K线.时间戳,
                         ));
                     }
                     if let Some(ref prev_rsi) = 之前普K.rsi {
                         当前K线.rsi = Some(相对强弱指数::增量计算(
                             prev_rsi,
-                            K线取值(当前K线.开盘价, 当前K线.高, 当前K线.低, 当前K线.收盘价, &配置.指标计算方式),
+                            K线取值(
+                                当前K线.开盘价,
+                                当前K线.高,
+                                当前K线.低,
+                                当前K线.收盘价,
+                                &配置.指标计算方式,
+                            ),
                             当前K线.时间戳,
                         ));
                     }
@@ -378,67 +428,48 @@ impl 缠论K线 {
                         ));
                     }
                 }
-                普K序列.push(Rc::new(当前K线.clone()));
+                普K序列.push(Rc::new(当前K线));
             }
         }
 
         // ---- 阶段2: 缠K合并 ----
-        let 之前缠K: Option<&缠论K线> = if 缠K序列.len() >= 2 {
-            Some(&缠K序列[缠K序列.len() - 2])
-        } else {
-            None
-        };
-
         let 状态: String;
+        let 当前K线_ref: &K线 = &*普K序列.last().unwrap();
+
         if !缠K序列.is_empty() {
-            let 最后一个缠K = &缠K序列[缠K序列.len() - 1];
-            // 需要从 Rc 中取出引用
-            let 最后一个缠K_ref = Rc::as_ref(最后一个缠K);
-            let (新缠K, 模式) = Self::兼并(之前缠K, 最后一个缠K_ref, 当前K线, 配置);
+            let len = 缠K序列.len();
+            let (左边, 右边) = 缠K序列.split_at_mut(len - 1);
+            let 之前缠K: Option<&缠论K线> = 左边.last().map(|rc| Rc::as_ref(rc));
+            let 最后一个缠K_mut = Rc::make_mut(&mut 右边[0]);
+            let (新缠K, 模式) = Self::兼并(之前缠K, 最后一个缠K_mut, 当前K线_ref, 配置);
 
             if let Some(k) = 新缠K {
-                if let Some(ref m) = 模式 {
-                    if m == "添加" {
+                match 模式.as_deref() {
+                    Some("添加") => {
                         缠K序列.push(k);
                         状态 = "创建".into();
-                    } else if m == "替换" {
+                    }
+                    Some("替换") => {
                         缠K序列.pop();
                         缠K序列.push(k);
                         状态 = "替换".into();
-                    } else {
-                        // 兼并：尝试原地修改以保持Rc指针不变
-                        let 最后_idx = 缠K序列.len() - 1;
-                        if let Some(原地) = Rc::get_mut(&mut 缠K序列[最后_idx]) {
-                            原地.高 = k.高;
-                            原地.低 = k.低;
-                            原地.时间戳 = k.时间戳;
-                            原地.方向 = k.方向;
-                            原地.原始结束序号 = k.原始结束序号;
-                            原地.标的K线 = k.标的K线.clone();
-                            原地.序号 = k.序号;
-                            状态 = "兼并".into();
-                        } else {
-                            // 有其他引用时回退到替换
-                            缠K序列.pop();
-                            缠K序列.push(k);
-                            状态 = "兼并".into();
-                        }
                     }
-                } else {
-                    状态 = "兼并".into();
+                    _ => {
+                        状态 = "兼并".into();
+                    }
                 }
             } else {
                 状态 = "兼并".into();
             }
         } else {
             let 新缠K = Self::创建缠K(
-                当前K线.时间戳,
-                当前K线.高,
-                当前K线.低,
-                当前K线.方向(),
+                当前K线_ref.时间戳,
+                当前K线_ref.高,
+                当前K线_ref.低,
+                当前K线_ref.方向(),
                 None,
-                当前K线.序号,
-                Rc::new(当前K线.clone()),
+                当前K线_ref.序号,
+                Rc::clone(普K序列.last().unwrap()),
                 None,
             );
             缠K序列.push(Rc::new(新缠K));
@@ -511,10 +542,10 @@ impl 缠论K线 {
             }
 
             let 形态 = if matches!(结构, 分型结构::上 | 分型结构::下) {
-                // 三连方向不算完整分型 — 只有中+右
+                // Python: 形态 = 分型(中, 右, None) — 左=中K线, 中=右K线, 右=None
                 Rc::new(分型::new(
-                    None,
-                    Rc::clone(&缠K序列[idx - 2]),
+                    Some(Rc::clone(&缠K序列[idx - 2])),
+                    Rc::clone(&缠K序列[idx - 1]),
                     None,
                 ))
             } else {
@@ -532,9 +563,15 @@ impl 缠论K线 {
     }
 
     /// 截取缠K序列从始到终
-    pub fn 截取(序列: &[Rc<缠论K线>], 始: &缠论K线, 终: &缠论K线) -> Option<Vec<Rc<缠论K线>>> {
-        let 始_idx = 序列.iter().position(|k| Rc::as_ptr(k) == (始 as *const _))?;
-        let 终_idx = 序列.iter().position(|k| Rc::as_ptr(k) == (终 as *const _))?;
+    pub fn 截取(
+        序列: &[Rc<缠论K线>], 始: &缠论K线, 终: &缠论K线
+    ) -> Option<Vec<Rc<缠论K线>>> {
+        let 始_idx = 序列
+            .iter()
+            .position(|k| Rc::as_ptr(k) == (始 as *const _))?;
+        let 终_idx = 序列
+            .iter()
+            .position(|k| Rc::as_ptr(k) == (终 as *const _))?;
         Some(序列[始_idx..=终_idx].to_vec())
     }
 }
@@ -569,11 +606,11 @@ mod tests {
     #[test]
     fn test_分析_empty_sequence() {
         let config = 缠论配置::default();
-        let mut pk = make_普K(1000, 100.0, 110.0, 95.0, 105.0, 0);
+        let pk = make_普K(1000, 100.0, 110.0, 95.0, 105.0, 0);
         let mut 缠K序列 = Vec::new();
         let mut 普K序列 = Vec::new();
 
-        let (状态, 形态) = 缠论K线::分析(&mut pk, &mut 缠K序列, &mut 普K序列, &config);
+        let (状态, 形态) = 缠论K线::分析(pk, &mut 缠K序列, &mut 普K序列, &config);
         assert_eq!(状态, "新建");
         assert_eq!(缠K序列.len(), 1);
         assert!(形态.is_none()); // 不够3根
@@ -586,16 +623,16 @@ mod tests {
         let mut 普K序列 = Vec::new();
 
         // 三根形成顶分型: 低高 → 更高高 → 低高
-        let mut pk1 = make_普K(1000, 100.0, 110.0, 95.0, 105.0, 0);
-        let 状态1 = 缠论K线::分析(&mut pk1, &mut 缠K序列, &mut 普K序列, &config);
+        let pk1 = make_普K(1000, 100.0, 110.0, 95.0, 105.0, 0);
+        let 状态1 = 缠论K线::分析(pk1, &mut 缠K序列, &mut 普K序列, &config);
         assert_eq!(状态1.0, "新建");
 
-        let mut pk2 = make_普K(1001, 105.0, 115.0, 102.0, 112.0, 1);
-        let 状态2 = 缠论K线::分析(&mut pk2, &mut 缠K序列, &mut 普K序列, &config);
+        let pk2 = make_普K(1001, 105.0, 115.0, 102.0, 112.0, 1);
+        let 状态2 = 缠论K线::分析(pk2, &mut 缠K序列, &mut 普K序列, &config);
         assert!(状态2.1.is_none()); // 仍不够
 
-        let mut pk3 = make_普K(1002, 112.0, 113.0, 100.0, 103.0, 2);
-        let (_状态3, 形态) = 缠论K线::分析(&mut pk3, &mut 缠K序列, &mut 普K序列, &config);
+        let pk3 = make_普K(1002, 112.0, 113.0, 100.0, 103.0, 2);
+        let (_状态3, 形态) = 缠论K线::分析(pk3, &mut 缠K序列, &mut 普K序列, &config);
         assert!(形态.is_some()); // 分型产生了
     }
 }

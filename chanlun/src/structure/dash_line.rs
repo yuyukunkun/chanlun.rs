@@ -1,7 +1,7 @@
 use crate::algorithm::hub::中枢;
 use crate::config::缠论配置;
-use crate::kline::chan_kline::缠论K线;
 use crate::kline::bar::K线;
+use crate::kline::chan_kline::缠论K线;
 use crate::structure::fractal_obj::分型;
 use crate::structure::segment_feat::线段特征;
 use crate::types::{分型结构, 相对方向, 缺口};
@@ -32,7 +32,14 @@ pub struct 虚线 {
 }
 
 impl 虚线 {
-    pub fn new(序号: i64, 标识: String, 文: Rc<分型>, 武: Rc<分型>, 级别: i64, 有效性: bool) -> Self {
+    pub fn new(
+        序号: i64,
+        标识: String,
+        文: Rc<分型>,
+        武: Rc<分型>,
+        级别: i64,
+        有效性: bool,
+    ) -> Self {
         Self {
             序号,
             标识,
@@ -60,7 +67,10 @@ impl 虚线 {
     }
 
     pub fn 图表标题(&self) -> String {
-        format!("{}:{}:{}:{}", self.文.中.标识, self.文.中.周期, self.标识, self.序号)
+        format!(
+            "{}:{}:{}:{}",
+            self.文.中.标识, self.文.中.周期, self.标识, self.序号
+        )
     }
 
     /// 方向 — 文到武的方向
@@ -74,24 +84,38 @@ impl 虚线 {
         }
     }
 
-    /// 虚线高 — 文和武中高的那个
+    /// 虚线高
     pub fn 高(&self) -> f64 {
-        self.武.分型特征值.max(self.文.分型特征值)
+        if self.方向() == 相对方向::向下 {
+            self.文.中.高
+        } else {
+            self.武.中.高
+        }
     }
 
-    /// 虚线低 — 文和武中低的那个
+    /// 虚线低
     pub fn 低(&self) -> f64 {
-        self.武.分型特征值.min(self.文.分型特征值)
+        if self.方向() == 相对方向::向下 {
+            self.武.中.低
+        } else {
+            self.文.中.低
+        }
     }
 
     /// 判断两个虚线是否首尾相连
     pub fn 之前是(&self, 之前: &虚线) -> bool {
-        self.文.中.序号 == 之前.武.中.序号
+        if self.标识 != 之前.标识 {
+            return false;
+        }
+        Rc::as_ptr(&之前.武) == Rc::as_ptr(&self.文)
     }
 
     /// 判断两个虚线是否首尾相连
     pub fn 之后是(&self, 之后: &虚线) -> bool {
-        self.武.中.序号 == 之后.文.中.序号
+        if self.标识 != 之后.标识 {
+            return false;
+        }
+        Rc::as_ptr(&self.武) == Rc::as_ptr(&之后.文)
     }
 
     /// 获取该虚线范围内的普K序列
@@ -128,10 +152,15 @@ impl 虚线 {
         }
 
         // 非笔：线段/扩展线段等，完整输出
-        let (前, 后, 三, 贯穿伤) =
-            crate::algorithm::segment::线段::分割序列(self, None);
+        let (前, 后, 三, 贯穿伤) = crate::algorithm::segment::线段::分割序列(self, None);
         let (特征_a, 特征_b, 特征_c) = crate::algorithm::segment::线段::特征序列状态(self);
-        let 特征_bool = |b: bool| -> &str { if b { "True" } else { "False" } };
+        let 特征_bool = |b: bool| -> &str {
+            if b {
+                "True"
+            } else {
+                "False"
+            }
+        };
 
         let 前一缺口_str = match &self.前一缺口 {
             Some(g) => format!("{}", g),
@@ -143,13 +172,52 @@ impl 虚线 {
         };
 
         // Format中枢序列 as Python-style list representations
-        let 实_str = format!("[{}]", self.实_中枢序列.iter().map(|h| format!("{}", h)).collect::<Vec<_>>().join(", "));
-        let 虚_str = format!("[{}]", self.虚_中枢序列.iter().map(|h| format!("{}", h)).collect::<Vec<_>>().join(", "));
-        let 合_str = format!("[{}]", self.合_中枢序列.iter().map(|h| format!("{}", h)).collect::<Vec<_>>().join(", "));
+        let 实_str = format!(
+            "[{}]",
+            self.实_中枢序列
+                .iter()
+                .map(|h| format!("{}", h))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let 虚_str = format!(
+            "[{}]",
+            self.虚_中枢序列
+                .iter()
+                .map(|h| format!("{}", h))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let 合_str = format!(
+            "[{}]",
+            self.合_中枢序列
+                .iter()
+                .map(|h| format!("{}", h))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
 
-        let 前_str = format!("[{}]", 前.iter().map(|d| format!("{}", d)).collect::<Vec<_>>().join(", "));
-        let 后_str = format!("[{}]", 后.iter().map(|d| format!("{}", d)).collect::<Vec<_>>().join(", "));
-        let 三_str = format!("[{}]", 三.iter().map(|d| format!("{}", d)).collect::<Vec<_>>().join(", "));
+        let 前_str = format!(
+            "[{}]",
+            前.iter()
+                .map(|d| format!("{}", d))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let 后_str = format!(
+            "[{}]",
+            后.iter()
+                .map(|d| format!("{}", d))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let 三_str = format!(
+            "[{}]",
+            三.iter()
+                .map(|d| format!("{}", d))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
 
         format!(
             "{}, {}, {}, 文:({},{}), 武:({},{}), {}, {}, ({}, {}, {}), (前: {}, 后: {}, 三: {}, 伤: {}), 实: {}, 虚: {}, 合: {}, {}, {}, {}, {}",
@@ -217,7 +285,11 @@ impl 虚线 {
 
     /// 买卖点配置匹配 — 根据配置中的指标开关组合判断
     pub fn 买卖点配置匹配(缠K: &缠论K线, 配置: &缠论配置) -> bool {
-        match (配置.买卖点_指标匹配_MACD, 配置.买卖点_指标匹配_KDJ, 配置.买卖点_指标匹配_RSI) {
+        match (
+            配置.买卖点_指标匹配_MACD,
+            配置.买卖点_指标匹配_KDJ,
+            配置.买卖点_指标匹配_RSI,
+        ) {
             (true, true, true) => 缠K.与MACD柱子匹配() && 缠K.与KDJ匹配() && 缠K.与RSI匹配(),
             (false, false, false) => false,
             (true, false, true) => 缠K.与MACD柱子匹配() && 缠K.与RSI匹配(),
@@ -241,11 +313,7 @@ impl 虚线 {
 
     /// 买卖点相对匹配 — 至少两个指标匹配
     pub fn 买卖点相对匹配(缠K: &缠论K线) -> bool {
-        let 混沌槽 = [
-            缠K.与MACD柱子匹配(),
-            缠K.与KDJ匹配(),
-            缠K.与RSI匹配(),
-        ];
+        let 混沌槽 = [缠K.与MACD柱子匹配(), 缠K.与KDJ匹配(), 缠K.与RSI匹配()];
         混沌槽.iter().filter(|&&x| x).count() >= 2
     }
 
@@ -368,7 +436,9 @@ impl 虚线 {
     // ---- MACD趋向背驰 ----
 
     /// 计算K线序列MACD趋向背驰 — 分析 MACD柱/DIF/DEA 三项背驰信号
-    pub fn 计算K线序列MACD趋向背驰(普K序列: &[Rc<K线>], 方向: 相对方向) -> [bool; 3] {
+    pub fn 计算K线序列MACD趋向背驰(
+        普K序列: &[Rc<K线>], 方向: 相对方向
+    ) -> [bool; 3] {
         if 普K序列.is_empty() {
             return [false, false, false];
         }
@@ -389,7 +459,10 @@ impl 虚线 {
             let 最高柱子 = 柱子序列
                 .iter()
                 .max_by(|a, b| {
-                    a.macd.as_ref().unwrap().MACD柱
+                    a.macd
+                        .as_ref()
+                        .unwrap()
+                        .MACD柱
                         .partial_cmp(&b.macd.as_ref().unwrap().MACD柱)
                         .unwrap()
                 })
@@ -402,7 +475,7 @@ impl 虚线 {
                 }
             }
 
-            // DIF背驰
+            // DIF背驰 (no sort — Python compares peak vs last directly)
             let 最高离差值 = 柱子序列
                 .iter()
                 .max_by(|a, b| {
@@ -411,17 +484,15 @@ impl 虚线 {
                     da.partial_cmp(&db).unwrap()
                 })
                 .unwrap();
-            let mut 柱对2 = vec![Rc::clone(*最高离差值), Rc::clone(最后)];
-            柱对2.sort_by_key(|k| k.时间戳);
-            if let (Some(m0), Some(m1)) = (柱对2[0].macd.as_ref(), 柱对2[1].macd.as_ref()) {
+            if let (Some(m0), Some(m1)) = (最高离差值.macd.as_ref(), 最后.macd.as_ref()) {
                 let dif0 = m0.DIF.unwrap_or(0.0);
                 let dif1 = m1.DIF.unwrap_or(0.0);
-                if dif0 > dif1 && 柱对2[0].高 < 柱对2[1].高 {
+                if dif0 > dif1 && 最高离差值.高 < 最后.高 {
                     结果[1] = true;
                 }
             }
 
-            // DEA背驰
+            // DEA背驰 (no sort — Python compares peak vs last directly)
             let 最高信号线 = 柱子序列
                 .iter()
                 .max_by(|a, b| {
@@ -430,12 +501,10 @@ impl 虚线 {
                     da.partial_cmp(&db).unwrap()
                 })
                 .unwrap();
-            let mut 柱对3 = vec![Rc::clone(*最高信号线), Rc::clone(最后)];
-            柱对3.sort_by_key(|k| k.时间戳);
-            if let (Some(m0), Some(m1)) = (柱对3[0].macd.as_ref(), 柱对3[1].macd.as_ref()) {
+            if let (Some(m0), Some(m1)) = (最高信号线.macd.as_ref(), 最后.macd.as_ref()) {
                 let dea0 = m0.DEA.unwrap_or(0.0);
                 let dea1 = m1.DEA.unwrap_or(0.0);
-                if dea0 > dea1 && 柱对3[0].高 < 柱对3[1].高 {
+                if dea0 > dea1 && 最高信号线.高 < 最后.高 {
                     结果[2] = true;
                 }
             }
@@ -456,7 +525,11 @@ impl 虚线 {
             let 最高柱子 = 柱子序列
                 .iter()
                 .max_by(|a, b| {
-                    a.macd.as_ref().unwrap().MACD柱.abs()
+                    a.macd
+                        .as_ref()
+                        .unwrap()
+                        .MACD柱
+                        .abs()
                         .partial_cmp(&b.macd.as_ref().unwrap().MACD柱.abs())
                         .unwrap()
                 })
@@ -469,7 +542,7 @@ impl 虚线 {
                 }
             }
 
-            // DIF背驰
+            // DIF背驰 (no sort — Python compares peak vs last directly)
             let 最高离差值 = 柱子序列
                 .iter()
                 .max_by(|a, b| {
@@ -478,17 +551,15 @@ impl 虚线 {
                     da.partial_cmp(&db).unwrap()
                 })
                 .unwrap();
-            let mut 柱对2 = vec![Rc::clone(*最高离差值), Rc::clone(最后)];
-            柱对2.sort_by_key(|k| k.时间戳);
-            if let (Some(m0), Some(m1)) = (柱对2[0].macd.as_ref(), 柱对2[1].macd.as_ref()) {
+            if let (Some(m0), Some(m1)) = (最高离差值.macd.as_ref(), 最后.macd.as_ref()) {
                 let dif0 = m0.DIF.unwrap_or(0.0);
                 let dif1 = m1.DIF.unwrap_or(0.0);
-                if dif0 < dif1 && 柱对2[0].低 > 柱对2[1].低 {
+                if dif0 < dif1 && 最高离差值.低 > 最后.低 {
                     结果[1] = true;
                 }
             }
 
-            // DEA背驰
+            // DEA背驰 (no sort — Python compares peak vs last directly)
             let 最高信号线 = 柱子序列
                 .iter()
                 .max_by(|a, b| {
@@ -497,12 +568,10 @@ impl 虚线 {
                     da.partial_cmp(&db).unwrap()
                 })
                 .unwrap();
-            let mut 柱对3 = vec![Rc::clone(*最高信号线), Rc::clone(最后)];
-            柱对3.sort_by_key(|k| k.时间戳);
-            if let (Some(m0), Some(m1)) = (柱对3[0].macd.as_ref(), 柱对3[1].macd.as_ref()) {
+            if let (Some(m0), Some(m1)) = (最高信号线.macd.as_ref(), 最后.macd.as_ref()) {
                 let dea0 = m0.DEA.unwrap_or(0.0);
                 let dea1 = m1.DEA.unwrap_or(0.0);
-                if dea0 < dea1 && 柱对3[0].低 > 柱对3[1].低 {
+                if dea0 < dea1 && 最高信号线.低 > 最后.低 {
                     结果[2] = true;
                 }
             }
@@ -520,7 +589,11 @@ impl 虚线 {
         }
 
         let 符号 = |x: f64| -> &str {
-            if x > 0.0 { "正" } else { "负" }
+            if x > 0.0 {
+                "正"
+            } else {
+                "负"
+            }
         };
 
         let 首_MACD = match &k线序列[0].macd {
@@ -592,7 +665,11 @@ impl 虚线 {
     // ---- 统计MACD行为 ----
 
     /// 统计MACD行为 — 分析DIF/DEA穿零轴和金叉死叉
-    pub fn 统计MACD行为(普K序列: &[Rc<K线>], 最大间隔: usize, 最少交叉数: usize) -> std::collections::HashMap<String, String> {
+    pub fn 统计MACD行为(
+        普K序列: &[Rc<K线>],
+        最大间隔: usize,
+        最少交叉数: usize,
+    ) -> std::collections::HashMap<String, String> {
         use std::collections::HashMap;
 
         let mut dif_up = 0;
@@ -610,12 +687,20 @@ impl 虚线 {
             let (pre_dea, cur_dea) = (pre.as_ref().unwrap().DEA, cur.as_ref().unwrap().DEA);
 
             if let (Some(pd), Some(cd)) = (pre_dif, cur_dif) {
-                if pd < 0.0 && cd >= 0.0 { dif_up += 1; }
-                if pd > 0.0 && cd <= 0.0 { dif_down += 1; }
+                if pd < 0.0 && cd >= 0.0 {
+                    dif_up += 1;
+                }
+                if pd > 0.0 && cd <= 0.0 {
+                    dif_down += 1;
+                }
             }
             if let (Some(pd), Some(cd)) = (pre_dea, cur_dea) {
-                if pd < 0.0 && cd >= 0.0 { dea_up += 1; }
-                if pd > 0.0 && cd <= 0.0 { dea_down += 1; }
+                if pd < 0.0 && cd >= 0.0 {
+                    dea_up += 1;
+                }
+                if pd > 0.0 && cd <= 0.0 {
+                    dea_down += 1;
+                }
             }
         }
 
@@ -668,11 +753,14 @@ impl 虚线 {
     /// 买卖意义 — 核心买卖点判断逻辑
     ///
     /// 返回 (是否有意义, 原因字符串)
-    pub fn 买卖意义(实线: &虚线, 观察员: &crate::business::observer::观察者) -> (bool, String) {
+    pub fn 买卖意义(
+        实线: &虚线, 观察员: &crate::business::observer::观察者
+    ) -> (bool, String) {
         let 普K序列 = &观察员.普通K线序列;
         let 配置 = &观察员.配置;
 
-        if 实线.标识 != "笔" && 实线.标识 != "线段" && !实线.标识.starts_with("线段<") {
+        if 实线.标识 != "笔" && 实线.标识 != "线段" && !实线.标识.starts_with("线段<")
+        {
             return (false, "标识不在范围内".into());
         }
 
@@ -718,10 +806,7 @@ impl 虚线 {
 
         if !结果 && 意义 && 实线.武.中.与MACD柱子匹配() {
             if Self::武之MACD极值(普K序列, 实线) && 背驰过.len() > 2 {
-                return (
-                    true,
-                    "没结果, 极值, 柱子分型匹配, 背驰过大于2次".into(),
-                );
+                return (true, "没结果, 极值, 柱子分型匹配, 背驰过大于2次".into());
             }
         }
 

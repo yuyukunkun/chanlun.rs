@@ -1,4 +1,4 @@
-use crate::indicators::{平滑异同移动平均线, 随机指标, 相对强弱指数};
+use crate::indicators::{平滑异同移动平均线, 相对强弱指数, 随机指标};
 use crate::types::相对方向;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
@@ -140,8 +140,14 @@ impl K线 {
 
     /// 获取两K线之间的 MACD 柱面积
     pub fn 获取MACD(K线序列: &[&Self], 始: &Self, 终: &Self) -> HashMap<String, f64> {
-        let 始_idx = K线序列.iter().position(|k| std::ptr::eq(*k, 始)).unwrap_or(0);
-        let 终_idx = K线序列.iter().position(|k| std::ptr::eq(*k, 终)).unwrap_or(0);
+        let 始_idx = K线序列
+            .iter()
+            .position(|k| std::ptr::eq(*k, 始))
+            .expect("获取MACD: 始K线不在序列中");
+        let 终_idx = K线序列
+            .iter()
+            .position(|k| std::ptr::eq(*k, 终))
+            .expect("获取MACD: 终K线不在序列中");
         let 基序 = &K线序列[始_idx..=终_idx];
 
         let mut 阳 = 0.0f64;
@@ -219,7 +225,9 @@ mod tests {
 
     #[test]
     fn test_serialization_roundtrip() {
-        let k = K线::创建普K("test", 1600000000, 100.5, 110.2, 95.3, 105.7, 5000.0, 42, 60);
+        let k = K线::创建普K(
+            "test", 1600000000, 100.5, 110.2, 95.3, 105.7, 5000.0, 42, 60,
+        );
         let bytes = k.to_bytes();
         let restored = K线::from_bytes(&bytes, 60, "test").unwrap();
 

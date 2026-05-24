@@ -28,9 +28,9 @@ impl 线段特征 {
     }
 
     /// 文 — 取特征序列元素中分型特征值最大/最小的文分型
+    /// tiebreaker: later时间戳 wins when特征值 equal (matches Python)
     pub fn 文(&self) -> Rc<分型> {
         if self.线段方向.是否向上() {
-            // 向上 → 取最大的文
             self.元素
                 .iter()
                 .max_by(|a, b| {
@@ -38,11 +38,11 @@ impl 线段特征 {
                         .分型特征值
                         .partial_cmp(&b.文.分型特征值)
                         .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.文.时间戳.cmp(&b.文.时间戳))
                 })
                 .map(|x| Rc::clone(&x.文))
                 .unwrap_or_else(|| Rc::clone(&self.元素[0].文))
         } else {
-            // 向下 → 取最小的文
             self.元素
                 .iter()
                 .min_by(|a, b| {
@@ -50,6 +50,7 @@ impl 线段特征 {
                         .分型特征值
                         .partial_cmp(&b.文.分型特征值)
                         .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| b.文.时间戳.cmp(&a.文.时间戳))
                 })
                 .map(|x| Rc::clone(&x.文))
                 .unwrap_or_else(|| Rc::clone(&self.元素[0].文))
@@ -57,6 +58,7 @@ impl 线段特征 {
     }
 
     /// 武 — 取特征序列元素中分型特征值最大/最小的武分型
+    /// tiebreaker: later时间戳 wins when特征值 equal (matches Python)
     pub fn 武(&self) -> Rc<分型> {
         if self.线段方向.是否向上() {
             self.元素
@@ -66,6 +68,7 @@ impl 线段特征 {
                         .分型特征值
                         .partial_cmp(&b.武.分型特征值)
                         .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.武.时间戳.cmp(&b.武.时间戳))
                 })
                 .map(|x| Rc::clone(&x.武))
                 .unwrap_or_else(|| Rc::clone(&self.元素[0].武))
@@ -77,6 +80,7 @@ impl 线段特征 {
                         .分型特征值
                         .partial_cmp(&b.武.分型特征值)
                         .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| b.武.时间戳.cmp(&a.武.时间戳))
                 })
                 .map(|x| Rc::clone(&x.武))
                 .unwrap_or_else(|| Rc::clone(&self.元素[0].武))
@@ -107,6 +111,23 @@ impl 线段特征 {
         }
         self.元素.push(待添加虚线);
         Ok(())
+    }
+
+    /// 从特征序列元素中删除虚线
+    pub fn 删除(&mut self, 待删除虚线: &Rc<虚线>) -> Result<(), String> {
+        if 待删除虚线.方向() == self.方向() {
+            return Err("删除方向与特征序列方向相同".into());
+        }
+        if let Some(pos) = self
+            .元素
+            .iter()
+            .position(|x| Rc::as_ptr(x) == Rc::as_ptr(待删除虚线))
+        {
+            self.元素.remove(pos);
+            Ok(())
+        } else {
+            Err("待删除虚线不在特征序列中".into())
+        }
     }
 
     /// 新建特征序列元素
@@ -147,18 +168,8 @@ impl 线段特征 {
                                 && 虚线.低() < 中.低());
 
                         if 应替换 {
-                            let 小号虚线 = if 中.元素[0].序号 < 右.元素[0].序号 {
-                                &中.元素[0]
-                            } else {
-                                &右.元素[0]
-                            };
-                            let 大号虚线 = if 中.元素.last().unwrap().序号
-                                > 右.元素.last().unwrap().序号
-                            {
-                                &中.元素[中.元素.len() - 1]
-                            } else {
-                                &右.元素[右.元素.len() - 1]
-                            };
+                            let 小号虚线 = 中.元素.iter().min_by_key(|o| o.序号).unwrap();
+                            let 大号虚线 = 右.元素.iter().max_by_key(|o| o.序号).unwrap();
                             let fake = 虚线::创建笔(
                                 Rc::clone(&小号虚线.文),
                                 Rc::clone(&大号虚线.武),
@@ -166,8 +177,7 @@ impl 线段特征 {
                             );
                             结果.pop();
                             let idx = 结果.len() - 1;
-                            结果[idx] =
-                                Rc::new(Self::新建(vec![Rc::new(fake)], 线段方向));
+                            结果[idx] = Rc::new(Self::新建(vec![Rc::new(fake)], 线段方向));
                         }
                     }
                 }
@@ -212,15 +222,14 @@ impl 线段特征 {
             let 中 = Rc::clone(&特征序列[i - 1]);
             let 右 = Rc::clone(&特征序列[i]);
 
-            if let Some(结构) = 分型结构::分析_对象(
+            let 结构 = 分型结构::分析_对象(
                 &*左 as &dyn crate::types::fractal::有高低,
                 &*中 as &dyn crate::types::fractal::有高低,
                 &*右 as &dyn crate::types::fractal::有高低,
                 true,
                 true,
-            ) {
-                结果.push(特征分型::new(左, 中, 右, 结构));
-            }
+            );
+            结果.push(特征分型::new(左, 中, 右, 结构.unwrap_or(分型结构::散)));
         }
         结果
     }

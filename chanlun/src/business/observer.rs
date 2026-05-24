@@ -51,8 +51,7 @@ pub struct 观察者 {
 
 impl 观察者 {
     pub fn new(符号: String, 周期: i64, 配置: 缠论配置) -> Self {
-        let 终止时间戳 = if 配置.手动终止 != "1970-01-01 00:00:00"
-            && !配置.手动终止.is_empty()
+        let 终止时间戳 = if 配置.手动终止 != "1970-01-01 00:00:00" && !配置.手动终止.is_empty()
         {
             datetime::转化为时间戳(&配置.手动终止)
         } else {
@@ -129,10 +128,10 @@ impl 观察者 {
     }
 
     /// 核心数据处理管道
-    fn __处理数据(&mut self, mut 普K: K线) {
+    fn __处理数据(&mut self, 普K: K线) {
         // Step 1: 缠论K线分析 (普K is consumed by 分析 as &mut)
         let (_, 当前分型) = 缠论K线::分析(
-            &mut 普K,
+            普K,
             &mut self.缠论K线序列,
             &mut self.普通K线序列,
             &self.配置,
@@ -175,31 +174,25 @@ impl 观察者 {
                 &[相对方向::向上, 相对方向::向下],
             );
         }
-        // Clone to avoid borrow issues
-        let 线段序列_克隆 = self.线段序列.clone();
         if self.配置.分析线段中枢 {
-            中枢::分析(&线段序列_克隆, &mut self.中枢序列, true, "", 0);
+            中枢::分析(&self.线段序列, &mut self.中枢序列, true, "", 0);
         }
 
         // Step 5: 扩展线段（笔级）
-        let 笔序列_克隆 = self.笔序列.clone();
         if self.配置.分析扩展线段 {
-            线段::扩展分析(&笔序列_克隆, &mut self.扩展线段序列, &self.配置);
+            线段::扩展分析(&self.笔序列, &mut self.扩展线段序列, &self.配置);
         }
-        let 扩展线段序列_克隆 = self.扩展线段序列.clone();
         if self.配置.分析线段中枢 {
-            中枢::分析(&扩展线段序列_克隆, &mut self.扩展中枢序列, true, "", 0);
+            中枢::分析(&self.扩展线段序列, &mut self.扩展中枢序列, true, "", 0);
         }
 
         // Step 6: 扩展线段（线段级）
-        let 线段序列_克隆2 = self.线段序列.clone();
         if self.配置.分析扩展线段 {
-            线段::扩展分析(&线段序列_克隆2, &mut self.扩展线段序列_线段, &self.配置);
+            线段::扩展分析(&self.线段序列, &mut self.扩展线段序列_线段, &self.配置);
         }
-        let 扩展线段_线段_克隆 = self.扩展线段序列_线段.clone();
         if self.配置.分析线段中枢 {
             中枢::分析(
-                &扩展线段_线段_克隆,
+                &self.扩展线段序列_线段,
                 &mut self.扩展中枢序列_线段,
                 true,
                 "",
@@ -208,10 +201,9 @@ impl 观察者 {
         }
 
         // Step 7: 线段之线段
-        let 线段序列_克隆3 = self.线段序列.clone();
         if self.配置.分析线段 {
             线段::分析(
-                &线段序列_克隆3,
+                &self.线段序列,
                 &mut self.线段_线段序列,
                 &self.配置,
                 0,
@@ -224,30 +216,21 @@ impl 观察者 {
                 ],
             );
         }
-        let 线段_线段_克隆 = self.线段_线段序列.clone();
         if self.配置.分析线段中枢 {
-            中枢::分析(
-                &线段_线段_克隆,
-                &mut self.线段_中枢序列,
-                true,
-                "",
-                0,
-            );
+            中枢::分析(&self.线段_线段序列, &mut self.线段_中枢序列, true, "", 0);
         }
 
         // Step 8: 扩展线段之扩展线段
-        let 扩展线段序列_克隆2 = self.扩展线段序列.clone();
         if self.配置.分析扩展线段 {
             线段::扩展分析(
-                &扩展线段序列_克隆2,
+                &self.扩展线段序列,
                 &mut self.扩展线段序列_扩展线段,
                 &self.配置,
             );
         }
-        let 扩展线段_扩展线段_克隆 = self.扩展线段序列_扩展线段.clone();
         if self.配置.分析线段中枢 {
             中枢::分析(
-                &扩展线段_扩展线段_克隆,
+                &self.扩展线段序列_扩展线段,
                 &mut self.扩展中枢序列_扩展线段,
                 true,
                 "",
@@ -272,21 +255,18 @@ impl 观察者 {
         self.扩展线段序列_扩展线段.clear();
         self.扩展中枢序列_扩展线段.clear();
 
-        let 缠K克隆 = self.缠论K线序列.clone();
-        let 普K克隆 = self.普通K线序列.clone();
-
-        for i in 1..缠K克隆.len() - 1 {
+        for i in 1..self.缠论K线序列.len() - 1 {
             let 当前分型 = 分型::new(
-                Some(Rc::clone(&缠K克隆[i - 1])),
-                Rc::clone(&缠K克隆[i]),
-                Some(Rc::clone(&缠K克隆[i + 1])),
+                Some(Rc::clone(&self.缠论K线序列[i - 1])),
+                Rc::clone(&self.缠论K线序列[i]),
+                Some(Rc::clone(&self.缠论K线序列[i + 1])),
             );
             笔::分析(
                 Rc::new(当前分型),
                 &mut self.分型序列,
                 &mut self.笔序列,
-                &缠K克隆,
-                &普K克隆,
+                &self.缠论K线序列,
+                &self.普通K线序列,
                 &self.配置,
             );
         }
@@ -295,38 +275,32 @@ impl 观察者 {
             中枢::分析(&self.笔序列, &mut self.笔_中枢序列, true, "", 0);
         }
 
-        let 笔克隆 = self.笔序列.clone();
         if self.配置.分析线段 {
             线段::分析(
-                &笔克隆,
+                &self.笔序列,
                 &mut self.线段序列,
                 &self.配置,
                 0,
                 &[相对方向::向上, 相对方向::向下],
             );
         }
-        let 线段克隆 = self.线段序列.clone();
         if self.配置.分析线段中枢 {
-            中枢::分析(&线段克隆, &mut self.中枢序列, true, "", 0);
+            中枢::分析(&self.线段序列, &mut self.中枢序列, true, "", 0);
         }
 
-        let 笔克隆2 = self.笔序列.clone();
         if self.配置.分析扩展线段 {
-            线段::扩展分析(&笔克隆2, &mut self.扩展线段序列, &self.配置);
+            线段::扩展分析(&self.笔序列, &mut self.扩展线段序列, &self.配置);
         }
-        let 扩展线段克隆 = self.扩展线段序列.clone();
         if self.配置.分析线段中枢 {
-            中枢::分析(&扩展线段克隆, &mut self.扩展中枢序列, true, "", 0);
+            中枢::分析(&self.扩展线段序列, &mut self.扩展中枢序列, true, "", 0);
         }
 
-        let 线段克隆2 = self.线段序列.clone();
         if self.配置.分析扩展线段 {
-            线段::扩展分析(&线段克隆2, &mut self.扩展线段序列_线段, &self.配置);
+            线段::扩展分析(&self.线段序列, &mut self.扩展线段序列_线段, &self.配置);
         }
-        let 扩展线段_线段_克隆 = self.扩展线段序列_线段.clone();
         if self.配置.分析线段中枢 {
             中枢::分析(
-                &扩展线段_线段_克隆,
+                &self.扩展线段序列_线段,
                 &mut self.扩展中枢序列_线段,
                 true,
                 "",
@@ -334,10 +308,9 @@ impl 观察者 {
             );
         }
 
-        let 线段克隆3 = self.线段序列.clone();
         if self.配置.分析线段 {
             线段::分析(
-                &线段克隆3,
+                &self.线段序列,
                 &mut self.线段_线段序列,
                 &self.配置,
                 0,
@@ -350,36 +323,18 @@ impl 观察者 {
                 ],
             );
         }
-        let 线段_线段_克隆 = self.线段_线段序列.clone();
         if self.配置.分析线段中枢 {
-            中枢::分析(
-                &线段_线段_克隆,
-                &mut self.线段_中枢序列,
-                true,
-                "",
-                0,
-            );
+            中枢::分析(&self.线段_线段序列, &mut self.线段_中枢序列, true, "", 0);
         }
     }
 
     /// 测试_保存数据 — 输出各序列数据文本到文件
     pub fn 测试_保存数据(&self, root: Option<&str>) {
-
-        let 笔序列_文本数据: Vec<String> = self
-            .笔序列
-            .iter()
-            .map(|b| b.获取数据文本())
-            .collect();
-        let 线段序列_文本数据: Vec<String> = self
-            .线段序列
-            .iter()
-            .map(|s| s.获取数据文本())
-            .collect();
-        let 扩展线段序列_数据文本: Vec<String> = self
-            .扩展线段序列
-            .iter()
-            .map(|s| s.获取数据文本())
-            .collect();
+        let 笔序列_文本数据: Vec<String> = self.笔序列.iter().map(|b| b.获取数据文本()).collect();
+        let 线段序列_文本数据: Vec<String> =
+            self.线段序列.iter().map(|s| s.获取数据文本()).collect();
+        let 扩展线段序列_数据文本: Vec<String> =
+            self.扩展线段序列.iter().map(|s| s.获取数据文本()).collect();
         let 扩展线段序列_线段_数据文本: Vec<String> = self
             .扩展线段序列_线段
             .iter()
@@ -396,21 +351,12 @@ impl 观察者 {
             .map(|s| s.获取数据文本())
             .collect();
 
-        let 笔_中枢序列_数据文本: Vec<String> = self
-            .笔_中枢序列
-            .iter()
-            .map(|h| h.获取数据文本())
-            .collect();
-        let 中枢序列_数据文本: Vec<String> = self
-            .中枢序列
-            .iter()
-            .map(|h| h.获取数据文本())
-            .collect();
-        let 扩展中枢序列_数据文本: Vec<String> = self
-            .扩展中枢序列
-            .iter()
-            .map(|h| h.获取数据文本())
-            .collect();
+        let 笔_中枢序列_数据文本: Vec<String> =
+            self.笔_中枢序列.iter().map(|h| h.获取数据文本()).collect();
+        let 中枢序列_数据文本: Vec<String> =
+            self.中枢序列.iter().map(|h| h.获取数据文本()).collect();
+        let 扩展中枢序列_数据文本: Vec<String> =
+            self.扩展中枢序列.iter().map(|h| h.获取数据文本()).collect();
         let 扩展中枢序列_线段_数据文本: Vec<String> = self
             .扩展中枢序列_线段
             .iter()
@@ -436,7 +382,7 @@ impl 观察者 {
         // 生成子目录名称
         let 起始时间 = self.普通K线序列.first().map(|k| k.时间戳).unwrap_or(0);
         let 结束时间 = self.普通K线序列.last().map(|k| k.时间戳).unwrap_or(0);
-        let 目录标识 = format!("Rust_{}_{}_{}", self.符号, 起始时间, 结束时间);
+        let 目录标识 = format!("Rust_{}:{}_{}_{}", self.符号, self.周期, 起始时间, 结束时间);
 
         let 保存路径 = 根目录.join(&目录标识);
         if let Err(e) = std::fs::create_dir_all(&保存路径) {
@@ -444,19 +390,57 @@ impl 观察者 {
             return;
         }
 
+        // 缠K data for debugging
+        let 缠K序列_数据文本: Vec<String> = self
+            .缠论K线序列
+            .iter()
+            .map(|ck| {
+                format!(
+                    "缠K, {}, {}, {:?}, {}, {}, {}, {}, {}",
+                    ck.序号,
+                    ck.时间戳,
+                    ck.分型,
+                    ck.方向,
+                    ck.高,
+                    ck.低,
+                    ck.原始起始序号,
+                    ck.原始结束序号
+                )
+            })
+            .collect();
+        let 分型序列_数据文本: Vec<String> = self
+            .分型序列
+            .iter()
+            .enumerate()
+            .map(|(i, fx)| {
+                format!(
+                    "分型, {}, {}, {:?}, {}, {}, {}",
+                    i, fx.时间戳, fx.结构, fx.分型特征值, fx.中.时间戳, fx.中.低,
+                )
+            })
+            .collect();
+
         let 数据映射: Vec<(&str, &[String])> = vec![
             ("笔序列_文本数据", &笔序列_文本数据),
             ("线段序列_文本数据", &线段序列_文本数据),
             ("扩展线段序列_数据文本", &扩展线段序列_数据文本),
             ("扩展线段序列_线段_数据文本", &扩展线段序列_线段_数据文本),
             ("线段_线段序列_数据文本", &线段_线段序列_数据文本),
-            ("扩展线段序列_扩展线段_数据文本", &扩展线段序列_扩展线段_数据文本),
+            (
+                "扩展线段序列_扩展线段_数据文本",
+                &扩展线段序列_扩展线段_数据文本,
+            ),
             ("笔_中枢序列_数据文本", &笔_中枢序列_数据文本),
             ("中枢序列_数据文本", &中枢序列_数据文本),
             ("扩展中枢序列_数据文本", &扩展中枢序列_数据文本),
             ("扩展中枢序列_线段_数据文本", &扩展中枢序列_线段_数据文本),
             ("线段_中枢序列_数据文本", &线段_中枢序列_数据文本),
-            ("扩展中枢序列_扩展线段_数据文本", &扩展中枢序列_扩展线段_数据文本),
+            (
+                "扩展中枢序列_扩展线段_数据文本",
+                &扩展中枢序列_扩展线段_数据文本,
+            ),
+            ("缠K序列_数据文本", &缠K序列_数据文本),
+            ("分型序列_数据文本", &分型序列_数据文本),
         ];
 
         for (文件名, 数据列表) in &数据映射 {
@@ -471,7 +455,9 @@ impl 观察者 {
     }
 
     /// 读取数据文件 — 从 .nb 文件加载数据
-    pub fn 读取数据文件(文件路径: &str, 配置: Option<缠论配置>) -> Result<Self, String> {
+    pub fn 读取数据文件(
+        文件路径: &str, 配置: Option<缠论配置>
+    ) -> Result<Self, String> {
         let 配置 = 配置.unwrap_or_default();
 
         // Parse filename: btcusd-300-1631772074-1632222374.nb
@@ -485,7 +471,9 @@ impl 观察者 {
             return Err(format!("invalid filename format: {}", name));
         }
         let 符号 = parts[0].to_string();
-        let 周期: i64 = parts[1].parse().map_err(|e| format!("parse period: {}", e))?;
+        let 周期: i64 = parts[1]
+            .parse()
+            .map_err(|e| format!("parse period: {}", e))?;
 
         let mut 实例 = Self::new(符号, 周期, 配置);
 

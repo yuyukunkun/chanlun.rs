@@ -244,26 +244,30 @@ impl 缠论配置 {
     }
 
     /// 按序号重组字典 — 兼容旧版配置的复合key格式
-    pub fn 按序号重组字典(默认配置: &Self, 原始字典: &serde_json::Value) -> Vec<(i64, Self)> {
+    pub fn 按序号重组字典(
+        默认配置: &Self,
+        原始字典: &serde_json::Value,
+    ) -> Vec<(i64, Self)> {
         let mut result = Vec::new();
         if let serde_json::Value::Object(map) = 原始字典 {
             // 按数字前缀分组: "1_open" → group 1 key "open"
-            let mut groups: std::collections::BTreeMap<i64, serde_json::Map<String, serde_json::Value>> =
-                std::collections::BTreeMap::new();
+            let mut groups: std::collections::BTreeMap<
+                i64,
+                serde_json::Map<String, serde_json::Value>,
+            > = std::collections::BTreeMap::new();
             for (key, value) in map {
                 if let Some(pos) = key.find('_') {
                     if let Ok(num) = key[..pos].parse::<i64>() {
                         let field = key[pos + 1..].to_string();
-                        groups
-                            .entry(num)
-                            .or_default()
-                            .insert(field, value.clone());
+                        groups.entry(num).or_default().insert(field, value.clone());
                     }
                 }
             }
             for (num, fields) in groups {
                 let mut config = 默认配置.clone();
-                if let Ok(partial) = serde_json::from_value::<缠论配置>(serde_json::Value::Object(fields)) {
+                if let Ok(partial) =
+                    serde_json::from_value::<缠论配置>(serde_json::Value::Object(fields))
+                {
                     // merge partial into config (override matching fields)
                     config = partial;
                 }
