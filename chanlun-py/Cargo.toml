@@ -1,0 +1,20 @@
+[package]
+name = "chanlun-py"
+version = "26.5.1"
+edition = "2021"
+description = "缠论技术分析库 — Rust 高性能 Python 绑定"
+authors = ["YuYuKunKun"]
+license = "MIT"
+repository = "https://github.com/YuYuKunKun/chanlun.rs"
+
+[lib]
+crate-type = ["cdylib"]
+name = "chanlun"
+
+[dependencies]
+# 发布至 PyPI 前，需先将 chanlun 发布至 crates.io，然后替换为版本号依赖:
+# chanlun = "0.1"
+chanlun = { path = "../chanlun" }
+pyo3 = { version = "0.28", features = ["extension-module"] }
+serde_json = "1"
+chrono = "0.4"

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "chanlun"
+version = "2605.1"
+description = "缠论技术分析库 — Rust 高性能实现"
+readme = { file = "README.md", content-type = "text/markdown" }
+license = { file = "LICENSE", content-type = "text/plain" }
+authors = [
+    { name = "YuYuKunKun" },
+]
+keywords = ["chanlun", "technical-analysis", "trading", "stock", "crypto"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+requires-python = ">=3.9"
+
+[project.urls]
+Homepage = "https://github.com/YuYuKunKun/chanlun.rs"
+Repository = "https://github.com/YuYuKunKun/chanlun.rs"
+Issues = "https://github.com/YuYuKunKun/chanlun.rs/issues"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "."
+module-name = "chanlun._chanlun"
+manifest-path = "Cargo.toml"
