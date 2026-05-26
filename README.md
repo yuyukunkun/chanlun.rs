@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/chanlun)](https://pypi.org/project/chanlun/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-基于 [chanlun](../chanlun/) Rust 核心库的 PyO3 高性能 Python 绑定，API 与 `chan.py` 完全兼容。
+基于 [chanlun](./chanlun/) Rust 核心库的 PyO3 高性能 Python 绑定，API 与 `chan.py` 完全兼容。
 
 ## 安装
 
