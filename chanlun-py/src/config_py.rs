@@ -26,7 +26,71 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
 use std::collections::HashMap;
 
-/// 缠论配置 — Python binding
+/// 缠论配置 — 控制所有分析阶段行为的参数集（共 60+ 字段，均有默认值）。
+///
+/// 构造:
+///   缠论配置(**kwargs) — 创建配置，可选关键字参数覆盖默认值
+///
+/// 字段分组:
+///   [基础]
+///     标识: str — K线标识（默认 "bar"）
+///
+///   [缠K]
+///     缠K合并替换: bool — K线合并时是否替换原值
+///
+///   [笔]
+///     笔内元素数量: int — 笔的最小元素数（默认 5）
+///     笔弱化: bool — 是否启用笔弱化模式
+///     笔次成笔: bool — 线段内部次级笔是否成笔
+///     笔内相同终点取舍: bool / 笔内起始分型包含整笔: bool /
+///     笔内原始K线包含整笔: bool
+///
+///   [线段]
+///     线段_特征序列忽视老阴老阳: bool / 线段_缺口后紧急修正: bool /
+///     线段_非缺口下穿刺: bool / 线段_修正: bool / 线段内部中枢图显: bool /
+///     扩展线段_当下分析: bool
+///
+///   [分析开关]
+///     分析笔: bool / 分析线段: bool / 分析扩展线段: bool /
+///     分析笔中枢: bool / 分析线段中枢: bool
+///
+///   [指标]
+///     计算指标: bool / 指标计算方式: str
+///     平滑异同移动平均线_快线周期: int / _慢线周期 / _信号周期
+///     相对强弱指数_周期: int / _移动平均线周期 / _超买阈值 / _超卖阈值
+///     随机指标_RSV周期: int / _K值平滑周期 / _D值平滑周期 / _超买阈值 / _超卖阈值
+///
+///   [推送/显示]
+///     图表展示: bool / 推送K线: bool / 推送笔: bool / 推送线段: bool / 推送中枢: bool
+///     图表展示_笔: bool / 图表展示_线段: bool / 图表展示_扩展线段: bool /
+///     图表展示_中枢_笔: bool / 图表展示_中枢_线段: bool 等
+///
+///   [买卖点]
+///     买卖点偏移: int / 买卖点激进识别: bool / 买卖点与MACD柱强相关: bool /
+///     买卖点错过误差值: float / 买卖点_背离率: float /
+///     买卖点_计算方式: str / 买卖点_中枢来源: str /
+///     买卖点_指标模式: str / 买卖点_指标匹配_MACD: bool / _KDJ: bool / _RSI: bool /
+///     买卖点_峰值条件: bool / 买卖点_依赖T1: bool /
+///     买卖点_计算线段BSP1: bool / _处理BSP2: bool / _计算线段BSP3: bool
+///
+///   [背驰]
+///     线段内部背驰_MACD: bool / 线段内部背驰_斜率: bool /
+///     线段内部背驰_测度: bool / 线段内部背驰_模式: str
+///
+///   [其他]
+///     手动终止: str — 手动终止时间（ISO 8601 字符串）
+///     加载文件路径: str
+///
+/// 方法:
+///   to_dict() -> dict — 导出为 Python 字典
+///   to_json() -> str — 导出为 JSON 字符串
+///   保存配置(path?) — 保存到 JSON 文件（默认 "缠论配置.json"）
+///   加载配置(path?) -> 缠论配置 (classmethod) — 从 JSON 文件加载
+///   from_dict(data) -> 缠论配置 (classmethod) — 从字典创建
+///   from_json(json_str) -> 缠论配置 (classmethod) — 从 JSON 字符串创建
+///   不推送() -> 缠论配置 (classmethod) — 创建关闭所有推送的配置副本
+///   按序号重组字典(默认配置, 原始字典) -> dict (classmethod) — 按默认配置的键序重排字典
+///   对比(other) -> dict — 返回与另一个配置的差异字段
 #[pyclass(name = "缠论配置")]
 pub struct 缠论配置Py {
     fields: HashMap<String, Py<PyAny>>,
@@ -90,6 +154,7 @@ impl 缠论配置Py {
         self.__str__()
     }
 
+    /// 将配置导出为 Python 字典。
     fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         let dict = PyDict::new(py);
         for (k, v) in &self.fields {
@@ -98,6 +163,7 @@ impl 缠论配置Py {
         Ok(dict.into())
     }
 
+    /// 将配置序列化为 JSON 字符串。
     fn to_json(&self, py: Python<'_>) -> PyResult<String> {
         let dict = self.to_dict(py)?;
         let json_mod = py.import("json")?;
@@ -105,12 +171,14 @@ impl 缠论配置Py {
         dumps.call1((dict,))?.extract()
     }
 
+    /// 保存配置到 JSON 文件（默认路径 "缠论配置.json"）。
     fn 保存配置(&self, py: Python<'_>, path: Option<&str>) -> PyResult<()> {
         let path = path.unwrap_or("缠论配置.json");
         let json = self.to_json(py)?;
         std::fs::write(path, json).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
     }
 
+    /// 从 JSON 文件加载配置（默认路径 "缠论配置.json"）。
     #[classmethod]
     fn 加载配置(
         _cls: &Bound<'_, PyType>,

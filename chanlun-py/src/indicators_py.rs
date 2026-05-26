@@ -27,6 +27,22 @@ use pyo3::types::PyType;
 
 // ========== 平滑异同移动平均线 ==========
 
+/// MACD 技术指标 — 指数平滑异同移动平均线。
+///
+/// 属性:
+///   时间戳: str / 收盘价: float / 快线周期: int / 慢线周期: int / 信号周期: int
+///   DIF: float|None — 快线EMA - 慢线EMA
+///   DEA: float|None — DIF 的 EMA 平滑（信号线）
+///   MACD柱: float — (DIF - DEA) * 2（柱状值）
+///   快线EMA: float|None / 慢线EMA: float|None / DEA_EMA: float|None
+///
+/// 方法（均为 classmethod，直接构造实例）:
+///   首次计算(初始收盘价, 初始时间, 快线周期=12, 慢线周期=26, 信号周期=9) -> 平滑异同移动平均线
+///   首次计算_K线(k线, 计算方式, ...) -> 平滑异同移动平均线
+///      — 计算方式: "收盘价"/"高"/"低"/"开盘价"
+///   增量计算(前一个MACD, 当前收盘价, 当前时间) -> 平滑异同移动平均线
+///      — 基于前一根的 EMA 状态增量更新，用于流式计算
+///   增量计算_K线(前一个MACD, 当前K线, 计算方式) -> 平滑异同移动平均线
 #[pyclass(name = "平滑异同移动平均线")]
 #[derive(Clone)]
 pub struct 平滑异同移动平均线Py {
@@ -183,6 +199,21 @@ impl 平滑异同移动平均线Py {
 
 // ========== 相对强弱指数 ==========
 
+/// RSI 技术指标 — 相对强弱指数（Wilder SMA 平滑）。
+///
+/// 属性:
+///   时间戳: str / 收盘价: float / 周期: int / 超买阈值: float / 超卖阈值: float
+///   RSI: float|None — 当前 RSI 值
+///   RSI_SMA: float|None — RSI 的 SMA 平滑值
+///   平均上涨: float|None / 平均下跌: float|None
+///   上涨幅度: float / 下跌幅度: float / 平滑系数: float
+///   RSI历史队列: list[float]
+///
+/// 方法（均为 classmethod，直接构造实例）:
+///   首次计算(初始收盘价, 初始时间, 周期=14, 超买阈值=70, 超卖阈值=30, RSI_SMA周期=None)
+///   首次计算_K线(k线, 计算方式, ...)
+///   增量计算(前一个RSI, 当前收盘价, 当前时间)
+///   增量计算_K线(前一个RSI, 当前K线, 计算方式)
 #[pyclass(name = "相对强弱指数")]
 #[derive(Clone)]
 pub struct 相对强弱指数Py {
@@ -344,6 +375,21 @@ impl 相对强弱指数Py {
 
 // ========== 随机指标 ==========
 
+/// KDJ 技术指标 — 随机指标（Stochastic Oscillator）。
+///
+/// 属性:
+///   时间戳: str / 最高价: float / 最低价: float / 收盘价: float
+///   N: int (RSV周期) / M1: int (K值平滑) / M2: int (D值平滑) / 超买阈值 / 超卖阈值
+///   RSV: float|None — 未成熟随机值
+///   K: float|None / D: float|None / J: float|None — KDJ 三线值
+///   历史最高价队列 / 历史最低价队列: list[float]
+///   前一个RSV / 前一个K / 前一个D: float|None
+///
+/// 方法（均为 classmethod，直接构造实例）:
+///   首次计算(最高价, 最低价, 收盘价, 时间, N=9, M1=3, M2=3, 超买=80, 超卖=20)
+///   首次计算_K线(k线, 计算方式, ...)
+///   增量计算(前一个KDJ, 最高价, 最低价, 收盘价, 时间)
+///   增量计算_K线(前一个KDJ, 当前K线, 计算方式)
 #[pyclass(name = "随机指标")]
 #[derive(Clone)]
 pub struct 随机指标Py {
@@ -543,6 +589,12 @@ impl 随机指标Py {
 
 // ========== 指标 (static namespace) ==========
 
+/// 指标 — 静态工具类，提供指标计算的辅助方法。
+///
+/// 方法:
+///   K线取值(k线, 指标计算方式) -> float (classmethod)
+///     根据计算方式从K线提取数值。
+///     计算方式: "收盘价" / "开盘价" / "高" / "低" / "均值" 等
 #[pyclass(name = "指标")]
 pub struct 指标Py;
 
