@@ -1,8 +1,33 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 YuYuKunKun
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::algorithm_py::中枢Py;
 use crate::config_py::缠论配置Py;
 use crate::kline_py::{缠论K线Py, K线Py};
 use crate::types_py::{分型结构Py, 相对方向Py, 缺口Py};
@@ -268,7 +293,38 @@ impl 虚线Py {
         Ok(list.into())
     }
 
-    // 实_中枢序列 / 虚_中枢序列 / 合_中枢序列 — deferred to Phase 6 (中枢Py not yet available)
+    #[getter]
+    fn 实_中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::empty(py);
+        for h in &self.inner.实_中枢序列 {
+            list.append(中枢Py {
+                inner: Rc::clone(h),
+            })?;
+        }
+        Ok(list.into())
+    }
+
+    #[getter]
+    fn 虚_中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::empty(py);
+        for h in &self.inner.虚_中枢序列 {
+            list.append(中枢Py {
+                inner: Rc::clone(h),
+            })?;
+        }
+        Ok(list.into())
+    }
+
+    #[getter]
+    fn 合_中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::empty(py);
+        for h in &self.inner.合_中枢序列 {
+            list.append(中枢Py {
+                inner: Rc::clone(h),
+            })?;
+        }
+        Ok(list.into())
+    }
 
     // ---- 计算属性 ----
 
@@ -504,6 +560,68 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    fn 计算MACD柱子均值_阴(
+        _cls: &Bound<'_, PyType>,
+        普K序列: Vec<Py<K线Py>>,
+        实线: &Bound<'_, Self>,
+        py: Python<'_>,
+    ) -> Option<f64> {
+        let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
+            .iter()
+            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .collect();
+        chanlun::structure::dash_line::虚线::计算MACD柱子均值_阴(
+            &rc_list,
+            &实线.borrow().inner,
+        )
+    }
+
+    #[classmethod]
+    fn 计算MACD柱子均值_阳(
+        _cls: &Bound<'_, PyType>,
+        普K序列: Vec<Py<K线Py>>,
+        实线: &Bound<'_, Self>,
+        py: Python<'_>,
+    ) -> Option<f64> {
+        let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
+            .iter()
+            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .collect();
+        chanlun::structure::dash_line::虚线::计算MACD柱子均值_阳(
+            &rc_list,
+            &实线.borrow().inner,
+        )
+    }
+
+    #[classmethod]
+    fn 武之MACD均值_阴(
+        _cls: &Bound<'_, PyType>,
+        普K序列: Vec<Py<K线Py>>,
+        实线: &Bound<'_, Self>,
+        py: Python<'_>,
+    ) -> bool {
+        let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
+            .iter()
+            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .collect();
+        chanlun::structure::dash_line::虚线::武之MACD均值_阴(&rc_list, &实线.borrow().inner)
+    }
+
+    #[classmethod]
+    fn 武之MACD均值_阳(
+        _cls: &Bound<'_, PyType>,
+        普K序列: Vec<Py<K线Py>>,
+        实线: &Bound<'_, Self>,
+        py: Python<'_>,
+    ) -> bool {
+        let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
+            .iter()
+            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .collect();
+        chanlun::structure::dash_line::虚线::武之MACD均值_阳(&rc_list, &实线.borrow().inner)
+    }
+
+    #[classmethod]
     fn 计算K线序列MACD趋向背驰(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -562,7 +680,16 @@ impl 虚线Py {
         chanlun::structure::dash_line::虚线::统计MACD行为(&rc_list, 最大间隔, 最少交叉数)
     }
 
-    // 买卖意义 — deferred to Phase 7 (needs observer)
+    #[classmethod]
+    fn 买卖意义(
+        _cls: &Bound<'_, PyType>,
+        实线: &Bound<'_, Self>,
+        观察员: &Bound<'_, crate::business_py::观察者Py>,
+    ) -> (bool, String) {
+        let obs = 观察员.borrow();
+        let obs_ref = obs.obs();
+        chanlun::structure::dash_line::虚线::买卖意义(&实线.borrow().inner, &*obs_ref)
+    }
 }
 
 // ========== 线段特征 ==========

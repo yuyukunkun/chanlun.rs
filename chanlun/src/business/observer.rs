@@ -1,3 +1,27 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 YuYuKunKun
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 use crate::algorithm::bi::笔;
 use crate::algorithm::hub::中枢;
 use crate::algorithm::segment::线段;
@@ -8,6 +32,7 @@ use crate::structure::dash_line::虚线;
 use crate::structure::fractal_obj::分型;
 use crate::types::相对方向;
 use crate::utils::datetime;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 /// 观察者 — 单周期分析器，持有所有层级序列，接收K线流式输入后逐层计算
@@ -50,7 +75,7 @@ pub struct 观察者 {
 }
 
 impl 观察者 {
-    pub fn new(符号: String, 周期: i64, 配置: 缠论配置) -> Self {
+    pub fn new(符号: String, 周期: i64, 配置: 缠论配置) -> Rc<RefCell<Self>> {
         let 终止时间戳 = if 配置.手动终止 != "1970-01-01 00:00:00" && !配置.手动终止.is_empty()
         {
             datetime::转化为时间戳(&配置.手动终止)
@@ -80,7 +105,7 @@ impl 观察者 {
             终止时间戳,
         };
         instance.配置.标识 = 符号;
-        instance
+        Rc::new(RefCell::new(instance))
     }
 
     /// 标识
@@ -458,8 +483,9 @@ impl 观察者 {
 
     /// 读取数据文件 — 从 .nb 文件加载数据
     pub fn 读取数据文件(
-        文件路径: &str, 配置: Option<缠论配置>
-    ) -> Result<Self, String> {
+        文件路径: &str,
+        配置: Option<缠论配置>,
+    ) -> Result<Rc<RefCell<Self>>, String> {
         let 配置 = 配置.unwrap_or_default();
 
         // Parse filename: btcusd-300-1631772074-1632222374.nb
@@ -477,14 +503,14 @@ impl 观察者 {
             .parse()
             .map_err(|e| format!("parse period: {}", e))?;
 
-        let mut 实例 = Self::new(符号, 周期, 配置);
+        let 实例 = Self::new(符号, 周期, 配置);
 
         let data = std::fs::read(文件路径).map_err(|e| format!("read file: {}", e))?;
         let size = 48; // 6 × 8 bytes (big-endian double)
         for i in 0..data.len() / size {
             let offset = i * size;
             if let Some(k线) = K线::from_bytes(&data[offset..offset + size], 周期, "nb") {
-                实例.增加原始K线(k线);
+                实例.borrow_mut().增加原始K线(k线);
             }
         }
 

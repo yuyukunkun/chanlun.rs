@@ -212,6 +212,9 @@ class datetime(datetime):  # 用于对齐C输出
     def __repr__(self):
         return f"{int(self.timestamp())}"
 
+    def __int__(self) -> int:
+        return int(self.timestamp())
+
 
 def 转化为时间戳(ts: Union[str, datetime, int, float]) -> datetime:
     """
@@ -4178,7 +4181,6 @@ def 测试_周期合成(配置: 缠论配置, 配置组: Dict[int, 缠论配置]
 
 
 if __name__ == "__main__":
-
     当前配置 = 缠论配置.不推送()
     当前配置.加载文件路径 = str(Path(__file__).parent / "btcusd-300-1761327300-1776327900.nb")
     测试_读取数据(当前配置)().测试_保存数据()

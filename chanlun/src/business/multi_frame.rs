@@ -1,8 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 YuYuKunKun
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 use crate::business::observer::观察者;
 use crate::business::synthesizer::K线合成器;
 use crate::config::缠论配置;
 use crate::kline::bar::K线;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// 立体分析器 — 多周期协调器
 ///
@@ -12,7 +38,7 @@ pub struct 立体分析器 {
     pub 周期组: Vec<i64>,
     输入周期: i64,
     K线合成器: K线合成器,
-    单体分析器: HashMap<i64, 观察者>,
+    单体分析器: HashMap<i64, Rc<RefCell<观察者>>>,
 }
 
 impl 立体分析器 {
@@ -69,20 +95,15 @@ impl 立体分析器 {
 
         // Dispatch on completion events (matching Python's __K线回调)
         for (周期, 完成K线) in 完成事件 {
-            if let Some(观察员) = self.单体分析器.get_mut(&周期) {
-                观察员.增加原始K线(完成K线);
+            if let Some(观察员) = self.单体分析器.get(&周期) {
+                观察员.borrow_mut().增加原始K线(完成K线);
             }
         }
     }
 
     /// 获取指定周期的观察者
-    pub fn 获取观察者(&self, 周期: i64) -> Option<&观察者> {
-        self.单体分析器.get(&周期)
-    }
-
-    /// 获取指定周期的观察者（可变）
-    pub fn 获取观察者_mut(&mut self, 周期: i64) -> Option<&mut 观察者> {
-        self.单体分析器.get_mut(&周期)
+    pub fn 获取观察者(&self, 周期: i64) -> Option<Rc<RefCell<观察者>>> {
+        self.单体分析器.get(&周期).cloned()
     }
 
     /// 测试_保存数据 — 多级别数据拆分保存
@@ -95,25 +116,23 @@ impl 立体分析器 {
         let 起始时间 = self
             .单体分析器
             .get(&self.输入周期)
-            .and_then(|o| o.普通K线序列.first())
-            .map(|k| k.时间戳)
+            .and_then(|o| o.borrow().普通K线序列.first().map(|k| k.时间戳))
             .unwrap_or(0);
         let 结束时间 = self
             .单体分析器
             .get(&self.输入周期)
-            .and_then(|o| o.普通K线序列.last())
-            .map(|k| k.时间戳)
+            .and_then(|o| o.borrow().普通K线序列.last().map(|k| k.时间戳))
             .unwrap_or(0);
         let 标识 = self
             .单体分析器
             .get(&self.输入周期)
-            .map(|o| o.符号.clone())
+            .map(|o| o.borrow().符号.clone())
             .unwrap_or_default();
 
         let 周期 = self
             .单体分析器
             .get(&self.输入周期)
-            .map(|o| o.周期)
+            .map(|o| o.borrow().周期)
             .unwrap_or_default();
 
         let 目录标识 = format!("RustM_{}:{}_{}_{}", 标识, 周期, 起始时间, 结束时间);
@@ -126,7 +145,9 @@ impl 立体分析器 {
 
         for 周期 in &self.周期组 {
             if let Some(观察员) = self.单体分析器.get(周期) {
-                观察员.测试_保存数据(Some(&保存路径.to_string_lossy()));
+                观察员
+                    .borrow()
+                    .测试_保存数据(Some(&保存路径.to_string_lossy()));
             }
         }
 

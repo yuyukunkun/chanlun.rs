@@ -1,7 +1,32 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 YuYuKunKun
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use std::rc::Rc;
 
+use crate::business_py::观察者Py;
 use crate::config_py::缠论配置Py;
 use crate::kline_py::K线Py;
 use crate::structure_py::{分型Py, 虚线Py};
@@ -392,7 +417,44 @@ impl 笔Py {
         ))
     }
 
-    // 自检, 获取所有停顿位置, 是否背驰过 — deferred to Phase 7 (need observer)
+    #[classmethod]
+    fn 自检(
+        _cls: &Bound<'_, PyType>,
+        筆: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+    ) -> bool {
+        let obs = 观察员.borrow();
+        let obs_ref = obs.obs();
+        chanlun::algorithm::bi::笔::自检(&筆.borrow().inner, &*obs_ref)
+    }
+
+    #[classmethod]
+    fn 获取所有停顿位置(
+        _cls: &Bound<'_, PyType>,
+        筆: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+    ) -> Vec<虚线Py> {
+        let obs = 观察员.borrow();
+        let obs_ref = obs.obs();
+        chanlun::algorithm::bi::笔::获取所有停顿位置(&筆.borrow().inner, &*obs_ref)
+            .into_iter()
+            .map(|d| 虚线Py { inner: Rc::new(d) })
+            .collect()
+    }
+
+    #[classmethod]
+    fn 是否背驰过(
+        _cls: &Bound<'_, PyType>,
+        当前筆: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+    ) -> Vec<分型Py> {
+        let obs = 观察员.borrow();
+        let obs_ref = obs.obs();
+        chanlun::algorithm::bi::笔::是否背驰过(&当前筆.borrow().inner, &*obs_ref)
+            .into_iter()
+            .map(|f| 分型Py { inner: f })
+            .collect()
+    }
 }
 
 // ========== 线段 ==========
@@ -829,7 +891,50 @@ impl 线段Py {
         Ok(())
     }
 
-    // 判断线段内部是否背驰, 段获取所有停顿位置, 是否背驰过 — deferred to Phase 7 (need observer)
+    #[classmethod]
+    fn 判断线段内部是否背驰(
+        _cls: &Bound<'_, PyType>,
+        当前段: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+    ) -> bool {
+        let obs = 观察员.borrow();
+        let obs_ref = obs.obs();
+        chanlun::algorithm::segment::线段::判断线段内部是否背驰(
+            &当前段.borrow().inner,
+            &*obs_ref,
+        )
+    }
+
+    #[classmethod]
+    fn 段获取所有停顿位置(
+        _cls: &Bound<'_, PyType>,
+        段: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+    ) -> Vec<虚线Py> {
+        let obs = 观察员.borrow();
+        let obs_ref = obs.obs();
+        chanlun::algorithm::segment::线段::段获取所有停顿位置(
+            &段.borrow().inner,
+            &*obs_ref,
+        )
+        .into_iter()
+        .map(|d| 虚线Py { inner: Rc::new(d) })
+        .collect()
+    }
+
+    #[classmethod]
+    fn 是否背驰过(
+        _cls: &Bound<'_, PyType>,
+        当前段: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+    ) -> Vec<分型Py> {
+        let obs = 观察员.borrow();
+        let obs_ref = obs.obs();
+        chanlun::algorithm::segment::线段::是否背驰过(&当前段.borrow().inner, &*obs_ref)
+            .into_iter()
+            .map(|f| 分型Py { inner: f })
+            .collect()
+    }
 }
 
 // ========== 中枢 ==========
@@ -870,6 +975,17 @@ impl 中枢Py {
     #[getter]
     fn 级别(&self) -> i64 {
         self.inner.级别
+    }
+
+    #[getter]
+    fn 基础序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::empty(py);
+        for d in &self.inner.基础序列 {
+            list.append(虚线Py {
+                inner: Rc::clone(d),
+            })?;
+        }
+        Ok(list.into())
     }
 
     #[getter]

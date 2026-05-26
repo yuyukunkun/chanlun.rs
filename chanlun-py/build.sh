@@ -30,6 +30,7 @@ usage() {
   wheel       构建 wheel 包（release）
   publish     发布至 PyPI（需先配置 TWINE_ 环境变量或 .pypirc）
   clean       清理构建产物
+  bump        版本号自增（年月.次 → 2605.X）
   check       检查 pyproject.toml 配置是否合法
 
 PyPI 发布流程:
@@ -56,7 +57,13 @@ cmd_release() {
     cargo build --release
 }
 
+cmd_bump() {
+    green "[bump] 版本号自增..."
+    python3 "$PROJECT_DIR/bump_version.py"
+}
+
 cmd_install() {
+    cmd_bump
     green "[install] 构建 wheel 并安装..."
     maturin build --release 2>&1 | tail -3
     local wheel=$(ls -t target/wheels/*.whl 2>/dev/null | head -1)
@@ -102,6 +109,7 @@ cmd_sdist() {
 }
 
 cmd_wheel() {
+    cmd_bump
     green "[wheel] 构建 wheel 包..."
     maturin build --release
     yellow "构建产物在: target/wheels/"
@@ -109,6 +117,7 @@ cmd_wheel() {
 }
 
 cmd_publish() {
+    cmd_bump
     yellow "发布前请确认:"
     yellow "  1. Cargo.toml 中 chanlun 依赖已切换为 crates.io 版本"
     yellow "  2. 版本号已更新 (pyproject.toml + Cargo.toml)"
@@ -162,6 +171,7 @@ case "${1:-}" in
     wheel)       cmd_wheel ;;
     publish)     cmd_publish ;;
     clean)       cmd_clean ;;
+    bump)        cmd_bump ;;
     check)       cmd_check ;;
     -h|--help|help) usage ;;
     *)           red "未知命令: ${1:-}"; usage; exit 1 ;;

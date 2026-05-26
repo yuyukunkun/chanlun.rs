@@ -1,3 +1,27 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 YuYuKunKun
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
 use std::collections::HashMap;
@@ -50,6 +74,12 @@ impl 缠论配置Py {
                 "缠论配置 没有字段: {name}"
             )))
         }
+    }
+
+    fn __dir__(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.fields.keys().cloned().collect();
+        names.sort();
+        names
     }
 
     fn __str__(&self) -> String {
@@ -178,6 +208,10 @@ impl 缠论配置Py {
 
     pub(crate) fn to_rust_config(&self, py: Python<'_>) -> PyResult<chanlun::config::缠论配置> {
         dict_to_rust_config(&self.fields)
+    }
+
+    pub(crate) fn from_rust_config(config: &chanlun::config::缠论配置) -> PyResult<Self> {
+        config_to_field_dict(config).map(|fields| Self { fields })
     }
 }
 
