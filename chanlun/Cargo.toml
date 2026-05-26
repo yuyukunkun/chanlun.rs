@@ -9,6 +9,9 @@ readme = "README.md"
 repository = "https://github.com/YuYuKunKun/chanlun.rs"
 keywords = ["trading", "finance", "technical-analysis", "quant", "chanlun"]
 categories = ["algorithms", "finance", "science"]
+homepage = "https://github.com/YuYuKunKun/chanlun.rs"
+documentation = "https://docs.rs/chanlun/"
+authors = ["YuYuKunKun"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
