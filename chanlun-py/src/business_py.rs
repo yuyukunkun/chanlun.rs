@@ -279,7 +279,7 @@ impl 买卖点Py {
 
 // ========== 观察者 ==========
 
-#[pyclass(name = "观察者", unsendable)]
+#[pyclass(name = "观察者", subclass, unsendable)]
 pub struct 观察者Py {
     pub(crate) inner: chanlun::business::observer::观察者,
 }

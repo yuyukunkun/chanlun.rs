@@ -345,7 +345,7 @@ class 缠论配置(BaseModel):
     线段内部背驰_测度: bool = True
     线段内部背驰_模式: str = "相对"  # 【任意，配置，全量，相对】
 
-    加载文件路径: str = "./templates/last.nb"
+    加载文件路径: str = ""
 
     @model_validator(mode="before")
     def 兼容旧版本配置(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -4178,7 +4178,8 @@ def 测试_周期合成(配置: 缠论配置, 配置组: Dict[int, 缠论配置]
 
 
 if __name__ == "__main__":
+
     当前配置 = 缠论配置.不推送()
-    当前配置.加载文件路径 = "./btcusd-300-1761327300-1776327900.nb"
+    当前配置.加载文件路径 = str(Path(__file__).parent / "btcusd-300-1761327300-1776327900.nb")
     测试_读取数据(当前配置)().测试_保存数据()
     测试_周期合成(当前配置)().测试_保存数据()

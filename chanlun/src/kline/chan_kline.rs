@@ -172,6 +172,9 @@ impl 缠论K线 {
         普k: Rc<K线>,
         之前: Option<&缠论K线>,
     ) -> Self {
+        if 高.is_nan() || 低.is_nan() {
+            panic!("缠K高/低不能为NaN: 高={高}, 低={低}");
+        }
         assert!(高 >= 低, "缠K高必须>=低: 高={高}, 低={低}");
 
         let 周期 = 普k.周期;

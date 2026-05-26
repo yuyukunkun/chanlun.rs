@@ -196,7 +196,7 @@ impl Default for 缠论配置 {
             线段内部背驰_斜率: true,
             线段内部背驰_测度: true,
             线段内部背驰_模式: "相对".into(),
-            加载文件路径: "./templates/last.nb".into(),
+            加载文件路径: String::new(),
         }
     }
 }

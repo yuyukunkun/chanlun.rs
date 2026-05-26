@@ -60,6 +60,10 @@ impl 相对方向 {
 
     /// 分析两个K线之间的相对方向
     pub fn 分析(前高: f64, 前低: f64, 后高: f64, 后低: f64) -> Self {
+        // NaN 值无法判断方向，视为"同"避免 panic
+        if 前高.is_nan() || 前低.is_nan() || 后高.is_nan() || 后低.is_nan() {
+            return Self::同;
+        }
         if 前高 == 后高 && 前低 == 后低 {
             return Self::同;
         }

@@ -88,7 +88,9 @@ impl 立体分析器 {
     /// 测试_保存数据 — 多级别数据拆分保存
     /// 创建父目录 PyM_{标识}_{起始时间}_{结束时间}，各周期观察者保存到子目录
     pub fn 测试_保存数据(&self) {
-        let 根目录 = std::env::current_dir().unwrap_or_default();
+        let 根目录 = std::env::var("CHANLUN_DATA_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir());
 
         let 起始时间 = self
             .单体分析器
@@ -124,7 +126,7 @@ impl 立体分析器 {
 
         for 周期 in &self.周期组 {
             if let Some(观察员) = self.单体分析器.get(周期) {
-                观察员.测试_保存数据(Some(保存路径.to_str().unwrap()));
+                观察员.测试_保存数据(Some(&保存路径.to_string_lossy()));
             }
         }
 

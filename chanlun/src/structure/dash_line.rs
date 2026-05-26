@@ -464,7 +464,7 @@ impl 虚线 {
                         .unwrap()
                         .MACD柱
                         .partial_cmp(&b.macd.as_ref().unwrap().MACD柱)
-                        .unwrap()
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
             let mut 柱对 = vec![Rc::clone(*最高柱子), Rc::clone(最后)];
@@ -481,7 +481,7 @@ impl 虚线 {
                 .max_by(|a, b| {
                     let da = a.macd.as_ref().and_then(|m| m.DIF).unwrap_or(0.0);
                     let db = b.macd.as_ref().and_then(|m| m.DIF).unwrap_or(0.0);
-                    da.partial_cmp(&db).unwrap()
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
             if let (Some(m0), Some(m1)) = (最高离差值.macd.as_ref(), 最后.macd.as_ref()) {
@@ -498,7 +498,7 @@ impl 虚线 {
                 .max_by(|a, b| {
                     let da = a.macd.as_ref().and_then(|m| m.DEA).unwrap_or(0.0);
                     let db = b.macd.as_ref().and_then(|m| m.DEA).unwrap_or(0.0);
-                    da.partial_cmp(&db).unwrap()
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
             if let (Some(m0), Some(m1)) = (最高信号线.macd.as_ref(), 最后.macd.as_ref()) {
@@ -531,7 +531,7 @@ impl 虚线 {
                         .MACD柱
                         .abs()
                         .partial_cmp(&b.macd.as_ref().unwrap().MACD柱.abs())
-                        .unwrap()
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
             let mut 柱对 = vec![Rc::clone(*最高柱子), Rc::clone(最后)];
@@ -548,7 +548,7 @@ impl 虚线 {
                 .max_by(|a, b| {
                     let da = a.macd.as_ref().and_then(|m| m.DIF).unwrap_or(0.0).abs();
                     let db = b.macd.as_ref().and_then(|m| m.DIF).unwrap_or(0.0).abs();
-                    da.partial_cmp(&db).unwrap()
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
             if let (Some(m0), Some(m1)) = (最高离差值.macd.as_ref(), 最后.macd.as_ref()) {
@@ -565,7 +565,7 @@ impl 虚线 {
                 .max_by(|a, b| {
                     let da = a.macd.as_ref().and_then(|m| m.DEA).unwrap_or(0.0).abs();
                     let db = b.macd.as_ref().and_then(|m| m.DEA).unwrap_or(0.0).abs();
-                    da.partial_cmp(&db).unwrap()
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
             if let (Some(m0), Some(m1)) = (最高信号线.macd.as_ref(), 最后.macd.as_ref()) {

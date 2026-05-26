@@ -86,7 +86,12 @@ cmd_test() {
         local wheel=$(ls -t target/wheels/*.whl 2>/dev/null | head -1)
         pip install --force-reinstall "$wheel" 2>&1 | tail -3
     }
-    python3 test_integration.py
+    # 复制到临时目录运行，避免本地 chanlun/ 目录被优先导入
+    local tmp_dir=$(mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}/chanlun-test-$$")
+    mkdir -p "$tmp_dir"
+    cp test_integration.py "$tmp_dir/test_integration.py"
+    CHANLUN_PROJECT_ROOT="$PROJECT_DIR/.." python3 "$tmp_dir/test_integration.py" "$@"
+    rm -rf "$tmp_dir"
 }
 
 cmd_sdist() {

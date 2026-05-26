@@ -376,7 +376,9 @@ impl 观察者 {
         // 确定根目录
         let 根目录 = match root {
             Some(r) => std::path::PathBuf::from(r),
-            None => std::env::current_dir().unwrap_or_default(),
+            None => std::env::var("CHANLUN_DATA_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| std::env::temp_dir()),
         };
 
         // 生成子目录名称
