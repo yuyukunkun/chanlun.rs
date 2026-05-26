@@ -140,7 +140,7 @@ jobs:
   # 发布至 PyPI
   # ============================================================
   publish:
-    needs: [linux-x86_64, linux-aarch64, macos, windows, sdist]
+    needs: [linux-x86_64, macos, windows, sdist]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish-to-pypi == 'true'
     permissions:
