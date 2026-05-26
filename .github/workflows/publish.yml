@@ -45,42 +45,7 @@ jobs:
           name: wheels-linux-x86_64
           path: chanlun-py/dist/
 
-  # ============================================================
-  # Linux aarch64 (宿主机交叉编译，非 manylinux)
-  # ============================================================
-  linux-aarch64:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 安装 Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: 安装 Rust 工具链 + aarch64 目标
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-gnu
-
-      - name: 安装 aarch64 交叉编译器
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: 构建 wheel
-        uses: PyO3/maturin-action@v1
-        with:
-          target: aarch64
-          working-directory: chanlun-py
-          args: --release --out dist
-
-      - name: 上传 wheel 产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-linux-aarch64
-          path: chanlun-py/dist/
-
+  
   # ============================================================
   # macOS wheels (x86_64 + arm64)
   # ============================================================
