@@ -288,12 +288,8 @@ impl 中枢 {
     /// 返回当前中枢最后一段所处的位置关系：中枢之中/中枢之上/中枢之下
     pub fn 当前状态(&self) -> &str {
         let 最后 = self.基础序列.last().unwrap();
-        let 尾部_中 = if 最后.标识 == "笔" {
-            &最后.武.中
-        } else {
-            &最后.基础序列.last().unwrap().武.中
-        };
-        let 关系 = crate::types::相对方向::分析(self.高(), self.低(), 尾部_中.高, 尾部_中.低);
+        let 尾部 = 最后.获取_武();
+        let 关系 = crate::types::相对方向::分析(self.高(), self.低(), 尾部.中.高, 尾部.中.低);
         if 关系 == crate::types::相对方向::向上缺口 {
             "中枢之上"
         } else if 关系 == crate::types::相对方向::向下缺口 {

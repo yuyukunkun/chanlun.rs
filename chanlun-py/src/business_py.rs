@@ -63,7 +63,7 @@ impl 基础买卖点Py {
         Self {
             inner: chanlun::business::bsp::基础买卖点::new(
                 类型.borrow().inner,
-                Rc::new(当前K线.borrow().inner.clone()),
+                当前K线.borrow().inner.clone(),
                 Rc::clone(&买卖点分型.borrow().inner),
                 备注,
                 中枢破位值,
@@ -74,6 +74,12 @@ impl 基础买卖点Py {
     #[getter]
     fn 备注(&self) -> String {
         self.inner.备注.clone()
+    }
+
+    #[setter]
+    #[pyo3(name = "备注")]
+    fn 设置_备注(&mut self, value: String) {
+        self.inner.备注 = value;
     }
 
     #[getter]
@@ -92,29 +98,27 @@ impl 基础买卖点Py {
 
     #[getter]
     fn 买卖点K线(&self) -> 缠论K线Py {
-        缠论K线Py {
-            inner: Rc::clone(&self.inner.买卖点K线),
-        }
+        缠论K线Py::from_rc(Rc::clone(&self.inner.买卖点K线))
     }
 
     #[getter]
     fn 当前K线(&self) -> K线Py {
         K线Py {
-            inner: (*self.inner.当前K线).clone(),
+            inner: self.inner.当前K线.clone(),
         }
     }
 
     #[getter]
     fn 失效K线(&self) -> Option<K线Py> {
         self.inner.失效K线.as_ref().map(|k| K线Py {
-            inner: (**k).clone(),
+            inner: Rc::clone(k),
         })
     }
 
     #[getter]
     fn 终结K线(&self) -> Option<K线Py> {
         self.inner.终结K线.as_ref().map(|k| K线Py {
-            inner: (**k).clone(),
+            inner: Rc::clone(k),
         })
     }
 
@@ -130,10 +134,12 @@ impl 基础买卖点Py {
             .map(|f| crate::types_py::分型结构Py { inner: f })
     }
 
+    #[getter]
     fn 偏移(&self) -> i64 {
         self.inner.偏移()
     }
 
+    #[getter]
     fn 失效偏移(&self) -> i64 {
         self.inner.失效偏移()
     }
@@ -187,7 +193,7 @@ impl 买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::一卖点(
                 Rc::clone(&买卖点分型.borrow().inner),
-                Rc::new(当前K线.borrow().inner.clone()),
+                当前K线.borrow().inner.clone(),
                 标识,
                 备注,
                 中枢破位值,
@@ -207,7 +213,7 @@ impl 买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::一买点(
                 Rc::clone(&买卖点分型.borrow().inner),
-                Rc::new(当前K线.borrow().inner.clone()),
+                当前K线.borrow().inner.clone(),
                 标识,
                 备注,
                 中枢破位值,
@@ -227,7 +233,7 @@ impl 买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::二卖点(
                 Rc::clone(&买卖点分型.borrow().inner),
-                Rc::new(当前K线.borrow().inner.clone()),
+                当前K线.borrow().inner.clone(),
                 标识,
                 备注,
                 中枢破位值,
@@ -247,7 +253,7 @@ impl 买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::二买点(
                 Rc::clone(&买卖点分型.borrow().inner),
-                Rc::new(当前K线.borrow().inner.clone()),
+                当前K线.borrow().inner.clone(),
                 标识,
                 备注,
                 中枢破位值,
@@ -267,7 +273,7 @@ impl 买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::三卖点(
                 Rc::clone(&买卖点分型.borrow().inner),
-                Rc::new(当前K线.borrow().inner.clone()),
+                当前K线.borrow().inner.clone(),
                 标识,
                 备注,
                 中枢破位值,
@@ -287,7 +293,7 @@ impl 买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::三买点(
                 Rc::clone(&买卖点分型.borrow().inner),
-                Rc::new(当前K线.borrow().inner.clone()),
+                当前K线.borrow().inner.clone(),
                 标识,
                 备注,
                 中枢破位值,
@@ -370,33 +376,68 @@ impl 观察者Py {
 
 #[pymethods]
 impl 观察者Py {
-    /// __new__ 只分配空壳，构造逻辑在 __init__
+    /// __new__ 从 *args/**kwargs 中提取 (符号, 周期, 配置)，完整初始化观察者。
+    /// 由于形参可变（子类参数各异），不依赖固定签名，而是从 args/kwargs 中按位置和名称智能提取。
     #[new]
     #[pyo3(signature = (*args, **kwargs))]
     fn new(
         args: &Bound<'_, pyo3::types::PyTuple>,
         kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
-    ) -> Self {
-        let _ = (args, kwargs);
-        Self { inner: None }
+    ) -> PyResult<Self> {
+        let py = args.py();
+
+        // 提取 符号（位置 0 或关键字）
+        let 符号: String = if !args.is_empty() {
+            args.get_item(0)?.extract()?
+        } else {
+            match kwargs.and_then(|kw| kw.get_item("符号").ok().flatten()) {
+                Some(val) => val.extract()?,
+                None => return Err(pyo3::exceptions::PyTypeError::new_err("缺少参数: 符号")),
+            }
+        };
+
+        // 提取 周期（位置 1 或关键字）
+        let 周期: i64 = if args.len() >= 2 {
+            args.get_item(1)?.extract()?
+        } else {
+            match kwargs.and_then(|kw| kw.get_item("周期").ok().flatten()) {
+                Some(val) => val.extract()?,
+                None => return Err(pyo3::exceptions::PyTypeError::new_err("缺少参数: 周期")),
+            }
+        };
+
+        // 提取 配置（关键字优先，然后扫描剩余位置参数）
+        let mut config = None;
+        if let Some(val) = kwargs.and_then(|kw| kw.get_item("配置").ok().flatten()) {
+            let cfg: PyRef<'_, 缠论配置Py> = val.extract()?;
+            config = Some(cfg.to_rust_config(py)?);
+        }
+        if config.is_none() {
+            for i in 2..args.len() {
+                if let Ok(cfg) = args.get_item(i)?.extract::<PyRef<'_, 缠论配置Py>>() {
+                    config = Some(cfg.to_rust_config(py)?);
+                    break;
+                }
+            }
+        }
+        let config = config.unwrap_or_else(chanlun::config::缠论配置::default);
+
+        Ok(Self {
+            inner: Some(chanlun::business::observer::观察者::new(
+                符号, 周期, config,
+            )),
+        })
     }
 
-    /// __init__ 执行真正的构造。子类可重写并调用 super().__init__(符号, 周期, 配置)
-    #[pyo3(signature = (符号, 周期, 配置 = None))]
+    /// __init__ 不重复构造 — __new__ 已完成初始化。
+    /// 接收 *args/**kwargs 是为了兼容 Python 构造函数给 __init__ 传入的任意形参。
+    #[pyo3(signature = (*args, **kwargs))]
     fn __init__(
         &mut self,
-        py: Python<'_>,
-        符号: String,
-        周期: i64,
-        配置: Option<&Bound<'_, 缠论配置Py>>,
+        args: &Bound<'_, pyo3::types::PyTuple>,
+        kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
     ) -> PyResult<()> {
-        let config = match 配置 {
-            Some(cfg) => cfg.borrow().to_rust_config(py)?,
-            None => chanlun::config::缠论配置::default(),
-        };
-        self.inner = Some(chanlun::business::observer::观察者::new(
-            符号, 周期, config,
-        ));
+        let _ = (args, kwargs);
         Ok(())
     }
 
@@ -413,15 +454,15 @@ impl 观察者Py {
     #[getter]
     fn 当前K线(&self) -> Option<K线Py> {
         self.obs().当前K线().map(|k| K线Py {
-            inner: (**k).clone(),
+            inner: Rc::clone(k),
         })
     }
 
     #[getter]
     fn 当前缠K(&self) -> Option<缠论K线Py> {
-        self.obs().当前缠K().map(|k| 缠论K线Py {
-            inner: Rc::clone(k),
-        })
+        self.obs()
+            .当前缠K()
+            .map(|k| 缠论K线Py::from_rc(Rc::clone(k)))
     }
 
     #[getter]
@@ -444,7 +485,35 @@ impl 观察者Py {
     }
 
     fn 增加原始K线(&mut self, 普K: &Bound<'_, K线Py>) {
-        self.obs_mut().增加原始K线(普K.borrow().inner.clone());
+        self.obs_mut().增加原始K线((*普K.borrow().inner).clone());
+    }
+
+    /// 加载本地数据 — 从 .nb 文件加载K线数据（先重置，再通过 Python dispatch 逐根投喂，
+    /// 确保子类重写的 增加原始K线 被正确调用）。
+    fn 加载本地数据(slf: &Bound<'_, Self>, 文件路径: &str) -> PyResult<()> {
+        let py = slf.py();
+
+        // 重置基础序列
+        slf.borrow_mut().obs_mut().重置基础序列();
+
+        // 解析文件得到 K线 列表
+        let bars = slf
+            .borrow()
+            .obs()
+            .解析本地数据(文件路径)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+
+        // 通过 Python dispatch 逐根投喂，确保子类重写生效
+        for k线 in bars {
+            let k线_py = Py::new(
+                py,
+                K线Py {
+                    inner: Rc::new(k线),
+                },
+            )?;
+            slf.call_method1("增加原始K线", (k线_py,))?;
+        }
+        Ok(())
     }
 
     fn 静态重新分析(&mut self) {
@@ -456,19 +525,61 @@ impl 观察者Py {
     }
 
     #[classmethod]
+    #[pyo3(signature = (文件路径, 配置 = None))]
     fn 读取数据文件(
-        _cls: &Bound<'_, PyType>,
+        cls: &Bound<'_, PyType>,
         文件路径: &str,
         配置: Option<&Bound<'_, 缠论配置Py>>,
         py: Python<'_>,
-    ) -> PyResult<Self> {
+    ) -> PyResult<Py<PyAny>> {
         let config = match 配置 {
-            Some(cfg) => Some(cfg.borrow().to_rust_config(py)?),
-            None => None,
+            Some(cfg) => cfg.borrow().to_rust_config(py)?,
+            None => chanlun::config::缠论配置::default(),
         };
-        chanlun::business::observer::观察者::读取数据文件(文件路径, config)
-            .map(|inner| Self { inner: Some(inner) })
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+
+        // 从文件名解析 符号/周期: "btcusd-300-1761327300-1776327900.nb"
+        let path = std::path::Path::new(文件路径);
+        let name = path
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("invalid filename"))?;
+        let parts: Vec<&str> = name.split('-').collect();
+        if parts.len() < 4 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "invalid filename format: {}",
+                name
+            )));
+        }
+        let 符号 = parts[0].to_string();
+        let 周期: i64 = parts[1]
+            .parse()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("parse period: {}", e)))?;
+
+        // 通过 cls 构造实例（支持子类化）
+        let cfg_py = 缠论配置Py::from_rust_config(&config)?;
+        let cfg_obj = Py::new(py, cfg_py)?;
+        let obj = cls.call1((符号.clone(), 周期, cfg_obj))?;
+
+        // 读取文件并通过 Python 分发逐根投喂（支持子类重写 增加原始K线）
+        let data = std::fs::read(文件路径)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("read file: {}", e)))?;
+        let size: usize = 48;
+        for i in 0..data.len() / size {
+            let offset = i * size;
+            if let Some(k线) =
+                chanlun::kline::bar::K线::from_bytes(&data[offset..offset + size], 周期, &符号)
+            {
+                let k线_py = Py::new(
+                    py,
+                    K线Py {
+                        inner: Rc::new(k线),
+                    },
+                )?;
+                obj.call_method1("增加原始K线", (k线_py,))?;
+            }
+        }
+
+        Ok(obj.unbind())
     }
 
     // ---- 序列 getters ----
@@ -478,7 +589,7 @@ impl 观察者Py {
         let list = pyo3::types::PyList::empty(py);
         for k in &self.obs().普通K线序列 {
             list.append(K线Py {
-                inner: (**k).clone(),
+                inner: Rc::clone(k),
             })?;
         }
         Ok(list.into())
@@ -488,9 +599,7 @@ impl 观察者Py {
     fn 缠论K线序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for k in &self.obs().缠论K线序列 {
-            list.append(缠论K线Py {
-                inner: Rc::clone(k),
-            })?;
+            list.append(缠论K线Py::from_rc(Rc::clone(k)))?;
         }
         Ok(list.into())
     }
@@ -670,10 +779,10 @@ impl K线合成器Py {
         普K: &Bound<'_, K线Py>,
         py: Python<'_>,
     ) -> PyResult<Vec<(i64, K线Py)>> {
-        let results = self.inner.投喂K线(普K.borrow().inner.clone());
+        let results = self.inner.投喂K线((*普K.borrow().inner).clone());
         Ok(results
             .into_iter()
-            .map(|(周期, k)| (周期, K线Py { inner: k }))
+            .map(|(周期, k)| (周期, K线Py { inner: Rc::new(k) }))
             .collect())
     }
 
@@ -701,14 +810,14 @@ impl K线合成器Py {
         let results = self.inner.投喂K线(k);
         results
             .into_iter()
-            .map(|(周期, k2)| (周期, K线Py { inner: k2 }))
+            .map(|(周期, k2)| (周期, K线Py { inner: Rc::new(k2) }))
             .collect()
     }
 
     fn 获取当前K线(&self, 周期: i64) -> Option<K线Py> {
-        self.inner
-            .获取当前K线(周期)
-            .map(|k| K线Py { inner: k.clone() })
+        self.inner.获取当前K线(周期).map(|k| K线Py {
+            inner: Rc::new(k.clone()),
+        })
     }
 
     #[getter]
@@ -776,7 +885,7 @@ impl 立体分析器Py {
     }
 
     fn 投喂K线(&mut self, 普K: &Bound<'_, K线Py>) {
-        self.inner.投喂K线(普K.borrow().inner.clone());
+        self.inner.投喂K线((*普K.borrow().inner).clone());
     }
 
     fn 获取观察者(&self, 周期: i64) -> Option<观察者Py> {

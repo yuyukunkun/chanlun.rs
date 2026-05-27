@@ -481,6 +481,31 @@ impl 观察者 {
         println!("全部数据拆分保存完成，目录：{}", 保存路径.display());
     }
 
+    /// 解析本地数据文件 — 从 .nb 文件读取并解析所有 K线
+    pub fn 解析本地数据(&self, 文件路径: &str) -> Result<Vec<K线>, String> {
+        let data = std::fs::read(文件路径).map_err(|e| format!("read file: {}", e))?;
+        let mut bars = Vec::new();
+        let size = 48;
+        for i in 0..data.len() / size {
+            let offset = i * size;
+            if let Some(k线) = K线::from_bytes(&data[offset..offset + size], self.周期, &self.符号)
+            {
+                bars.push(k线);
+            }
+        }
+        Ok(bars)
+    }
+
+    /// 加载本地数据 — 从 .nb 文件加载数据到当前观察者（先重置再投喂）
+    pub fn 加载本地数据(&mut self, 文件路径: &str) -> Result<(), String> {
+        self.重置基础序列();
+        let bars = self.解析本地数据(文件路径)?;
+        for k线 in bars {
+            self.增加原始K线(k线);
+        }
+        Ok(())
+    }
+
     /// 读取数据文件 — 从 .nb 文件加载数据
     pub fn 读取数据文件(
         文件路径: &str,
@@ -515,5 +540,98 @@ impl 观察者 {
         }
 
         Ok(实例)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::缠论配置;
+
+    #[test]
+    fn test_普k序列指针一致性() {
+        let config = 缠论配置::default();
+        let obs = 观察者::读取数据文件(
+            "/home/moscow/chanlun.rs/btcusd-300-1777649100-1778398800.nb",
+            Some(config),
+        )
+        .unwrap();
+        let obs_ref = obs.borrow();
+
+        // 1. Check that each 笔's 获取普K序列 returns K lines whose Rc pointers
+        //    match entries in 普通K线序列
+        for (i, bi) in obs_ref.笔序列.iter().enumerate() {
+            let pu_seq = bi.获取普K序列(&obs_ref.普通K线序列);
+            if pu_seq.is_empty() {
+                println!("笔 {}: 获取普K序列 返回空 (fallback failed)", i);
+                println!("  文.中.标的K线 原始起始序号: {}", bi.文.中.原始起始序号);
+                println!("  武.中.标的K线 原始结束序号: {}", bi.武.中.原始结束序号);
+                println!("  普通K线序列.len: {}", obs_ref.普通K线序列.len());
+            } else {
+                // Check first element's pointer
+                let first_ptr = Rc::as_ptr(&pu_seq[0]);
+                let found = obs_ref
+                    .普通K线序列
+                    .iter()
+                    .any(|k| Rc::as_ptr(k) == first_ptr);
+                if !found {
+                    println!("笔 {}: 获取普K序列[0] 的 Rc 指针不在 普通K线序列 中!", i);
+                    // Check if 文.中.标的K线  pointer is in 普通K线序列
+                    let wen_ptr = Rc::as_ptr(&bi.文.中.标的K线);
+                    let wen_found = obs_ref.普通K线序列.iter().any(|k| Rc::as_ptr(k) == wen_ptr);
+                    println!("  文.中.标的K线 在序列中: {}", wen_found);
+                } else {
+                    println!("笔 {}: OK, 获取普K序列[0] 在序列中找到", i);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_pyo3_flow_pointer_consistency() {
+        // Simulate what the PyO3 读取数据文件 classmethod does:
+        // 1. Parse K lines from file
+        // 2. Create "K线Py { inner: Rc::new(k线) }" for each
+        // 3. Call observer.增加原始K线(k线_value)
+
+        let config = 缠论配置::default();
+        let obs_ref = 观察者::new("btcusd".into(), 300, config);
+
+        let file_path = "/home/moscow/chanlun.rs/btcusd-300-1777649100-1778398800.nb";
+        let data = std::fs::read(file_path).unwrap();
+        let size = 48;
+
+        for i in 0..data.len() / size {
+            let offset = i * size;
+            if let Some(k线) = K线::from_bytes(&data[offset..offset + size], 300, "btcusd") {
+                // Simulate: K线Py { inner: Rc::new(k线) }
+                let _k线_py_inner = Rc::new(k线.clone());
+                // In the actual PyO3 path, (*普K.borrow().inner).clone() extracts K线 value
+                // which then gets Rc::wrapped inside the observer
+                obs_ref.borrow_mut().增加原始K线(k线);
+            }
+        }
+
+        let obs = obs_ref.borrow();
+        println!("普通K线序列.len: {}", obs.普通K线序列.len());
+        println!("笔序列.len: {}", obs.笔序列.len());
+
+        // Now check: does 获取普K序列 return K lines whose pointers match 普通K线序列?
+        for (i, bi) in obs.笔序列.iter().enumerate() {
+            let pu_seq = bi.获取普K序列(&obs.普通K线序列);
+            if pu_seq.is_empty() {
+                println!("笔 {}: 获取普K序列 返回空!", i);
+            } else {
+                let first_ptr = Rc::as_ptr(&pu_seq[0]);
+                let found = obs.普通K线序列.iter().any(|k| Rc::as_ptr(k) == first_ptr);
+                if !found {
+                    println!("笔 {}: 获取普K序列[0] 指针不在序列中!", i);
+                }
+                // Only print first few
+                if i < 5 {
+                    println!("笔 {}: OK, len={}", i, pu_seq.len());
+                }
+            }
+        }
     }
 }

@@ -72,23 +72,23 @@ impl 分型Py {
 
     #[getter]
     fn 左(&self) -> Option<缠论K线Py> {
-        self.inner.左.as_ref().map(|k| 缠论K线Py {
-            inner: Rc::clone(k),
-        })
+        self.inner
+            .左
+            .as_ref()
+            .map(|k| 缠论K线Py::from_rc(Rc::clone(k)))
     }
 
     #[getter]
     fn 中(&self) -> 缠论K线Py {
-        缠论K线Py {
-            inner: Rc::clone(&self.inner.中),
-        }
+        缠论K线Py::from_rc(Rc::clone(&self.inner.中))
     }
 
     #[getter]
     fn 右(&self) -> Option<缠论K线Py> {
-        self.inner.右.as_ref().map(|k| 缠论K线Py {
-            inner: Rc::clone(k),
-        })
+        self.inner
+            .右
+            .as_ref()
+            .map(|k| 缠论K线Py::from_rc(Rc::clone(k)))
     }
 
     #[getter]
@@ -114,6 +114,17 @@ impl 分型Py {
 
     fn __repr__(&self) -> String {
         self.__str__()
+    }
+
+    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
+        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
+            return Rc::as_ptr(&self.inner) == Rc::as_ptr(&other.inner);
+        }
+        false
+    }
+
+    fn __hash__(&self) -> u64 {
+        Rc::as_ptr(&self.inner) as u64
     }
 
     #[getter]
@@ -208,8 +219,8 @@ impl 分型Py {
 /// 方法:
 ///   之前是(其他虚线) -> bool — 判断当前虚线是否紧接在另一虚线之前
 ///   之后是(其他虚线) -> bool — 判断当前虚线是否紧接在另一虚线之后
-///   获取普K序列(普K序列) -> list[K线] — 截取该虚线的原始K线范围
-///   获取缠K序列(缠K序列) -> list[缠论K线] — 截取该虚线的缠K范围
+///   获取普K序列(观察员) -> list[K线] — 截取该虚线的原始K线范围
+///   获取缠K序列(观察员) -> list[缠论K线] — 截取该虚线的缠K范围
 ///   获取数据文本() -> str
 ///
 /// 类方法（算法辅助）:
@@ -295,15 +306,35 @@ impl 虚线Py {
     }
 
     #[getter]
+    fn 特征序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::empty(py);
+        for item in &self.inner.特征序列 {
+            match item {
+                Some(feat) => list.append(Py::new(
+                    py,
+                    线段特征Py {
+                        inner: Rc::clone(feat),
+                    },
+                )?)?,
+                None => {
+                    list.append(py.None())?;
+                }
+            }
+        }
+        Ok(list.into())
+    }
+
+    #[getter]
     fn 短路修正(&self) -> bool {
         self.inner.短路修正
     }
 
     #[getter]
     fn 确认K线(&self) -> Option<缠论K线Py> {
-        self.inner.确认K线.as_ref().map(|k| 缠论K线Py {
-            inner: Rc::clone(k),
-        })
+        self.inner
+            .确认K线
+            .as_ref()
+            .map(|k| 缠论K线Py::from_rc(Rc::clone(k)))
     }
 
     #[getter]
@@ -413,39 +444,43 @@ impl 虚线Py {
         self.inner.之后是(&之后.borrow().inner)
     }
 
-    fn 获取普K序列(&self, 普K序列: Vec<Py<K线Py>>, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
-            .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
-            .collect();
-        let result = self.inner.获取普K序列(&rc_list);
-        let list = pyo3::types::PyList::empty(py);
+    fn 获取普K序列(
+        &self,
+        观察员: &Bound<'_, crate::business_py::观察者Py>,
+    ) -> PyResult<Py<PyAny>> {
+        let obs_ref = 观察员.borrow();
+        let observer_inner = obs_ref.obs();
+        let result = self.inner.获取普K序列(&observer_inner.普通K线序列);
+        let list = pyo3::types::PyList::empty(观察员.py());
         for k in &result {
             list.append(K线Py {
-                inner: (**k).clone(),
-            })?;
-        }
-        Ok(list.into())
-    }
-
-    fn 获取缠K序列(
-        &self, 缠K序列: Vec<Py<缠论K线Py>>, py: Python<'_>
-    ) -> PyResult<Py<PyAny>> {
-        let rc_list: Vec<Rc<chanlun::kline::chan_kline::缠论K线>> = 缠K序列
-            .iter()
-            .map(|k| Rc::clone(&k.bind(py).borrow().inner))
-            .collect();
-        let result = self.inner.获取缠K序列(&rc_list);
-        let list = pyo3::types::PyList::empty(py);
-        for k in &result {
-            list.append(缠论K线Py {
                 inner: Rc::clone(k),
             })?;
         }
         Ok(list.into())
     }
 
-    #[getter]
+    fn 获取缠K序列(
+        &self,
+        观察员: &Bound<'_, crate::business_py::观察者Py>,
+    ) -> PyResult<Py<PyAny>> {
+        let obs_ref = 观察员.borrow();
+        let observer_inner = obs_ref.obs();
+        let result = self.inner.获取缠K序列(&observer_inner.缠论K线序列);
+        let list = pyo3::types::PyList::empty(观察员.py());
+        for k in &result {
+            list.append(缠论K线Py::from_rc(Rc::clone(k)))?;
+        }
+        Ok(list.into())
+    }
+
+    #[classmethod]
+    fn 获取_武(_cls: &Bound<'_, PyType>, 实线: &Bound<'_, Self>) -> 分型Py {
+        分型Py {
+            inner: 实线.borrow().inner.获取_武(),
+        }
+    }
+
     fn 获取数据文本(&self) -> String {
         self.inner.获取数据文本()
     }
@@ -456,6 +491,17 @@ impl 虚线Py {
 
     fn __repr__(&self) -> String {
         self.__str__()
+    }
+
+    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
+        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
+            return Rc::as_ptr(&self.inner) == Rc::as_ptr(&other.inner);
+        }
+        false
+    }
+
+    fn __hash__(&self) -> u64 {
+        Rc::as_ptr(&self.inner) as u64
     }
 
     // ---- 静态工厂方法 ----
@@ -547,7 +593,7 @@ impl 虚线Py {
     ) -> f64 {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::计算MACD柱子均值(
             &rc_list,
@@ -564,7 +610,7 @@ impl 虚线Py {
     ) -> bool {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::武之全量MACD均值(
             &rc_list,
@@ -581,7 +627,7 @@ impl 虚线Py {
     ) -> bool {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::武之MACD均值(&rc_list, &实线.borrow().inner)
     }
@@ -595,7 +641,7 @@ impl 虚线Py {
     ) -> bool {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::武之MACD极值(&rc_list, &实线.borrow().inner)
     }
@@ -609,7 +655,7 @@ impl 虚线Py {
     ) -> Option<f64> {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::计算MACD柱子均值_阴(
             &rc_list,
@@ -626,7 +672,7 @@ impl 虚线Py {
     ) -> Option<f64> {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::计算MACD柱子均值_阳(
             &rc_list,
@@ -643,7 +689,7 @@ impl 虚线Py {
     ) -> bool {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::武之MACD均值_阴(&rc_list, &实线.borrow().inner)
     }
@@ -657,7 +703,7 @@ impl 虚线Py {
     ) -> bool {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::武之MACD均值_阳(&rc_list, &实线.borrow().inner)
     }
@@ -671,7 +717,7 @@ impl 虚线Py {
     ) -> [bool; 3] {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::计算K线序列MACD趋向背驰(
             &rc_list,
@@ -687,7 +733,7 @@ impl 虚线Py {
     ) -> Vec<Vec<f64>> {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = k线序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         chanlun::structure::dash_line::虚线::计算MACD柱子分段(&rc_list)
     }
@@ -713,12 +759,37 @@ impl 虚线Py {
         最大间隔: usize,
         最少交叉数: usize,
         py: Python<'_>,
-    ) -> HashMap<String, String> {
+    ) -> PyResult<Py<PyAny>> {
         let rc_list: Vec<Rc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
-            .map(|k| Rc::new(k.bind(py).borrow().inner.clone()))
+            .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
-        chanlun::structure::dash_line::虚线::统计MACD行为(&rc_list, 最大间隔, 最少交叉数)
+        let result =
+            chanlun::structure::dash_line::虚线::统计MACD行为(&rc_list, 最大间隔, 最少交叉数);
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("DIF上穿0", result.DIF上穿0)?;
+        dict.set_item("DIF下穿0", result.DIF下穿0)?;
+        dict.set_item("DEA上穿0", result.DEA上穿0)?;
+        dict.set_item("DEA下穿0", result.DEA下穿0)?;
+        dict.set_item("金叉次数", result.金叉次数)?;
+        dict.set_item("死叉次数", result.死叉次数)?;
+        let 密集区: Vec<Py<PyAny>> = result
+            .密集交叉区域
+            .iter()
+            .map(|(a, b, c)| {
+                let tup = pyo3::types::PyTuple::new(
+                    py,
+                    [
+                        (*a).into_pyobject(py)?.into_any().unbind(),
+                        (*b).into_pyobject(py)?.into_any().unbind(),
+                        (*c).into_pyobject(py)?.into_any().unbind(),
+                    ],
+                )?;
+                Ok(tup.into_any().unbind())
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        dict.set_item("密集交叉区域", 密集区)?;
+        Ok(dict.into())
     }
 
     #[classmethod]
@@ -819,6 +890,53 @@ impl 线段特征Py {
 
     fn __repr__(&self) -> String {
         self.__str__()
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.元素.len()
+    }
+
+    fn __getitem__(&self, index: isize, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let len = self.inner.元素.len() as isize;
+        let idx = if index < 0 { index + len } else { index };
+        if idx < 0 || idx >= len {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "线段特征 index {index} out of range (len={len})"
+            )));
+        }
+        let dash = &self.inner.元素[idx as usize];
+        let obj: Py<PyAny> = Py::new(
+            py,
+            虚线Py {
+                inner: Rc::clone(dash),
+            },
+        )?
+        .into();
+        Ok(obj)
+    }
+
+    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::empty(py);
+        for d in &self.inner.元素 {
+            list.append(Py::new(
+                py,
+                虚线Py {
+                    inner: Rc::clone(d),
+                },
+            )?)?;
+        }
+        list.call_method0("__iter__").map(|iter| iter.into())
+    }
+
+    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
+        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
+            return Rc::as_ptr(&self.inner) == Rc::as_ptr(&other.inner);
+        }
+        false
+    }
+
+    fn __hash__(&self) -> u64 {
+        Rc::as_ptr(&self.inner) as u64
     }
 
     // ---- instance methods ----
@@ -1003,6 +1121,17 @@ impl 特征分型Py {
 
     fn __repr__(&self) -> String {
         self.__str__()
+    }
+
+    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
+        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
+            return Rc::as_ptr(&self.inner) == Rc::as_ptr(&other.inner);
+        }
+        false
+    }
+
+    fn __hash__(&self) -> u64 {
+        Rc::as_ptr(&self.inner) as u64
     }
 }
 

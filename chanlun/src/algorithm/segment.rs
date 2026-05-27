@@ -27,6 +27,7 @@ use crate::algorithm::hub::中枢;
 use crate::business::observer::观察者;
 use crate::config::缠论配置;
 use crate::kline::bar::K线;
+use crate::kline::chan_kline::缠论K线;
 use crate::structure::dash_line::虚线;
 use crate::structure::fractal_obj::分型;
 use crate::structure::segment_feat::线段特征;
@@ -56,7 +57,7 @@ impl 线段 {
         if !段.基础序列.is_empty() {
             if !分型::判断分型(&段.基础序列.last().unwrap().武, &筆.文, "中") {
                 panic!(
-                    "线段.添加虚线 不连续 {:?} {:?}",
+                    "线段.添加虚线 不连续 {} {}",
                     段.基础序列.last().unwrap(),
                     筆
                 );
@@ -85,17 +86,14 @@ impl 线段 {
             );
         }
         if 段.文.结构 == 武.结构 {
-            panic!("文武结构相同 {} {:?} {:?}", 行号, 段.文, 武);
+            panic!("文武结构相同 {} {} {}", 行号, 段.文, 武);
         }
         if let (Some(ref 左), Some(ref 右)) = (&武.左, &武.右) {
             if let Some(分析结构) =
                 分型结构::分析(左.as_ref(), 武.中.as_ref(), 右.as_ref(), false, false)
             {
                 if 分析结构 != 武.结构 {
-                    panic!(
-                        "武斗[{}], 分型结构不一致 {:?} != {:?}",
-                        行号, 分析结构, 武.结构
-                    );
+                    panic!("武斗[{}], 分型结构不一致 {} != {}", 行号, 分析结构, 武.结构);
                 }
             }
         }
@@ -557,7 +555,7 @@ impl 线段 {
 
                 if 特征后一笔.is_none() {
                     eprintln!(
-                        "    线段.刷新 特征后一笔 = None, {:?}, 有效特征: {}",
+                        "    线段.刷新 特征后一笔 = None, {}, 有效特征: {}",
                         段2,
                         有效特征序列.len()
                     );
@@ -679,7 +677,7 @@ impl 线段 {
                 if let Some(前一个) = 线段序列.last() {
                     if !前一个.之后是(seg) {
                         panic!(
-                            "线段.向序列中添加 不连续[{}] {:?} {:?}",
+                            "线段.向序列中添加 不连续[{}] {} {}",
                             行号, 前一个.武, seg.文
                         );
                     }
@@ -694,7 +692,7 @@ impl 线段 {
                 {
                     // The Python code asserts here; we warn
                     eprintln!(
-                        "线段._向序列中添加[{}], 之前线段.右 = None {:?}",
+                        "线段._向序列中添加[{}], 之前线段.右 = None {}",
                         行号, 之前线段
                     );
                 }
@@ -706,7 +704,7 @@ impl 线段 {
                     && !之前线段.短路修正
                 {
                     panic!(
-                        "线段._向序列中添加[{}], 之前线段[-1] not in 待添加虚线! {:?}",
+                        "线段._向序列中添加[{}], 之前线段[-1] not in 待添加虚线! {}",
                         行号, 之前线段
                     );
                 }
@@ -735,7 +733,7 @@ impl 线段 {
         }
 
         if Rc::as_ptr(线段序列.last().unwrap()) != Rc::as_ptr(待弹出线段) {
-            panic!("线段._从序列中删除 弹出数据不在列表中 {:?}", 待弹出线段);
+            panic!("线段._从序列中删除 弹出数据不在列表中 {}", 待弹出线段);
         }
 
         if 待弹出线段.特征序列.len() >= 3 {
@@ -889,7 +887,7 @@ impl 线段 {
         }
 
         // 执行修正
-        eprintln!("[警告<{}, {}>]: 线段.修复贯穿伤 {:?}", 层级, 层级, 贯穿伤);
+        eprintln!("[警告<{}, {}>]: 线段.修复贯穿伤 {}", line!(), 层级, 贯穿伤);
 
         let 原始基础序列 = 当前线段.基础序列.clone();
         Self::_弹出线段(
@@ -1320,7 +1318,7 @@ impl 线段 {
             if let Some(前一个) = 线段序列.last() {
                 if !前一个.之后是(seg) {
                     panic!(
-                        "线段.向序列中添加 不连续[{}] {:?} {:?}",
+                        "线段.向序列中添加 不连续[{}] {} {}",
                         行号, 前一个.武, seg.文
                     );
                 }
@@ -1347,7 +1345,7 @@ impl 线段 {
             seg.有效性 = false;
             Some(drop)
         } else {
-            panic!("线段._从序列中删除 弹出数据不在列表中 {:?}", 待弹出线段);
+            panic!("线段._从序列中删除 弹出数据不在列表中 {}", 待弹出线段);
         }
     }
 
@@ -1630,8 +1628,8 @@ impl 线段 {
         背驰 || 盘整背驰
     }
 
-    /// 段获取所有停顿位置 — 在线段范围内找出所有停顿位置
-    pub fn 段获取所有停顿位置(段: &虚线, 观察员: &观察者) -> Vec<虚线> {
+    /// 获取所有停顿位置 — 在线段范围内找出所有停顿位置
+    pub fn 获取所有停顿位置(段: &虚线, 观察员: &观察者) -> Vec<虚线> {
         let mut 结果 = Vec::new();
         if 段.模式 != "文武" || 段.标识 != "线段" {
             return 结果;
@@ -1647,7 +1645,7 @@ impl 线段 {
         let mut 当前停顿: Option<std::rc::Rc<分型>> = None;
 
         for 筆 in &阳 {
-            if 笔序列.len() >= 2 {
+            if 笔序列.len() >= 3 {
                 let 筆停顿 = 笔::获取所有停顿位置(筆, 观察员);
                 let mut 停顿列表: Vec<Rc<虚线>> = 筆停顿.into_iter().map(|b| Rc::new(b)).collect();
                 停顿列表.push(Rc::clone(筆));
@@ -1676,21 +1674,25 @@ impl 线段 {
                     };
                     if !重复 {
                         if let Some(最后线段) = 线段序列.last() {
-                            let mut 新段 = 虚线::创建线段(&最后线段.基础序列);
-                            新段.序号 = 段.序号;
-                            let mut 新段_rc = Rc::new(新段);
-                            Self::刷新(&mut 新段_rc, &观察员.配置);
-                            let 新段_inner =
-                                Rc::try_unwrap(新段_rc).unwrap_or_else(|rc| (*rc).clone());
-                            if 新段_inner.方向() == 段.方向() {
-                                当前停顿 = Some(Rc::clone(&线段序列.last().unwrap().武));
-                                结果.push(新段_inner);
+                            if 最后线段.基础序列.len() % 2 == 1 {
+                                let mut 新段 = 虚线::创建线段(&最后线段.基础序列);
+                                新段.序号 = 段.序号;
+                                let mut 新段_rc = Rc::new(新段);
+                                Self::刷新(&mut 新段_rc, &观察员.配置);
+                                let 新段_inner =
+                                    Rc::try_unwrap(新段_rc).unwrap_or_else(|rc| (*rc).clone());
+                                if 新段_inner.方向() == 段.方向() {
+                                    当前停顿 = Some(Rc::clone(&线段序列.last().unwrap().武));
+                                    结果.push(新段_inner);
+                                }
                             }
                         }
                     }
 
                     if Rc::as_ptr(停顿) != Rc::as_ptr(筆) {
-                        笔序列.pop();
+                        if let Some(mut popped) = 笔序列.pop() {
+                            Rc::make_mut(&mut popped).有效性 = false;
+                        }
                     }
                 }
             } else {
@@ -1701,15 +1703,15 @@ impl 线段 {
     }
 
     /// 是否背驰过 — 判断线段是否在停顿位置出现过背驰
-    pub fn 是否背驰过(当前段: &虚线, 观察员: &观察者) -> Vec<Rc<分型>> {
-        let 停顿位置 = Self::段获取所有停顿位置(当前段, 观察员);
+    pub fn 是否背驰过(当前段: &虚线, 观察员: &观察者) -> Vec<Rc<缠论K线>> {
+        let 停顿位置 = Self::获取所有停顿位置(当前段, 观察员);
         let mut 结果 = Vec::new();
 
         for 段 in 停顿位置 {
             let mut 段_rc = Rc::new(段);
             Self::获取内部中枢序列(&mut 段_rc, &观察员.配置);
             if Self::判断线段内部是否背驰(&段_rc, 观察员) {
-                结果.push(Rc::clone(&段_rc.武));
+                结果.push(Rc::clone(&段_rc.武.中));
             }
         }
 

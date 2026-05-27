@@ -55,6 +55,18 @@ pub struct 虚线 {
     pub 短路修正: bool,
 }
 
+/// MACD行为统计 — 统计MACD行为 方法的返回类型
+#[derive(Debug, Clone)]
+pub struct MACD行为统计 {
+    pub DIF上穿0: i64,
+    pub DIF下穿0: i64,
+    pub DEA上穿0: i64,
+    pub DEA下穿0: i64,
+    pub 金叉次数: i64,
+    pub 死叉次数: i64,
+    pub 密集交叉区域: Vec<(usize, usize, usize)>,
+}
+
 impl 虚线 {
     pub fn new(
         序号: i64,
@@ -144,18 +156,45 @@ impl 虚线 {
 
     /// 获取该虚线范围内的普K序列
     pub fn 获取普K序列(&self, 普K序列: &[Rc<K线>]) -> Vec<Rc<K线>> {
-        let 始 = self.文.中.原始起始序号 as usize;
-        let 终 = self.武.中.原始结束序号 as usize;
-        if 始 < 普K序列.len() && 终 < 普K序列.len() && 始 <= 终 {
-            普K序列[始..=终].to_vec()
-        } else {
-            Vec::new()
+        // 使用指针查找（与 Python list.index 身份匹配行为一致），
+        // 而非序号切片——因为序号可能与实际位置不一致。
+        let 始 = 普K序列
+            .iter()
+            .position(|k| Rc::as_ptr(k) == Rc::as_ptr(&self.文.中.标的K线));
+        let 终 = 普K序列
+            .iter()
+            .position(|k| Rc::as_ptr(k) == Rc::as_ptr(&self.武.中.标的K线));
+        match (始, 终) {
+            (Some(s), Some(e)) if s <= e => 普K序列[s..=e].to_vec(),
+            _ => {
+                // 指针查找失败时回退到序号方式
+                println!("[警告]虚线.获取普K序列 <指针查找失败时回退到序号方式>");
+                let 始 = self.文.中.原始起始序号 as usize;
+                let 终 = self.武.中.原始结束序号 as usize;
+                if 始 < 普K序列.len() && 终 < 普K序列.len() && 始 <= 终 {
+                    普K序列[始..=终].to_vec()
+                } else {
+                    Vec::new()
+                }
+            }
         }
     }
 
     /// 获取该虚线范围内的缠K序列
     pub fn 获取缠K序列(&self, 缠K序列: &[Rc<缠论K线>]) -> Vec<Rc<缠论K线>> {
         缠论K线::截取(缠K序列, &self.文.中, &self.武.中).unwrap_or_default()
+    }
+
+    /// 获取_武 — 递归获取虚线的终点分型（笔直接返回武，线段递归到底层笔的武）
+    pub fn 获取_武(&self) -> Rc<分型> {
+        if self.标识 == "笔" {
+            return Rc::clone(&self.武);
+        }
+        let mut current: &虚线 = self;
+        while current.标识 != "笔" {
+            current = &*current.基础序列.last().unwrap();
+        }
+        Rc::clone(&current.武)
     }
 
     /// 获取数据文本（用于保存/调试）
@@ -693,9 +732,7 @@ impl 虚线 {
         普K序列: &[Rc<K线>],
         最大间隔: usize,
         最少交叉数: usize,
-    ) -> std::collections::HashMap<String, String> {
-        use std::collections::HashMap;
-
+    ) -> MACD行为统计 {
         let mut dif_up = 0;
         let mut dif_down = 0;
         let mut dea_up = 0;
@@ -759,17 +796,17 @@ impl 虚线 {
             }
         }
 
-        let 密集区 = Self::密集区域按间隔(&交叉标记, 最大间隔, 最少交叉数);
+        let 密集交叉区域 = Self::密集区域按间隔(&交叉标记, 最大间隔, 最少交叉数);
 
-        let mut map = HashMap::new();
-        map.insert("DIF上穿0".into(), dif_up.to_string());
-        map.insert("DIF下穿0".into(), dif_down.to_string());
-        map.insert("DEA上穿0".into(), dea_up.to_string());
-        map.insert("DEA下穿0".into(), dea_down.to_string());
-        map.insert("金叉次数".into(), golden.to_string());
-        map.insert("死叉次数".into(), death.to_string());
-        map.insert("密集交叉区域".into(), format!("{:?}", 密集区));
-        map
+        MACD行为统计 {
+            DIF上穿0: dif_up,
+            DIF下穿0: dif_down,
+            DEA上穿0: dea_up,
+            DEA下穿0: dea_down,
+            金叉次数: golden,
+            死叉次数: death,
+            密集交叉区域,
+        }
     }
 
     // ---- 买卖意义 ----
@@ -797,7 +834,7 @@ impl 虚线 {
         let 意义 = Self::缠K买卖点模式(&配置.买卖点_指标模式, &实线.武.中, 配置);
         let 结果 = false;
 
-        let 背驰过: Vec<Rc<分型>> = if 实线.标识 == "笔" {
+        let 背驰过: Vec<Rc<缠论K线>> = if 实线.标识 == "笔" {
             crate::algorithm::bi::笔::是否背驰过(实线, 观察员)
         } else {
             crate::algorithm::segment::线段::是否背驰过(实线, 观察员)
@@ -816,7 +853,11 @@ impl 虚线 {
                         format!(
                             "背驰过:{},极值:{},柱子分型匹配",
                             背驰过.len(),
-                            Self::武之MACD极值(普K序列, 实线)
+                            if Self::武之MACD极值(普K序列, 实线) {
+                                "True"
+                            } else {
+                                "False"
+                            }
                         ),
                     );
                 }

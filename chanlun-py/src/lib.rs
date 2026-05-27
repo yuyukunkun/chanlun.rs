@@ -51,3 +51,43 @@ fn _chanlun(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     business_py::register(m)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+    use pyo3::prelude::*;
+
+    #[test]
+    fn test_rc_pointer_across_getters() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let module = PyModule::new(py, "test_module").unwrap();
+            module.add_class::<business_py::观察者Py>().unwrap();
+            module.add_class::<business_py::基础买卖点Py>().unwrap();
+            module.add_class::<business_py::买卖点Py>().unwrap();
+            module.add_class::<kline_py::K线Py>().unwrap();
+            module.add_class::<kline_py::缠论K线Py>().unwrap();
+            module.add_class::<structure_py::分型Py>().unwrap();
+            module.add_class::<structure_py::虚线Py>().unwrap();
+            module.add_class::<config_py::缠论配置Py>().unwrap();
+
+            let config = config_py::缠论配置Py::from_rust_config(&Default::default()).unwrap();
+            let obs = business_py::观察者Py::new_impl("btcusd".into(), 300, config, py).unwrap();
+
+            // Feed one K line
+            let kline = kline_py::K线Py::new_impl(
+                "btcusd".into(),
+                1000,
+                100.0,
+                105.0,
+                99.0,
+                103.0,
+                1000.0,
+                0,
+                300,
+            );
+            let kline_ref = kline.into_ref(py);
+            // ... this is too complex
+        });
+    }
+}

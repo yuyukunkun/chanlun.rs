@@ -80,7 +80,7 @@ impl 平滑异同移动平均线 {
         let 慢线EMA = 初始收盘价;
         let DIF = 快线EMA - 慢线EMA;
         let DEA_EMA = DIF;
-        let MACD柱 = DIF - DEA_EMA;
+        let MACD柱 = 2.0 * (DIF - DEA_EMA);
 
         Self {
             时间戳: 初始时间,

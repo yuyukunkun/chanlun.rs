@@ -47,7 +47,7 @@ pub struct 缠论K线 {
     pub 原始起始序号: i64,
     pub 原始结束序号: i64,
     pub 标的K线: Rc<K线>,
-    pub 买卖点信息: Option<()>, // 占位，后续替换为实际类型
+    pub 买卖点信息: std::cell::RefCell<Vec<String>>,
 }
 
 impl std::fmt::Display for 缠论K线 {
@@ -84,7 +84,7 @@ impl 缠论K线 {
             原始起始序号: self.原始起始序号,
             原始结束序号: self.原始结束序号,
             标的K线: Rc::clone(&self.标的K线),
-            买卖点信息: None,
+            买卖点信息: std::cell::RefCell::new(self.买卖点信息.borrow().clone()),
         }
     }
 
@@ -217,7 +217,7 @@ impl 缠论K线 {
             原始起始序号: 原始序号,
             原始结束序号: 原始序号,
             标的K线: 普k,
-            买卖点信息: None,
+            买卖点信息: std::cell::RefCell::new(Vec::new()),
         };
 
         if let Some(之前) = 之前 {
@@ -239,7 +239,7 @@ impl 缠论K线 {
     pub fn 兼并(
         之前缠K: Option<&缠论K线>,
         当前缠K: &mut 缠论K线,
-        当前普K: &K线,
+        当前普K: &Rc<K线>,
         配置: &缠论配置,
     ) -> (Option<Rc<缠论K线>>, Option<String>) {
         let 关系 = 相对方向::分析(当前缠K.高, 当前缠K.低, 当前普K.高, 当前普K.低);
@@ -258,7 +258,7 @@ impl 缠论K线 {
                 当前普K.方向(),
                 结构,
                 当前普K.序号,
-                Rc::new(当前普K.clone()),
+                Rc::clone(当前普K),
                 Some(当前缠K),
             );
             新缠K.序号 = 当前缠K.序号 + 1;
@@ -294,7 +294,7 @@ impl 缠论K线 {
         // 逆序包含时更新时间和标的K线
         if 关系 != 相对方向::顺 {
             当前缠K.时间戳 = 当前普K.时间戳;
-            当前缠K.标的K线 = Rc::new(当前普K.clone());
+            当前缠K.标的K线 = Rc::clone(当前普K);
         }
         当前缠K.高 = 取值函数(当前缠K.高, 当前普K.高);
         当前缠K.低 = 取值函数(当前缠K.低, 当前普K.低);
@@ -461,7 +461,7 @@ impl 缠论K线 {
 
         // ---- 阶段2: 缠K合并 ----
         let 状态: String;
-        let 当前K线_ref: &K线 = &*普K序列.last().unwrap();
+        let 当前K线_ref: &Rc<K线> = 普K序列.last().unwrap();
 
         if !缠K序列.is_empty() {
             let len = 缠K序列.len();

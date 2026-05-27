@@ -46,6 +46,7 @@ from typing import (
     Union,
     Sequence,
     Callable,
+    Set,
 )
 
 from pydantic import BaseModel, Field, model_validator, ValidationError, field_validator
@@ -1816,7 +1817,7 @@ class K线(object):
         print(f"保存到DAT文件: {路径}")
 
     @classmethod
-    def 读取大端字节数组(cls, 字节组: bytes, 周期: int = 60, 标识: str = "Bar") -> "K线":
+    def 读取大端字节数组(cls, 字节组: bytes, 周期: int, 标识: str) -> "K线":
         """从大端字节序二进制数据反序列化K线（兼容.dat/.nb文件格式）
 
         :param 字节组: 二进制数据（48字节）
@@ -1929,6 +1930,7 @@ class 缠论K线(object):
         self.原始起始序号: int = 原始起始序号
         self.原始结束序号: int = 原始结束序号
         self.标的K线: "K线" = 普K
+        self.买卖点信息: Set[str] = set()
 
     def __str__(self):
         return f"{self.标识}<{self.序号}, {self.分型}, {self.周期}, {self.方向}, {self.时间戳}, {self.高:g}, {self.低:g}>"
@@ -1943,6 +1945,7 @@ class 缠论K线(object):
         :return: 新的缠论K线实例
         """
         K = 缠论K线(self.序号, self.时间戳, self.高, self.低, self.方向, self.标的K线, self.原始起始序号, self.原始结束序号, self.分型)
+        K.买卖点信息.update(self.买卖点信息)
         return K
 
     @property
@@ -2518,6 +2521,7 @@ class 虚线(object):
         """
         文 = 虚线序列[0].文
         武 = 虚线序列[-1].武
+        assert 文.结构 != 武.结构
         标识 = "线段" if 虚线序列[0].标识 == "笔" else f"线段<{虚线序列[0].标识}>"
         段 = 虚线(0, 标识, 文, 武, 虚线序列[0].级别 + 1)
         段.特征序列 = [None] * 3
@@ -2873,8 +2877,8 @@ class 虚线(object):
     def 统计MACD行为(cls, 普K序列: List[K线], 最大间隔: int = 8, 最少交叉数: int = 3) -> dict:
         """
         :param 普K序列: K线序列
-        :param 最大间隔: 最大间隔
-        :param 最少交叉数: 最少交叉数
+        :param 最大间隔: 最大间隔 8
+        :param 最少交叉数: 最少交叉数 3
         :return: 统计字典
         """
         # 1. 穿越零轴计数
@@ -2921,6 +2925,19 @@ class 虚线(object):
             "死叉次数": death,
             "密集交叉区域": 密集区,  # (起始交叉索引, 结束交叉索引, 交叉次数)
         }
+
+    @classmethod
+    def 获取_武(cls, 实线: 虚线) -> 分型:
+        """递归获取虚线的终点分型（笔直接返回武，线段递归到底层笔的武）
+        :param 实线: 虚线
+        :return: 分型
+        """
+        if 实线.标识 == "笔":
+            return 实线.武
+        tmp = 实线
+        while tmp.标识 != "笔":
+            tmp = tmp.基础序列[-1]
+        return tmp.武
 
 
 class 笔(object):
@@ -3278,7 +3295,7 @@ class 笔(object):
         return False
 
     @classmethod
-    def 获取所有停顿位置(cls, 筆: 虚线, 观察员: "观察者"):
+    def 获取所有停顿位置(cls, 筆: 虚线, 观察员: "观察者") -> List[虚线]:
         """获取笔内所有可能的停顿位置（用于背驰检测）
 
         :param 筆: 笔
@@ -3304,7 +3321,7 @@ class 笔(object):
         return 笔序列
 
     @classmethod
-    def 是否背驰过(cls, 当前筆: 虚线, 观察员: "观察者"):
+    def 是否背驰过(cls, 当前筆: 虚线, 观察员: "观察者") -> List[缠论K线]:
         """判断笔内是否发生过MACD趋向背驰
 
         :param 当前筆: 笔
@@ -4417,14 +4434,13 @@ class 线段(object):
 
     @classmethod
     @lru_cache(maxsize=128)
-    def 判断线段内部是否背驰(cls, 当前段: 虚线, 观察员: 观察者):
+    def 判断线段内部是否背驰(cls, 当前段: 虚线, 观察员: 观察者) -> bool:
         """判断线段内部是否发生背驰（基于内部中枢和MACD）
 
         :param 当前段: 线段
         :param 观察员: 观察者
         :return: bool
         """
-        虚, 实, 合 = 线段.获取内部中枢序列(当前段, 观察员.配置)
         阳, 阴, _, _ = 线段.分割序列(当前段)
         if len(阴) > 0:
             """
@@ -4488,8 +4504,8 @@ class 线段(object):
         return 背驰 or 盘整背驰
 
     @classmethod
-    def 段获取所有停顿位置(cls, 段: 虚线, 观察员: "观察者"):
-        """段获取所有停顿位置
+    def 获取所有停顿位置(cls, 段: 虚线, 观察员: "观察者") -> List[虚线]:
+        """获取所有停顿位置
 
         :param 段: 线段
         :param 观察员: 观察者
@@ -4507,14 +4523,14 @@ class 线段(object):
         当前停顿 = None
 
         for 筆 in 阳:
-            if len(笔序列) >= 2:
+            if len(笔序列) >= 3:
                 筆停顿 = 笔.获取所有停顿位置(筆, 观察员)
                 筆停顿.append(筆)
                 for 停顿 in 筆停顿:
                     笔序列.append(停顿)
                     线段.分析(笔序列, 线段序列, 观察员.配置, 关系序列=[相对方向.向下, 相对方向.向上, 相对方向.顺, 相对方向.逆, 相对方向.同])
-                    if 线段序列 and 线段序列[-1].武 is not 当前停顿:
-                        新段 = 虚线.创建线段(线段序列[-1][:])
+                    if 线段序列 and 线段序列[-1].武 is not 当前停顿 and len(线段序列[-1].基础序列) % 2 == 1:
+                        新段 = 虚线.创建线段(线段序列[-1].基础序列[:])
                         新段.序号 = self.序号
                         线段.刷新(新段, 观察员.配置)
                         if 新段.方向 is self.方向:
@@ -4528,19 +4544,19 @@ class 线段(object):
         return 结果
 
     @classmethod
-    def 是否背驰过(cls, 当前段: 虚线, 观察员: "观察者"):
+    def 是否背驰过(cls, 当前段: 虚线, 观察员: "观察者") -> List[缠论K线]:
         """判断线段内是否发生过背驰（遍历所有停顿位置）
 
         :param 当前段: 线段
         :param 观察员: 观察者
         :return: 背驰点列表
         """
-        停顿位置 = cls.段获取所有停顿位置(当前段, 观察员)
+        停顿位置 = 线段.获取所有停顿位置(当前段, 观察员)
         结果 = []
 
         for 段 in 停顿位置:
-            段.获取内部中枢序列(观察员.配置)
-            if cls.判断线段内部是否背驰(段, 观察员):
+            线段.获取内部中枢序列(段, 观察员.配置)
+            if 线段.判断线段内部是否背驰(段, 观察员):
                 结果.append(段.武.中)
         return 结果
 
@@ -4666,7 +4682,7 @@ class 中枢(object):
         """获取用于保存的数据文本"""
         return f"{self.标识}, {self.序号}, {self.级别}, 文:({int(self.文.时间戳.timestamp())},{self.文.分型特征值:g}), 武:({int(self.武.时间戳.timestamp())},{self.武.分型特征值:g}), {self.第三买卖线}, {self.本级_第三买卖线}"
 
-    def 完整性(self, 虚实: str = "合"):
+    def 完整性(self, 虚实: str):
         """判断中枢是否完整（是否有第三买卖点或内部中枢离开）
 
         详情见 教你炒股票 43：有关背驰的补习课(2007-04-06 15:31:28)
@@ -4709,7 +4725,7 @@ class 中枢(object):
             线段.扩展分析(self.基础序列, 扩展线段, 配置)
             中枢.分析(扩展线段, 扩展中枢, False, f"{self.标识}_扩展中枢_")
 
-    def 校验合法性(self, 序列: Sequence[虚线], 中枢序列) -> bool:
+    def 校验合法性(self, 序列: Sequence[虚线], 中枢序列: List["中枢"]) -> bool:
         """校验当前中枢在给定序列中是否仍然合法
 
         :param 序列: 基础虚线序列
@@ -4796,7 +4812,7 @@ class 中枢(object):
         :return: "中枢之中" / "中枢之上" / "中枢之下"
         """
         状态 = "中枢之中"
-        尾部 = self.基础序列[-1].武 if self.基础序列[-1].标识 == "笔" else self.基础序列[-1].基础序列[-1].武
+        尾部 = 虚线.获取_武(self.基础序列[-1])
         关系 = 相对方向.分析(self.高, self.低, 尾部.中.高, 尾部.中.低)
         if 关系 is 相对方向.向上缺口:
             状态 = "中枢之上"
@@ -5184,6 +5200,15 @@ class 观察者:
         self.配置.分析线段 and 线段.分析(self.线段序列, self.线段_线段序列, self.配置)
         self.配置.分析线段中枢 and 中枢.分析(self.线段_线段序列, self.线段_中枢序列)
 
+    def 加载本地数据(self, 文件路径: str):
+        self.重置基础序列()
+        with open(文件路径, "rb") as f:
+            buffer = f.read()
+            size = struct.calcsize(">6d")
+            for i in range(len(buffer) // size):
+                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], self.周期, self.标识)
+                self.增加原始K线(k线)
+
     @classmethod
     def 读取数据文件(cls, 文件路径: str, 配置=缠论配置()) -> Self:
         """
@@ -5199,7 +5224,7 @@ class 观察者:
             buffer = f.read()
             size = struct.calcsize(">6d")
             for i in range(len(buffer) // size):
-                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], int(周期))
+                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], int(周期), 符号)
                 实例.增加原始K线(k线)
 
         return 实例
@@ -5492,7 +5517,7 @@ def 测试_周期合成(配置: 缠论配置, 配置组: Dict[int, 缠论配置]
             buffer = f.read()
             size = struct.calcsize(">6d")
             for i in range(len(buffer) // size):
-                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], 周期)
+                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], 周期, 符号)
                 多级别分析.投喂K线(k线)
         消耗用时 = datetime.now() - 启动时间
         print("测试_周期合成", 消耗用时, "普K数量", len(多级别分析._单体分析器[周期].普通K线序列))

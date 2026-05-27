@@ -107,16 +107,18 @@ impl 缠论配置Py {
         if let Some(kwargs) = kwargs {
             for (key, value) in kwargs.iter() {
                 let key: String = key.extract()?;
-                if fields.contains_key(&key) {
-                    fields.insert(key, value.clone().unbind());
-                } else {
+                if !fields.contains_key(&key) {
                     return Err(pyo3::exceptions::PyAttributeError::new_err(format!(
                         "缠论配置 没有字段: {key}"
                     )));
                 }
+                fields.insert(key, value.clone().unbind());
             }
         }
 
+        // 全部通过 serde_json 往返验证类型，统一处理字符串数字/布尔强制转换
+        let config = dict_to_rust_config(&fields)?;
+        let fields = config_to_field_dict(&config)?;
         Ok(Self { fields })
     }
 
@@ -132,7 +134,16 @@ impl 缠论配置Py {
     fn __setattr__(&mut self, name: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
         if self.fields.contains_key(name) {
             self.fields.insert(name.to_string(), value.clone().unbind());
-            Ok(())
+            // 通过 serde 往返验证类型
+            match dict_to_rust_config(&self.fields) {
+                Ok(config) => {
+                    self.fields = config_to_field_dict(&config)?;
+                    Ok(())
+                }
+                Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "配置转换失败: {e}"
+                ))),
+            }
         } else {
             Err(pyo3::exceptions::PyAttributeError::new_err(format!(
                 "缠论配置 没有字段: {name}"
@@ -198,10 +209,13 @@ impl 缠论配置Py {
 
         for (key, value) in data.iter() {
             let key: String = key.extract()?;
-            fields.insert(key, value.clone().unbind());
+            if fields.contains_key(&key) {
+                fields.insert(key, value.clone().unbind());
+            }
         }
 
-        dict_to_rust_config(&fields)?;
+        let config = dict_to_rust_config(&fields)?;
+        let fields = config_to_field_dict(&config)?;
         Ok(Self { fields })
     }
 
@@ -270,7 +284,8 @@ impl 缠论配置Py {
             fields.insert(key, value.clone().unbind());
         }
 
-        dict_to_rust_config(&fields)?;
+        let config = dict_to_rust_config(&fields)?;
+        let fields = config_to_field_dict(&config)?;
         Ok(Self { fields })
     }
 
@@ -313,9 +328,82 @@ fn dict_to_rust_config(
         }
         let dumps = json_mod.getattr("dumps")?;
         let json_str: String = dumps.call1((dict,))?.extract()?;
-        serde_json::from_str(&json_str)
+        let mut value: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("配置转换失败: {e}")))?;
+        coerce_strings_to_numbers(&mut value);
+        serde_json::from_value(value)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("配置转换失败: {e}")))
     })
+}
+
+/// 递归遍历 JSON Value，将数字/布尔字符串转为对应类型。
+fn coerce_strings_to_numbers(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                coerce_strings_to_numbers(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                coerce_strings_to_numbers(v);
+            }
+        }
+        serde_json::Value::String(s) => {
+            // 先 clone 出独立副本，避免借用冲突
+            let cloned = s.clone();
+            if let Ok(n) = cloned.parse::<i64>() {
+                *value = serde_json::Value::Number(serde_json::Number::from(n));
+            } else if let Ok(n) = cloned.parse::<f64>() {
+                if n.is_finite() {
+                    if let Some(num) = serde_json::Number::from_f64(n) {
+                        *value = serde_json::Value::Number(num);
+                    }
+                }
+            } else if cloned.eq_ignore_ascii_case("true") {
+                *value = serde_json::Value::Bool(true);
+            } else if cloned.eq_ignore_ascii_case("false") {
+                *value = serde_json::Value::Bool(false);
+            }
+            // 非数字非布尔的原样保留，不做任何修改
+        }
+        _ => {}
+    }
+}
+
+/// 将 Python 字符串数字/布尔值强制转为对应类型，非字符串保持不变。
+/// 注：主代码路径现通过 serde 往返处理类型转换，此函数作为辅助保留。
+#[allow(dead_code)]
+fn coerce_py_value(value: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    let py = value.py();
+
+    let type_name: String = value.get_type().name()?.extract()?;
+    if type_name != "str" {
+        return Ok(value.clone().unbind());
+    }
+
+    let lower_obj = value.call_method0("lower")?;
+    let lower: String = lower_obj.extract()?;
+
+    if lower == "true" || lower == "false" {
+        let b = lower == "true";
+        let obj = pyo3::types::PyBool::new(py, b)
+            .to_owned()
+            .into_any()
+            .unbind();
+        return Ok(obj);
+    }
+
+    if let Ok(n) = lower.parse::<i64>() {
+        return Ok(n.into_pyobject(py)?.into_any().unbind());
+    }
+    if let Ok(n) = lower.parse::<f64>() {
+        if n.is_finite() {
+            return Ok(n.into_pyobject(py)?.into_any().unbind());
+        }
+    }
+
+    Ok(value.clone().unbind())
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

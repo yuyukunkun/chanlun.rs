@@ -135,27 +135,22 @@ impl 相对方向Py {
         }
     }
 
-    #[getter]
     fn 是否向上(&self) -> bool {
         self.inner.是否向上()
     }
 
-    #[getter]
     fn 是否向下(&self) -> bool {
         self.inner.是否向下()
     }
 
-    #[getter]
     fn 是否包含(&self) -> bool {
         self.inner.是否包含()
     }
 
-    #[getter]
     fn 是否缺口(&self) -> bool {
         self.inner.是否缺口()
     }
 
-    #[getter]
     fn 是否衔接(&self) -> bool {
         self.inner.是否衔接()
     }
