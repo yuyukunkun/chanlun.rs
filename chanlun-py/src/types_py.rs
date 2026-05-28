@@ -22,8 +22,9 @@
  * SOFTWARE.
  */
 
+use pyo3::basic::CompareOp;
 use pyo3::prelude::*;
-use pyo3::types::PyType;
+use pyo3::types::{PyDict, PyType};
 
 // ========== 买卖点类型 ==========
 
@@ -37,7 +38,7 @@ use pyo3::types::PyType;
 /// 属性:
 ///   是买点: bool — 是否为买入类型
 ///   是卖点: bool — 是否为卖出类型
-#[pyclass(name = "买卖点类型")]
+#[pyclass(name = "买卖点类型", module = "chanlun._chanlun", from_py_object)]
 #[derive(Clone)]
 pub struct 买卖点类型Py {
     pub inner: chanlun::types::买卖点类型,
@@ -53,14 +54,19 @@ impl 买卖点类型Py {
         self.inner.to_string()
     }
 
-    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-        if let Ok(s) = other.extract::<String>() {
-            return self.inner.to_string() == s;
+    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
+        let eq = if let Ok(s) = other.extract::<String>() {
+            self.inner.to_string() == s
+        } else if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
+            self.inner == other.inner
+        } else {
+            return Err(pyo3::exceptions::PyNotImplementedError::new_err(""));
+        };
+        match op {
+            CompareOp::Eq => Ok(eq),
+            CompareOp::Ne => Ok(!eq),
+            _ => Err(pyo3::exceptions::PyNotImplementedError::new_err("")),
         }
-        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
-            return self.inner == other.inner;
-        }
-        false
     }
 
     fn __hash__(&self) -> u64 {
@@ -71,13 +77,24 @@ impl 买卖点类型Py {
     }
 
     #[getter]
+    /// 判断是否为买入类型（名称中含"买"字）
     fn 是买点(&self) -> bool {
         self.inner.是买点()
     }
 
     #[getter]
+    /// 判断是否为卖出类型（名称中含"卖"字）
     fn 是卖点(&self) -> bool {
         self.inner.是卖点()
+    }
+
+    /// pickle 支持 — 通过 getattr(类, 名称) 重建实例
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let getattr = py.import("builtins")?.getattr("getattr")?;
+        let module = py.import("chanlun._chanlun")?;
+        let cls = module.getattr("买卖点类型")?;
+        let name = self.__str__();
+        Ok((getattr, (cls, name)).into_pyobject(py)?.unbind().into())
     }
 }
 
@@ -101,7 +118,7 @@ impl 买卖点类型Py {
 /// 方法:
 ///   翻转() -> 相对方向 — 返回方向的对立面（向上↔向下, 缺口↔反向缺口）
 ///   分析(前高, 前低, 后高, 后低) -> 相对方向 (classmethod) — 根据价格区间判断方向
-#[pyclass(name = "相对方向")]
+#[pyclass(name = "相对方向", module = "chanlun._chanlun", from_py_object)]
 #[derive(Clone)]
 pub struct 相对方向Py {
     pub inner: chanlun::types::相对方向,
@@ -117,11 +134,19 @@ impl 相对方向Py {
         format!("{}", self.inner)
     }
 
-    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
-            return self.inner == other.inner;
+    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
+        let Ok(other) = other.extract::<PyRef<'_, Self>>() else {
+            return Err(pyo3::exceptions::PyNotImplementedError::new_err(""));
+        };
+        let eq = self.inner == other.inner;
+        match op {
+            CompareOp::Eq => Ok(eq),
+            CompareOp::Ne => Ok(!eq),
+            CompareOp::Lt => Ok((self.inner as u8) < (other.inner as u8)),
+            CompareOp::Le => Ok((self.inner as u8) <= (other.inner as u8)),
+            CompareOp::Gt => Ok((self.inner as u8) > (other.inner as u8)),
+            CompareOp::Ge => Ok((self.inner as u8) >= (other.inner as u8)),
         }
-        false
     }
 
     fn __hash__(&self) -> u64 {
@@ -135,24 +160,42 @@ impl 相对方向Py {
         }
     }
 
+    /// 判断是否为向上方向（向上/向上缺口/衔接向上）
     fn 是否向上(&self) -> bool {
         self.inner.是否向上()
     }
 
+    /// 判断是否为向下方向（向下/向下缺口/衔接向下）
     fn 是否向下(&self) -> bool {
         self.inner.是否向下()
     }
 
+    /// 判断是否为包含关系（顺/逆/同）
     fn 是否包含(&self) -> bool {
         self.inner.是否包含()
     }
 
+    /// 判断是否有缺口（向下缺口/向上缺口）
     fn 是否缺口(&self) -> bool {
         self.inner.是否缺口()
     }
 
+    /// 判断是否为首尾衔接（衔接向下/衔接向上）
     fn 是否衔接(&self) -> bool {
         self.inner.是否衔接()
+    }
+
+    /// pickle 支持 — 通过 getattr(类, 名称) 重建实例
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let getattr = py.import("builtins")?.getattr("getattr")?;
+        let module = py.import("chanlun._chanlun")?;
+        let cls = module.getattr("相对方向")?;
+        let full_name = self.__str__();
+        let name = full_name
+            .rsplit_once('.')
+            .map(|(_, v)| v)
+            .unwrap_or(&full_name);
+        Ok((getattr, (cls, name)).into_pyobject(py)?.unbind().into())
     }
 
     /// 根据前后价格区间的OHLC值分析方向关系。
@@ -188,7 +231,7 @@ impl 相对方向Py {
 /// 方法:
 ///   分析(左, 中, 右, 可以逆序包含?, 忽视顺序包含?) -> 分型结构|None (classmethod)
 ///      — 根据三根K线的高低价分析分型结构
-#[pyclass(name = "分型结构")]
+#[pyclass(name = "分型结构", module = "chanlun._chanlun", from_py_object)]
 #[derive(Clone)]
 pub struct 分型结构Py {
     pub inner: chanlun::types::分型结构,
@@ -204,15 +247,32 @@ impl 分型结构Py {
         self.inner.to_string()
     }
 
-    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
-            return self.inner == other.inner;
+    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
+        let Ok(other) = other.extract::<PyRef<'_, Self>>() else {
+            return Err(pyo3::exceptions::PyNotImplementedError::new_err(""));
+        };
+        let eq = self.inner == other.inner;
+        match op {
+            CompareOp::Eq => Ok(eq),
+            CompareOp::Ne => Ok(!eq),
+            CompareOp::Lt => Ok((self.inner as u8) < (other.inner as u8)),
+            CompareOp::Le => Ok((self.inner as u8) <= (other.inner as u8)),
+            CompareOp::Gt => Ok((self.inner as u8) > (other.inner as u8)),
+            CompareOp::Ge => Ok((self.inner as u8) >= (other.inner as u8)),
         }
-        false
     }
 
     fn __hash__(&self) -> u64 {
         self.inner as u64
+    }
+
+    /// pickle 支持 — 通过 getattr(类, 名称) 重建实例
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let getattr = py.import("builtins")?.getattr("getattr")?;
+        let module = py.import("chanlun._chanlun")?;
+        let cls = module.getattr("分型结构")?;
+        let name = self.__str__();
+        Ok((getattr, (cls, name)).into_pyobject(py)?.unbind().into())
     }
 
     /// 根据左中右三根K线的高/低价分析分型结构。
@@ -297,7 +357,7 @@ impl 分型结构Py {
 /// 方法:
 ///   居中截取区间(起点, 终点, 比例=0.15) -> 缺口|None (classmethod)
 ///     — 在两个价格之间截取中间区域作为缺口
-#[pyclass(name = "缺口")]
+#[pyclass(name = "缺口", module = "chanlun._chanlun", from_py_object)]
 #[derive(Clone)]
 pub struct 缺口Py {
     pub inner: chanlun::types::缺口,
@@ -325,6 +385,34 @@ impl 缺口Py {
         format!("{}", self.inner)
     }
 
+    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
+        let Ok(other) = other.extract::<PyRef<'_, Self>>() else {
+            return Err(pyo3::exceptions::PyNotImplementedError::new_err(""));
+        };
+        match op {
+            CompareOp::Eq => Ok(self.inner.高 == other.inner.高 && self.inner.低 == other.inner.低),
+            CompareOp::Ne => {
+                Ok(!(self.inner.高 == other.inner.高 && self.inner.低 == other.inner.低))
+            }
+            CompareOp::Lt => Ok(self.inner.高 < other.inner.高
+                || (self.inner.高 == other.inner.高 && self.inner.低 < other.inner.低)),
+            CompareOp::Le => Ok(self.inner.高 < other.inner.高
+                || (self.inner.高 == other.inner.高 && self.inner.低 <= other.inner.低)),
+            CompareOp::Gt => Ok(self.inner.高 > other.inner.高
+                || (self.inner.高 == other.inner.高 && self.inner.低 > other.inner.低)),
+            CompareOp::Ge => Ok(self.inner.高 > other.inner.高
+                || (self.inner.高 == other.inner.高 && self.inner.低 >= other.inner.低)),
+        }
+    }
+
+    fn __hash__(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.inner.高.to_bits().hash(&mut h);
+        self.inner.低.to_bits().hash(&mut h);
+        h.finish()
+    }
+
     #[getter]
     #[pyo3(name = "高")]
     fn get_高(&self) -> f64 {
@@ -347,6 +435,16 @@ impl 缺口Py {
     #[pyo3(name = "低")]
     fn set_低(&mut self, value: f64) {
         self.inner.低 = value;
+    }
+
+    /// pickle 支持 — 通过 cls(高, 低) 重建实例
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let module = py.import("chanlun._chanlun")?;
+        let cls = module.getattr("缺口")?;
+        Ok((cls, (self.inner.高, self.inner.低))
+            .into_pyobject(py)?
+            .unbind()
+            .into())
     }
 
     /// 在两个价格之间截取中间区域作为缺口。
@@ -404,10 +502,13 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("T3B卖", chanlun::types::买卖点类型::T3B卖),
     ];
 
+    let mut bsp_members = PyDict::new(py);
     for (name, value) in variants {
         let instance = Py::new(py, 买卖点类型Py { inner: *value })?;
-        bsp_class.setattr(*name, instance)?;
+        bsp_class.setattr(*name, instance.clone_ref(py))?;
+        bsp_members.set_item(*name, instance)?;
     }
+    bsp_class.setattr("__members__", bsp_members)?;
 
     // 相对方向 class attributes
     let dir_class = m.getattr("相对方向")?.downcast_into::<PyType>()?.clone();
@@ -423,10 +524,13 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("同", chanlun::types::相对方向::同),
     ];
 
+    let mut dir_members = PyDict::new(py);
     for (name, value) in dir_variants {
         let instance = Py::new(py, 相对方向Py { inner: *value })?;
-        dir_class.setattr(*name, instance)?;
+        dir_class.setattr(*name, instance.clone_ref(py))?;
+        dir_members.set_item(*name, instance)?;
     }
+    dir_class.setattr("__members__", dir_members)?;
 
     // 分型结构 class attributes
     let frac_class = m.getattr("分型结构")?.downcast_into::<PyType>()?.clone();
@@ -438,10 +542,13 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("散", chanlun::types::分型结构::散),
     ];
 
+    let mut frac_members = PyDict::new(py);
     for (name, value) in frac_variants {
         let instance = Py::new(py, 分型结构Py { inner: *value })?;
-        frac_class.setattr(*name, instance)?;
+        frac_class.setattr(*name, instance.clone_ref(py))?;
+        frac_members.set_item(*name, instance)?;
     }
+    frac_class.setattr("__members__", frac_members)?;
 
     // Register module-level functions
     m.add_function(wrap_pyfunction!(转化为时间戳, m)?)?;

@@ -34,6 +34,7 @@ mod types_py;
 
 /// 缠论技术分析库 — Rust 高性能实现
 #[pymodule]
+/// 缠论技术分析库 — Rust 高性能实现
 fn _chanlun(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 阶段 1: 枚举和基础类型
     types_py::register(m)?;

@@ -91,7 +91,7 @@ use std::collections::HashMap;
 ///   不推送() -> 缠论配置 (classmethod) — 创建关闭所有推送的配置副本
 ///   按序号重组字典(默认配置, 原始字典) -> dict (classmethod) — 按默认配置的键序重排字典
 ///   对比(other) -> dict — 返回与另一个配置的差异字段
-#[pyclass(name = "缠论配置")]
+#[pyclass(name = "缠论配置", module = "chanlun._chanlun")]
 pub struct 缠论配置Py {
     fields: HashMap<String, Py<PyAny>>,
 }
@@ -203,6 +203,7 @@ impl 缠论配置Py {
     }
 
     #[classmethod]
+    /// :param data: 字典数据
     fn from_dict(_cls: &Bound<'_, PyType>, data: &Bound<'_, PyDict>) -> PyResult<Self> {
         let default_config = chanlun::config::缠论配置::default();
         let mut fields = config_to_field_dict(&default_config)?;
@@ -220,11 +221,13 @@ impl 缠论配置Py {
     }
 
     #[classmethod]
+    /// :param json_str: JSON字符串
     fn from_json(_cls: &Bound<'_, PyType>, py: Python<'_>, json_str: &str) -> PyResult<Self> {
         Self::from_json_str(py, json_str)
     }
 
     #[classmethod]
+    /// 创建不推送任何图表的静默配置（用于纯计算场景）
     fn 不推送(_cls: &Bound<'_, PyType>) -> PyResult<Self> {
         let config = chanlun::config::缠论配置::default().不推送();
         let fields = config_to_field_dict(&config)?;
@@ -232,6 +235,7 @@ impl 缠论配置Py {
     }
 
     #[classmethod]
+    /// 将形如 "1_open", "1_close", "2_open", "name" 的字典重组为嵌套结构
     fn 按序号重组字典(
         _cls: &Bound<'_, PyType>,
         默认配置: &Bound<'_, PyAny>,
@@ -251,6 +255,7 @@ impl 缠论配置Py {
         Ok(result.into())
     }
 
+    /// 比较当前配置与另一个配置的差异
     fn 对比(
         &self,
         py: Python<'_>,

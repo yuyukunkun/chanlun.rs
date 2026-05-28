@@ -23,7 +23,7 @@
  */
 
 use pyo3::prelude::*;
-use pyo3::types::PyType;
+use pyo3::types::{PyDict, PyType};
 use std::rc::Rc;
 
 use crate::business_py::观察者Py;
@@ -44,13 +44,14 @@ use crate::types_py::相对方向Py;
 ///   MACD盘整背驰(虚线段, 线段序列, 中枢序列, 配置) -> bool
 ///   MACD柱子面积背驰(虚线段, 线段序列, 中枢序列, 配置) -> bool
 ///   MACD柱子高度背驰(虚线段, 线段序列, 中枢序列, 配置) -> bool
-#[pyclass(name = "背驰分析")]
+#[pyclass(name = "背驰分析", module = "chanlun._chanlun")]
 pub struct 背驰分析Py;
 
 #[pymethods]
 impl 背驰分析Py {
     #[classmethod]
     #[pyo3(signature = (进入段, 离开段, K线序列, 方式 = "总"))]
+    /// MACD柱状线面积背驰
     fn MACD背驰(
         _cls: &Bound<'_, PyType>,
         进入段: &Bound<'_, 虚线Py>,
@@ -72,6 +73,7 @@ impl 背驰分析Py {
     }
 
     #[classmethod]
+    /// 价格斜率背驰
     fn 斜率背驰(
         _cls: &Bound<'_, PyType>,
         进入段: &Bound<'_, 虚线Py>,
@@ -84,6 +86,7 @@ impl 背驰分析Py {
     }
 
     #[classmethod]
+    /// 价格测度背驰（欧氏距离）
     fn 测度背驰(
         _cls: &Bound<'_, PyType>,
         进入段: &Bound<'_, 虚线Py>,
@@ -96,6 +99,7 @@ impl 背驰分析Py {
     }
 
     #[classmethod]
+    /// 判断是否满足全部三种背驰条件（MACD + 测度 + 斜率）
     fn 全量背驰(
         _cls: &Bound<'_, PyType>,
         进入段: &Bound<'_, 虚线Py>,
@@ -115,6 +119,7 @@ impl 背驰分析Py {
     }
 
     #[classmethod]
+    /// 判断是否满足任一背驰条件
     fn 任意背驰(
         _cls: &Bound<'_, PyType>,
         进入段: &Bound<'_, 虚线Py>,
@@ -134,6 +139,7 @@ impl 背驰分析Py {
     }
 
     #[classmethod]
+    /// 根据配置选择对应的背驰检测组合
     fn 配置背驰(
         _cls: &Bound<'_, PyType>,
         进入段: &Bound<'_, 虚线Py>,
@@ -156,6 +162,7 @@ impl 背驰分析Py {
     }
 
     #[classmethod]
+    /// 三个背驰条件中至少两个满足即视为背驰
     fn 任选背驰(
         _cls: &Bound<'_, PyType>,
         进入段: &Bound<'_, 虚线Py>,
@@ -175,6 +182,7 @@ impl 背驰分析Py {
     }
 
     #[classmethod]
+    /// 根据模式字符串选择背驰检测策略
     fn 背驰模式(
         _cls: &Bound<'_, PyType>,
         进入段: &Bound<'_, 虚线Py>,
@@ -212,12 +220,13 @@ impl 背驰分析Py {
 ///      — 从分型序列中划分出所有笔
 ///   弱化(笔序列) — 根据配置对笔序列执行弱化处理
 ///   分析前检查(分型序列, 配置) -> bool — 检查是否可以启动笔分析
-#[pyclass(name = "笔")]
+#[pyclass(name = "笔", module = "chanlun._chanlun")]
 pub struct 笔Py;
 
 #[pymethods]
 impl 笔Py {
     #[classmethod]
+    /// 获取笔内有效缠K数量（考虑笔弱化等配置）
     fn 获取缠K数量(
         _cls: &Bound<'_, PyType>,
         缠K序列: Vec<Py<crate::kline_py::缠论K线Py>>,
@@ -240,6 +249,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 次高
     fn 次高(
         _cls: &Bound<'_, PyType>,
         缠K序列: Vec<Py<crate::kline_py::缠论K线Py>>,
@@ -255,6 +265,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 次低
     fn 次低(
         _cls: &Bound<'_, PyType>,
         缠K序列: Vec<Py<crate::kline_py::缠论K线Py>>,
@@ -270,6 +281,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 实际高点
     fn 实际高点(
         _cls: &Bound<'_, PyType>,
         缠K序列: Vec<Py<crate::kline_py::缠论K线Py>>,
@@ -285,6 +297,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 实际低点
     fn 实际低点(
         _cls: &Bound<'_, PyType>,
         缠K序列: Vec<Py<crate::kline_py::缠论K线Py>>,
@@ -300,6 +313,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 相对关系
     fn 相对关系(
         _cls: &Bound<'_, PyType>,
         筆: &Bound<'_, 虚线Py>,
@@ -314,6 +328,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 以文会友
     fn 以文会友(
         _cls: &Bound<'_, PyType>,
         笔序列: Vec<Py<虚线Py>>,
@@ -329,6 +344,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 以武会友
     fn 以武会友(
         _cls: &Bound<'_, PyType>,
         笔序列: Vec<Py<虚线Py>>,
@@ -345,6 +361,7 @@ impl 笔Py {
 
     #[classmethod]
     #[pyo3(signature = (笔序列, 缠K, 偏移 = 1))]
+    /// 根据缠K找笔
     fn 根据缠K找笔(
         _cls: &Bound<'_, PyType>,
         笔序列: Vec<Py<虚线Py>>,
@@ -362,6 +379,7 @@ impl 笔Py {
 
     #[classmethod]
     #[pyo3(signature = (当前分型, 分型序列, 笔序列, 缠K序列, 普K序列, 递归层次, 配置))]
+    /// 笔划分核心递归算法
     fn 分析(
         _cls: &Bound<'_, PyType>,
         当前分型: Option<&Bound<'_, 分型Py>>,
@@ -446,6 +464,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 校验笔的有效性：高/低点是否为实际极值
     fn 自检(
         _cls: &Bound<'_, PyType>,
         筆: &Bound<'_, 虚线Py>,
@@ -457,6 +476,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 获取笔内所有可能的停顿位置（用于背驰检测）
     fn 获取所有停顿位置(
         _cls: &Bound<'_, PyType>,
         筆: &Bound<'_, 虚线Py>,
@@ -471,6 +491,7 @@ impl 笔Py {
     }
 
     #[classmethod]
+    /// 判断笔内是否发生过MACD趋向背驰
     fn 是否背驰过(
         _cls: &Bound<'_, PyType>,
         当前筆: &Bound<'_, 虚线Py>,
@@ -505,12 +526,13 @@ impl 笔Py {
 ///   虚线段特征序列成立(虚线段, 虚线序列, 配置) -> bool
 ///   移除包含后的特征序列(特征序列, 配置) -> list[线段特征]
 ///   检查特征序列趋势(特征序列) -> bool
-#[pyclass(name = "线段")]
+#[pyclass(name = "线段", module = "chanlun._chanlun")]
 pub struct 线段Py;
 
 #[pymethods]
 impl 线段Py {
     #[classmethod]
+    /// 向线段中添加一笔
     fn 添加虚线(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -523,6 +545,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 更新线段的终点分型（武）
     fn 武斗(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -539,6 +562,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 武终
     fn 武终(_cls: &Bound<'_, PyType>, 段: &Bound<'_, 虚线Py>, 行号: u32) -> PyResult<()> {
         let mut ref_mut = 段.borrow_mut();
         chanlun::algorithm::segment::线段::武终(&mut ref_mut.inner, 行号);
@@ -546,6 +570,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 验证序列
     fn 验证序列(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -562,6 +587,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 序列重置
     fn 序列重置(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -578,6 +604,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 连续三笔且重叠
     fn 基础判断(
         _cls: &Bound<'_, PyType>,
         左: &Bound<'_, 虚线Py>,
@@ -595,11 +622,13 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 判断线段的四象属性
     fn 四象(_cls: &Bound<'_, PyType>, 段: &Bound<'_, 虚线Py>) -> String {
         chanlun::algorithm::segment::线段::四象(&段.borrow().inner)
     }
 
     #[classmethod]
+    /// 获取线段特征序列第一二元素间的缺口
     fn 获取缺口(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -609,11 +638,13 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 是否符合特征序列正常分型终结
     fn 特征分型终结(_cls: &Bound<'_, PyType>, 段: &Bound<'_, 虚线Py>) -> bool {
         chanlun::algorithm::segment::线段::特征分型终结(&段.borrow().inner)
     }
 
     #[classmethod]
+    /// :param 段: 线段
     fn 特征序列状态(
         _cls: &Bound<'_, PyType>, 段: &Bound<'_, 虚线Py>
     ) -> (bool, bool, bool) {
@@ -621,6 +652,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 设置特征序列
     fn 设置特征序列(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -651,6 +683,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 刷新特征序列
     fn 刷新特征序列(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -664,12 +697,14 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 查找贯穿伤
     fn 查找贯穿伤(_cls: &Bound<'_, PyType>, 段: &Bound<'_, 虚线Py>) -> Option<虚线Py> {
         chanlun::algorithm::segment::线段::查找贯穿伤(&段.borrow().inner)
             .map(|inner| 虚线Py { inner })
     }
 
     #[classmethod]
+    /// 将线段基础序列分割为前/后/第三买卖/贯穿伤四部分
     fn 分割序列(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -708,6 +743,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 刷新线段的特征序列和内部中枢序列
     fn 刷新(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -721,6 +757,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 获取内部中枢序列
     fn 获取内部中枢序列(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -744,6 +781,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 内部方法：向线段序列添加新线段
     fn _添加线段(
         _cls: &Bound<'_, PyType>,
         线段序列: &Bound<'_, PyAny>,
@@ -764,6 +802,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 内部方法：从线段序列弹出最后一个线段
     fn _弹出线段(
         _cls: &Bound<'_, PyType>,
         线段序列: &Bound<'_, PyAny>,
@@ -784,6 +823,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 内部方法：处理缺口突破修正
     fn _缺口突破(
         _cls: &Bound<'_, PyType>,
         线段序列: Vec<Py<虚线Py>>,
@@ -804,6 +844,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 内部方法：处理非缺口下穿刺修正
     fn _非缺口下穿刺(
         _cls: &Bound<'_, PyType>,
         线段序列: Vec<Py<虚线Py>>,
@@ -824,6 +865,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 内部方法：处理缺口后紧急修正
     fn _缺口后紧急修正(
         _cls: &Bound<'_, PyType>,
         线段序列: Vec<Py<虚线Py>>,
@@ -844,6 +886,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 内部方法：处理线段修正
     fn _修正(
         _cls: &Bound<'_, PyType>,
         线段序列: Vec<Py<虚线Py>>,
@@ -865,6 +908,7 @@ impl 线段Py {
 
     #[classmethod]
     #[pyo3(signature = (笔序列, 线段序列, 配置, 层级 = 0, 关系序列 = None))]
+    /// 线段划分核心递归算法
     fn 分析(
         _cls: &Bound<'_, PyType>,
         笔序列: Vec<Py<虚线Py>>,
@@ -901,6 +945,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 内部方法：向扩展线段序列添加新线段
     fn _添加扩展线段(
         _cls: &Bound<'_, PyType>,
         线段序列: Vec<Py<虚线Py>>,
@@ -921,6 +966,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 内部方法：从扩展线段序列弹出最后一个线段
     fn _弹出扩展线段(
         _cls: &Bound<'_, PyType>,
         线段序列: Vec<Py<虚线Py>>,
@@ -941,6 +987,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 即同级别分析
     fn 扩展分析(
         _cls: &Bound<'_, PyType>,
         虚线序列: Vec<Py<虚线Py>>,
@@ -962,6 +1009,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 判断线段内部是否发生背驰（基于内部中枢和MACD）
     fn 判断线段内部是否背驰(
         _cls: &Bound<'_, PyType>,
         当前段: &Bound<'_, 虚线Py>,
@@ -976,6 +1024,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 获取所有停顿位置
     fn 获取所有停顿位置(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -990,6 +1039,7 @@ impl 线段Py {
     }
 
     #[classmethod]
+    /// 判断线段内是否发生过背驰（遍历所有停顿位置）
     fn 是否背驰过(
         _cls: &Bound<'_, PyType>,
         当前段: &Bound<'_, 虚线Py>,
@@ -1043,7 +1093,7 @@ impl 线段Py {
 ///   向中枢序列尾部添加(中枢序列, 新中枢) — 维护中枢序列顺序
 ///   从中枢序列尾部弹出(中枢序列, 配置) — 弹出最后一个中枢并更新相邻中枢
 ///   分析(虚线序列, 中枢序列容器, 允许重叠?, 标识前缀?, ...) — 中枢分析主流程
-#[pyclass(name = "中枢", unsendable)]
+#[pyclass(name = "中枢", module = "chanlun._chanlun", unsendable, from_py_object)]
 #[derive(Clone)]
 pub struct 中枢Py {
     pub(crate) inner: Rc<chanlun::algorithm::hub::中枢>,
@@ -1106,17 +1156,20 @@ impl 中枢Py {
         })
     }
 
+    /// 向中枢添加新虚线（延伸），重置第三买卖线
     fn 添加虚线(&mut self, 实线: &Bound<'_, 虚线Py>) {
         let inner = Rc::make_mut(&mut self.inner);
         inner.添加虚线(Rc::clone(&实线.borrow().inner));
     }
 
     #[getter]
+    /// :return: 图表标题
     fn 图表标题(&self) -> String {
         self.inner.图表标题()
     }
 
     #[getter]
+    /// :return: 最后一条虚线
     fn 离开段(&self) -> 虚线Py {
         虚线Py {
             inner: self.inner.离开段(),
@@ -1124,6 +1177,7 @@ impl 中枢Py {
     }
 
     #[getter]
+    /// :return: 中枢方向（首条虚线的方向翻转）
     fn 方向(&self) -> 相对方向Py {
         相对方向Py {
             inner: self.inner.方向(),
@@ -1131,26 +1185,31 @@ impl 中枢Py {
     }
 
     #[getter]
+    /// :return: 中枢上沿（前三段中虚线高点的最小值）
     fn 高(&self) -> f64 {
         self.inner.高()
     }
 
     #[getter]
+    /// :return: 中枢下沿（前三段中虚线低点的最大值）
     fn 低(&self) -> f64 {
         self.inner.低()
     }
 
     #[getter]
+    /// :return: 全区间最高价
     fn 高高(&self) -> f64 {
         self.inner.高高()
     }
 
     #[getter]
+    /// :return: 全区间最低价
     fn 低低(&self) -> f64 {
         self.inner.低低()
     }
 
     #[getter]
+    /// :return: 起点分型
     fn 文(&self) -> 分型Py {
         分型Py {
             inner: self.inner.文(),
@@ -1158,17 +1217,20 @@ impl 中枢Py {
     }
 
     #[getter]
+    /// :return: 终点分型
     fn 武(&self) -> 分型Py {
         分型Py {
             inner: self.inner.武(),
         }
     }
 
+    /// 设置第三类买卖点关联虚线
     fn 设置第三买卖线(&mut self, 线: &Bound<'_, 虚线Py>) {
         let inner = Rc::make_mut(&mut self.inner);
         inner.设置第三买卖线(Rc::clone(&线.borrow().inner));
     }
 
+    /// 获取中枢的完整虚线序列（基础序列+第三买卖线）
     fn 获取序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in self.inner.获取序列() {
@@ -1177,11 +1239,13 @@ impl 中枢Py {
         Ok(list.into())
     }
 
+    /// 获取用于保存的数据文本
     fn 获取数据文本(&self) -> String {
         self.inner.获取数据文本()
     }
 
     #[pyo3(signature = (序列, 中枢序列 = None))]
+    /// 校验当前中枢在给定序列中是否仍然合法
     fn 校验合法性(
         &mut self,
         序列: Vec<Py<虚线Py>>,
@@ -1198,10 +1262,12 @@ impl 中枢Py {
     }
 
     #[pyo3(signature = (虚实 = "合"))]
+    /// 判断中枢是否完整（是否有第三买卖点或内部中枢离开）
     fn 完整性(&self, 虚实: &str) -> bool {
         self.inner.完整性(虚实)
     }
 
+    /// 当基础序列>=9时，从中枢中提取扩展线段中枢
     fn 获取扩展中枢(
         &self,
         扩展中枢: Vec<Py<Self>>,
@@ -1217,8 +1283,26 @@ impl 中枢Py {
         Ok(())
     }
 
+    /// 获取中枢当前状态：中枢之中/中枢之上/中枢之下
     fn 当前状态(&self) -> String {
         self.inner.当前状态().to_string()
+    }
+
+    /// pandas 兼容 — 返回关键标量字段构成的字典
+    #[getter]
+    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("序号", self.序号())?;
+        dict.set_item("标识", self.标识())?;
+        dict.set_item("级别", self.级别())?;
+        dict.set_item("图表标题", self.图表标题())?;
+        dict.set_item("方向", self.方向())?;
+        dict.set_item("高", self.高())?;
+        dict.set_item("低", self.低())?;
+        dict.set_item("高高", self.高高())?;
+        dict.set_item("低低", self.低低())?;
+        dict.set_item("当前状态", self.当前状态())?;
+        Ok(dict.into())
     }
 
     fn __str__(&self) -> String {
@@ -1243,6 +1327,7 @@ impl 中枢Py {
     // ---- classmethods ----
 
     #[classmethod]
+    /// 检查三条虚线是否构成中枢（连续且重叠）
     fn 基础检查(
         _cls: &Bound<'_, PyType>,
         左: &Bound<'_, 虚线Py>,
@@ -1258,6 +1343,7 @@ impl 中枢Py {
 
     #[classmethod]
     #[pyo3(signature = (左, 中, 右, 级别, 标识 = ""))]
+    /// 从三条连续且重叠的虚线创建中枢
     fn 创建(
         _cls: &Bound<'_, PyType>,
         左: &Bound<'_, 虚线Py>,
@@ -1278,6 +1364,7 @@ impl 中枢Py {
     }
 
     #[classmethod]
+    /// 从虚线序列中按起始方向查找第一个中枢
     fn 从序列中获取中枢(
         _cls: &Bound<'_, PyType>,
         虚线序列: Vec<Py<虚线Py>>,
@@ -1298,6 +1385,7 @@ impl 中枢Py {
     }
 
     #[classmethod]
+    /// :param 中枢序列: 中枢列表
     fn 向中枢序列尾部添加(
         _cls: &Bound<'_, PyType>,
         中枢序列: &Bound<'_, PyAny>,
@@ -1310,6 +1398,7 @@ impl 中枢Py {
     }
 
     #[classmethod]
+    /// :param 中枢序列: 中枢列表
     fn 从中枢序列尾部弹出(
         _cls: &Bound<'_, PyType>,
         中枢序列: &Bound<'_, PyAny>,
@@ -1327,6 +1416,7 @@ impl 中枢Py {
 
     #[classmethod]
     #[pyo3(signature = (虚线序列, 中枢序列, 跳过首部 = true, 标识 = "", 层级 = 0))]
+    /// 中枢识别核心递归算法
     fn 分析(
         _cls: &Bound<'_, PyType>,
         虚线序列: Vec<Py<虚线Py>>,

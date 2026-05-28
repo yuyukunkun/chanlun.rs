@@ -23,7 +23,7 @@
  */
 
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyType};
+use pyo3::types::{PyBytes, PyDict, PyType};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -52,7 +52,7 @@ use crate::types_py::相对方向Py;
 ///   获取MACD(K线序列, 计算方式, 快线周期?, 慢线周期?, 信号周期?) -> list[平滑异同移动平均线]
 ///      — 对整个K线序列批量计算 MACD
 ///   截取(序列, 起点K线, 终点K线) -> list — 按时间戳截取K线区间
-#[pyclass(name = "K线", unsendable)]
+#[pyclass(name = "K线", module = "chanlun._chanlun", unsendable)]
 pub struct K线Py {
     pub(crate) inner: Rc<chanlun::kline::bar::K线>,
 }
@@ -172,6 +172,7 @@ impl K线Py {
     }
 
     #[getter]
+    /// :return: 相对方向.向上（开盘<收盘）或 相对方向.向下（开盘>收盘）
     fn 方向(&self) -> 相对方向Py {
         相对方向Py {
             inner: self.inner.方向(),
@@ -202,6 +203,32 @@ impl K线Py {
             .map(|k| 随机指标Py { inner: k.clone() })
     }
 
+    /// pandas 兼容 — 返回所有字段构成的字典
+    #[getter]
+    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("标识", self.标识())?;
+        dict.set_item("序号", self.序号())?;
+        dict.set_item("周期", self.周期())?;
+        dict.set_item("时间戳", self.时间戳())?;
+        dict.set_item("高", self.高())?;
+        dict.set_item("低", self.低())?;
+        dict.set_item("开盘价", self.开盘价())?;
+        dict.set_item("收盘价", self.收盘价())?;
+        dict.set_item("成交量", self.成交量())?;
+        dict.set_item("方向", self.方向())?;
+        if let Some(v) = self.macd() {
+            dict.set_item("macd", v)?;
+        }
+        if let Some(v) = self.rsi() {
+            dict.set_item("rsi", v)?;
+        }
+        if let Some(v) = self.kdj() {
+            dict.set_item("kdj", v)?;
+        }
+        Ok(dict.into())
+    }
+
     fn __str__(&self) -> String {
         format!("{}", self.inner)
     }
@@ -227,6 +254,7 @@ impl K线Py {
 
     #[classmethod]
     #[pyo3(signature = (标识, 时间戳, 开盘价, 最高价, 最低价, 收盘价, 成交量, 序号 = None, 周期 = None))]
+    /// 快捷构造普通K线
     fn 创建普K(
         _cls: &Bound<'_, PyType>,
         标识: &str,
@@ -255,6 +283,7 @@ impl K线Py {
     }
 
     #[classmethod]
+    /// 将K线序列保存为二进制DAT文件
     fn 保存到DAT文件(
         _cls: &Bound<'_, PyType>,
         路径: &str,
@@ -268,6 +297,7 @@ impl K线Py {
     }
 
     #[classmethod]
+    /// 从大端字节序二进制数据反序列化K线（兼容.dat/.nb文件格式）
     fn 读取大端字节数组(
         _cls: &Bound<'_, PyType>,
         字节组: &Bound<'_, PyBytes>,
@@ -282,6 +312,7 @@ impl K线Py {
     }
 
     #[classmethod]
+    /// 计算指定K线区间的MACD柱面积
     fn 获取MACD(
         _cls: &Bound<'_, PyType>,
         k线序列: Vec<Py<Self>>,
@@ -295,6 +326,7 @@ impl K线Py {
     }
 
     #[staticmethod]
+    /// 按起止K线截取K线子序列
     fn 截取(
         序列: Vec<Py<Self>>,
         始: &Bound<'_, Self>,
@@ -348,7 +380,12 @@ impl K线Py {
 ///   分析(缠K序列, 配置, 可以逆序包含?, 忽视顺序包含?, 可以逆序包含新?) -> (str, 分型|None)
 ///      — 分析分型形成结果
 ///   截取(序列, 起点分型, 终点分型) -> list — 截取分型间的缠K子序列
-#[pyclass(name = "缠论K线", unsendable)]
+#[pyclass(
+    name = "缠论K线",
+    module = "chanlun._chanlun",
+    unsendable,
+    from_py_object
+)]
 pub struct 缠论K线Py {
     pub(crate) inner: std::rc::Rc<chanlun::kline::chan_kline::缠论K线>,
     bsp_set: std::cell::RefCell<Option<Py<pyo3::types::PySet>>>,
@@ -445,6 +482,30 @@ impl 缠论K线Py {
         }
     }
 
+    /// pandas 兼容 — 返回所有字段构成的字典
+    #[getter]
+    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("序号", self.序号())?;
+        dict.set_item("时间戳", self.时间戳())?;
+        dict.set_item("高", self.高())?;
+        dict.set_item("低", self.低())?;
+        dict.set_item("方向", self.方向())?;
+        dict.set_item("周期", self.周期())?;
+        dict.set_item("标识", self.标识())?;
+        dict.set_item("分型特征值", self.分型特征值())?;
+        dict.set_item("原始起始序号", self.原始起始序号())?;
+        dict.set_item("原始结束序号", self.原始结束序号())?;
+        dict.set_item("与MACD柱子匹配", self.与MACD柱子匹配())?;
+        dict.set_item("与RSI匹配", self.与RSI匹配())?;
+        dict.set_item("与KDJ匹配", self.与KDJ匹配())?;
+
+        if let Some(v) = self.分型() {
+            dict.set_item("分型", v)?;
+        }
+        Ok(dict.into())
+    }
+
     fn __str__(&self) -> String {
         format!("{}", self.inner)
     }
@@ -465,6 +526,7 @@ impl 缠论K线Py {
     }
 
     #[getter]
+    /// 创建当前缠K的浅拷贝副本
     fn 镜像(&self, py: Python<'_>) -> Self {
         let mut mirror = Self {
             inner: std::rc::Rc::new(self.inner.镜像()),
@@ -482,16 +544,19 @@ impl 缠论K线Py {
     }
 
     #[getter]
+    /// :return: 底分型时MACD柱<0，顶分型时MACD柱>0
     fn 与MACD柱子匹配(&self) -> bool {
         self.inner.与MACD柱子匹配()
     }
 
     #[getter]
+    /// :return: 底分型时RSI < RSI_SMA，顶分型时RSI > RSI_SMA
     fn 与RSI匹配(&self) -> bool {
         self.inner.与RSI匹配()
     }
 
     #[getter]
+    /// :return: 底分型时K<D，顶分型时K>D
     fn 与KDJ匹配(&self) -> bool {
         self.inner.与KDJ匹配()
     }
@@ -515,6 +580,7 @@ impl 缠论K线Py {
     }
 
     #[classmethod]
+    /// 在基线序列中找到与k线时间戳对齐的时间戳
     fn 时间戳对齐(
         _cls: &Bound<'_, PyType>,
         基线: Vec<Py<Self>>,
@@ -529,6 +595,7 @@ impl 缠论K线Py {
     }
 
     #[classmethod]
+    /// 创建新的缠论K线
     fn 创建缠K(
         _cls: &Bound<'_, PyType>,
         时间戳: i64,
@@ -556,6 +623,7 @@ impl 缠论K线Py {
     }
 
     #[classmethod]
+    /// K线包含处理（合并）
     fn 兼并(
         _cls: &Bound<'_, PyType>,
         之前缠K: Option<&Bound<'_, Self>>,
@@ -578,6 +646,7 @@ impl 缠论K线Py {
     }
 
     #[classmethod]
+    /// 分析K线，执行指标计算+包含处理+分型判定
     fn 分析(
         _cls: &Bound<'_, PyType>,
         当前K线: &Bound<'_, K线Py>,
@@ -609,6 +678,7 @@ impl 缠论K线Py {
     }
 
     #[staticmethod]
+    /// :param 序列: 缠K序列
     fn 截取(
         序列: Vec<Py<Self>>,
         始: &Bound<'_, Self>,

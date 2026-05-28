@@ -43,7 +43,11 @@ use pyo3::types::PyType;
 ///   增量计算(前一个MACD, 当前收盘价, 当前时间) -> 平滑异同移动平均线
 ///      — 基于前一根的 EMA 状态增量更新，用于流式计算
 ///   增量计算_K线(前一个MACD, 当前K线, 计算方式) -> 平滑异同移动平均线
-#[pyclass(name = "平滑异同移动平均线")]
+#[pyclass(
+    name = "平滑异同移动平均线",
+    module = "chanlun._chanlun",
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct 平滑异同移动平均线Py {
     pub(crate) inner: chanlun::indicators::平滑异同移动平均线,
@@ -124,6 +128,7 @@ impl 平滑异同移动平均线Py {
 
     #[classmethod]
     #[pyo3(signature = (初始收盘价, 初始时间, 快线周期 = None, 慢线周期 = None, 信号周期 = None))]
+    /// 首次计算MACD指标（没有历史数据时使用）
     fn 首次计算(
         _cls: &Bound<'_, PyType>,
         初始收盘价: f64,
@@ -144,6 +149,7 @@ impl 平滑异同移动平均线Py {
 
     #[classmethod]
     #[pyo3(signature = (k线, 计算方式, 快线周期 = None, 慢线周期 = None, 信号周期 = None))]
+    /// :param k线: 原始K线
     fn 首次计算_K线(
         _cls: &Bound<'_, PyType>,
         k线: &Bound<'_, PyAny>,
@@ -165,6 +171,7 @@ impl 平滑异同移动平均线Py {
     }
 
     #[classmethod]
+    /// 基于前一个MACD指标增量计算当前MACD指标
     fn 增量计算(
         _cls: &Bound<'_, PyType>,
         前一个MACD: &Bound<'_, 平滑异同移动平均线Py>,
@@ -180,6 +187,7 @@ impl 平滑异同移动平均线Py {
     }
 
     #[classmethod]
+    /// :param 前一个MACD: 前一个MACD指标对象
     fn 增量计算_K线(
         _cls: &Bound<'_, PyType>,
         前一个MACD: &Bound<'_, 平滑异同移动平均线Py>,
@@ -214,7 +222,7 @@ impl 平滑异同移动平均线Py {
 ///   首次计算_K线(k线, 计算方式, ...)
 ///   增量计算(前一个RSI, 当前收盘价, 当前时间)
 ///   增量计算_K线(前一个RSI, 当前K线, 计算方式)
-#[pyclass(name = "相对强弱指数")]
+#[pyclass(name = "相对强弱指数", module = "chanlun._chanlun", from_py_object)]
 #[derive(Clone)]
 pub struct 相对强弱指数Py {
     pub(crate) inner: chanlun::indicators::相对强弱指数,
@@ -294,6 +302,7 @@ impl 相对强弱指数Py {
 
     #[classmethod]
     #[pyo3(signature = (初始收盘价, 初始时间, 周期 = None, 超买阈值 = None, 超卖阈值 = None, RSI_SMA周期 = None))]
+    /// 首次计算RSI（没有足够历史数据时使用）
     fn 首次计算(
         _cls: &Bound<'_, PyType>,
         初始收盘价: f64,
@@ -317,6 +326,7 @@ impl 相对强弱指数Py {
 
     #[classmethod]
     #[pyo3(signature = (k线, 计算方式, 周期 = None, 超买阈值 = None, 超卖阈值 = None, RSI_SMA周期 = None))]
+    /// :param k线: 原始K线
     fn 首次计算_K线(
         _cls: &Bound<'_, PyType>,
         k线: &Bound<'_, PyAny>,
@@ -340,6 +350,7 @@ impl 相对强弱指数Py {
     }
 
     #[classmethod]
+    /// 基于前一个RSI指标增量计算当前RSI
     fn 增量计算(
         _cls: &Bound<'_, PyType>,
         前一个RSI: &Bound<'_, 相对强弱指数Py>,
@@ -356,6 +367,7 @@ impl 相对强弱指数Py {
     }
 
     #[classmethod]
+    /// :param 前一个RSI: 前一个RSI指标对象
     fn 增量计算_K线(
         _cls: &Bound<'_, PyType>,
         前一个RSI: &Bound<'_, 相对强弱指数Py>,
@@ -390,7 +402,7 @@ impl 相对强弱指数Py {
 ///   首次计算_K线(k线, 计算方式, ...)
 ///   增量计算(前一个KDJ, 最高价, 最低价, 收盘价, 时间)
 ///   增量计算_K线(前一个KDJ, 当前K线, 计算方式)
-#[pyclass(name = "随机指标")]
+#[pyclass(name = "随机指标", module = "chanlun._chanlun", from_py_object)]
 #[derive(Clone)]
 pub struct 随机指标Py {
     pub(crate) inner: chanlun::indicators::随机指标,
@@ -488,6 +500,7 @@ impl 随机指标Py {
 
     #[classmethod]
     #[pyo3(signature = (初始最高价, 初始最低价, 初始收盘价, 初始时间, N = None, M1 = None, M2 = None, 超买阈值 = None, 超卖阈值 = None))]
+    /// 首次计算KDJ（无历史数据时）
     fn 首次计算(
         _cls: &Bound<'_, PyType>,
         初始最高价: f64,
@@ -517,6 +530,7 @@ impl 随机指标Py {
 
     #[classmethod]
     #[pyo3(signature = (k线, _计算方式, RSV周期 = None, K值平滑周期 = None, D值平滑周期 = None, 超买阈值 = None, 超卖阈值 = None))]
+    /// :param k线: 原始K线
     fn 首次计算_K线(
         _cls: &Bound<'_, PyType>,
         k线: &Bound<'_, PyAny>,
@@ -546,6 +560,7 @@ impl 随机指标Py {
     }
 
     #[classmethod]
+    /// 基于前一个KDJ对象和当前三价，增量计算当前KDJ值
     fn 增量计算(
         _cls: &Bound<'_, PyType>,
         前一个KDJ: &Bound<'_, 随机指标Py>,
@@ -566,6 +581,7 @@ impl 随机指标Py {
     }
 
     #[classmethod]
+    /// :param 前一个KDJ: 前一个KDJ指标对象
     fn 增量计算_K线(
         _cls: &Bound<'_, PyType>,
         前一个KDJ: &Bound<'_, 随机指标Py>,
@@ -595,12 +611,13 @@ impl 随机指标Py {
 ///   K线取值(k线, 指标计算方式) -> float (classmethod)
 ///     根据计算方式从K线提取数值。
 ///     计算方式: "收盘价" / "开盘价" / "高" / "低" / "均值" 等
-#[pyclass(name = "指标")]
+#[pyclass(name = "指标", module = "chanlun._chanlun")]
 pub struct 指标Py;
 
 #[pymethods]
 impl 指标Py {
     #[classmethod]
+    /// 根据计算方式从K线中取值
     fn K线取值(
         _cls: &Bound<'_, PyType>,
         k线: &Bound<'_, PyAny>,

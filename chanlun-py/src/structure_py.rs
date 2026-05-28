@@ -23,7 +23,7 @@
  */
 
 use pyo3::prelude::*;
-use pyo3::types::PyType;
+use pyo3::types::{PyDict, PyType};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -47,7 +47,7 @@ use crate::types_py::{分型结构Py, 相对方向Py, 缺口Py};
 ///   判断分型(缠K序列, 索引, 配置) -> 分型|None — 在缠K序列中指定位置尝试创建分型
 ///   从缠K序列中获取分型(缠K序列, 配置) -> list[分型] — 扫描全序列提取所有分型
 ///   向序列中添加(分型序列, 新分型) — 维护分型序列的顺序一致性
-#[pyclass(name = "分型", unsendable)]
+#[pyclass(name = "分型", module = "chanlun._chanlun", unsendable, from_py_object)]
 #[derive(Clone)]
 pub struct 分型Py {
     pub(crate) inner: Rc<chanlun::structure::fractal_obj::分型>,
@@ -128,6 +128,7 @@ impl 分型Py {
     }
 
     #[getter]
+    /// 左、中、右三对相对方向关系
     fn 关系组(&self) -> Option<(相对方向Py, 相对方向Py, 相对方向Py)> {
         self.inner.关系组().map(|(a, b, c)| {
             (
@@ -139,17 +140,42 @@ impl 分型Py {
     }
 
     #[getter]
+    /// 分型强度（强/中/弱/未知）
     fn 强度(&self) -> String {
         self.inner.强度().to_string()
     }
 
     #[getter]
+    /// :return: 底分型时左右MACD柱 > 中MACD柱，顶分型时左右MACD柱 < 中MACD柱
     fn 与MACD柱子分型匹配(&self) -> bool {
         self.inner.与MACD柱子分型匹配()
     }
 
+    /// pandas 兼容 — 返回所有字段构成的字典
+    #[getter]
+    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("结构", self.结构())?;
+        dict.set_item("时间戳", self.时间戳())?;
+        dict.set_item("分型特征值", self.分型特征值())?;
+        dict.set_item("强度", self.强度())?;
+        dict.set_item("与MACD柱子分型匹配", self.与MACD柱子分型匹配())?;
+        if let Some(v) = self.左() {
+            dict.set_item("左", v)?;
+        }
+        dict.set_item("中", self.中())?;
+        if let Some(v) = self.右() {
+            dict.set_item("右", v)?;
+        }
+        if let Some(v) = self.关系组() {
+            dict.set_item("关系组", v)?;
+        }
+        Ok(dict.into())
+    }
+
     #[classmethod]
     #[pyo3(signature = (左, 右, 模式 = "中"))]
+    /// 判断两个分型是否相同（identity比较）
     fn 判断分型(
         _cls: &Bound<'_, PyType>,
         左: &Bound<'_, Self>,
@@ -164,6 +190,7 @@ impl 分型Py {
     }
 
     #[staticmethod]
+    /// 从缠K序列中提取以指定缠K为中元素的分型
     fn 从缠K序列中获取分型(
         K线序列: Vec<Py<缠论K线Py>>,
         中: &Bound<'_, 缠论K线Py>,
@@ -183,6 +210,7 @@ impl 分型Py {
     }
 
     #[staticmethod]
+    /// 向分型序列尾部添加，自动校验顶底交替
     fn 向序列中添加(
         分型序列: &Bound<'_, PyAny>, 当前分型: &Bound<'_, Self>
     ) -> PyResult<()> {
@@ -229,7 +257,7 @@ impl 分型Py {
 ///   计算MACD柱子均值 / 武之全量MACD均值 / 武之MACD均值 / 武之MACD极值
 ///   计算K线序列MACD趋向背驰 / 买卖意义 / 计算MACD柱子分段
 ///   密集区域按间隔 / 统计MACD行为
-#[pyclass(name = "虚线", unsendable)]
+#[pyclass(name = "虚线", module = "chanlun._chanlun", unsendable, from_py_object)]
 #[derive(Clone)]
 pub struct 虚线Py {
     pub(crate) inner: Rc<chanlun::structure::dash_line::虚线>,
@@ -401,6 +429,7 @@ impl 虚线Py {
     // ---- 计算属性 ----
 
     #[getter]
+    /// 笔序列
     fn 笔序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in self.inner.笔序列() {
@@ -415,11 +444,13 @@ impl 虚线Py {
     }
 
     #[getter]
+    /// :return: 图表显示标题
     fn 图表标题(&self) -> String {
         self.inner.图表标题()
     }
 
     #[getter]
+    /// :return: 运行方向
     fn 方向(&self) -> 相对方向Py {
         相对方向Py {
             inner: self.inner.方向(),
@@ -427,23 +458,28 @@ impl 虚线Py {
     }
 
     #[getter]
+    /// 虚线区间的最高价（向上线段为终点分型最高价，向下线段为起点分型最高价）
     fn 高(&self) -> f64 {
         self.inner.高()
     }
 
     #[getter]
+    /// 虚线区间的最低价（向下线段为终点分型最低价，向上线段为起点分型最低价）
     fn 低(&self) -> f64 {
         self.inner.低()
     }
 
+    /// :param 之前: 前一条虚线
     fn 之前是(&self, 之前: &Bound<'_, Self>) -> bool {
         self.inner.之前是(&之前.borrow().inner)
     }
 
+    /// :param 之后: 后一条虚线
     fn 之后是(&self, 之后: &Bound<'_, Self>) -> bool {
         self.inner.之后是(&之后.borrow().inner)
     }
 
+    /// :param 观察员: 观察者实例
     fn 获取普K序列(
         &self,
         观察员: &Bound<'_, crate::business_py::观察者Py>,
@@ -460,6 +496,7 @@ impl 虚线Py {
         Ok(list.into())
     }
 
+    /// :param 观察员: 观察者实例
     fn 获取缠K序列(
         &self,
         观察员: &Bound<'_, crate::business_py::观察者Py>,
@@ -475,14 +512,32 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// 递归获取虚线的终点分型（笔直接返回武，线段递归到底层笔的武）
     fn 获取_武(_cls: &Bound<'_, PyType>, 实线: &Bound<'_, Self>) -> 分型Py {
         分型Py {
             inner: 实线.borrow().inner.获取_武(),
         }
     }
 
+    /// 获取用于保存的数据文本
     fn 获取数据文本(&self) -> String {
         self.inner.获取数据文本()
+    }
+
+    /// pandas 兼容 — 返回关键标量字段构成的字典
+    #[getter]
+    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("标识", self.标识())?;
+        dict.set_item("序号", self.序号())?;
+        dict.set_item("级别", self.级别())?;
+        dict.set_item("有效性", self.有效性())?;
+        dict.set_item("模式", self.模式())?;
+        dict.set_item("短路修正", self.短路修正())?;
+        dict.set_item("图表标题", self.图表标题())?;
+        dict.set_item("文_时间戳", self.文().时间戳())?;
+        dict.set_item("武_时间戳", self.武().时间戳())?;
+        Ok(dict.into())
     }
 
     fn __str__(&self) -> String {
@@ -507,6 +562,7 @@ impl 虚线Py {
     // ---- 静态工厂方法 ----
 
     #[classmethod]
+    /// :param 文: 起点分型
     fn 创建笔(
         _cls: &Bound<'_, PyType>,
         文: &Bound<'_, 分型Py>,
@@ -523,6 +579,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 虚线序列: 构成线段的虚线列表（笔）
     fn 创建线段(_cls: &Bound<'_, PyType>, 虚线序列: Vec<Py<Self>>, py: Python<'_>) -> Self {
         let rc_list: Vec<Rc<chanlun::structure::dash_line::虚线>> = 虚线序列
             .iter()
@@ -538,6 +595,7 @@ impl 虚线Py {
     // ---- 买卖点模式匹配 ----
 
     #[classmethod]
+    /// :param 模式: "全量"/"任意"/"配置"/"相对"
     fn 缠K买卖点模式(
         _cls: &Bound<'_, PyType>,
         模式: &str,
@@ -554,6 +612,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// 根据配置中的指标开关检测缠K匹配情况（MACD/KDJ/RSI组合）
     fn 买卖点配置匹配(
         _cls: &Bound<'_, PyType>,
         缠K: &Bound<'_, 缠论K线Py>,
@@ -568,16 +627,19 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 缠K: 缠论K线
     fn 买卖点任意匹配(_cls: &Bound<'_, PyType>, 缠K: &Bound<'_, 缠论K线Py>) -> bool {
         chanlun::structure::dash_line::虚线::买卖点任意匹配(&缠K.borrow().inner)
     }
 
     #[classmethod]
+    /// :param 缠K: 缠论K线
     fn 买卖点全量匹配(_cls: &Bound<'_, PyType>, 缠K: &Bound<'_, 缠论K线Py>) -> bool {
         chanlun::structure::dash_line::虚线::买卖点全量匹配(&缠K.borrow().inner)
     }
 
     #[classmethod]
+    /// :param 缠K: 缠论K线
     fn 买卖点相对匹配(_cls: &Bound<'_, PyType>, 缠K: &Bound<'_, 缠论K线Py>) -> bool {
         chanlun::structure::dash_line::虚线::买卖点相对匹配(&缠K.borrow().inner)
     }
@@ -585,6 +647,7 @@ impl 虚线Py {
     // ---- MACD 相关 classmethods ----
 
     #[classmethod]
+    /// :param 普K序列: 完整K线序列
     fn 计算MACD柱子均值(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -602,6 +665,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 普K序列: 完整K线序列
     fn 武之全量MACD均值(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -619,6 +683,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 普K序列: 完整K线序列
     fn 武之MACD均值(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -633,6 +698,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 普K序列: 完整K线序列
     fn 武之MACD极值(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -647,6 +713,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 普K序列: 完整K线序列
     fn 计算MACD柱子均值_阴(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -664,6 +731,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 普K序列: 完整K线序列
     fn 计算MACD柱子均值_阳(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -681,6 +749,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 普K序列: 完整K线序列
     fn 武之MACD均值_阴(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -695,6 +764,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 普K序列: 完整K线序列
     fn 武之MACD均值_阳(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -709,6 +779,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// 计算K线序列的MACD柱/DIF/DEA趋向背驰（三元素判断）
     fn 计算K线序列MACD趋向背驰(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -726,6 +797,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param k线序列: K线序列
     fn 计算MACD柱子分段(
         _cls: &Bound<'_, PyType>,
         k线序列: Vec<Py<K线Py>>,
@@ -739,6 +811,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// 交叉标记: 长度为len(macd_list)的列表，0=无交叉, 1=金叉, -1=死叉
     fn 密集区域按间隔(
         _cls: &Bound<'_, PyType>,
         交叉标记: Vec<i32>,
@@ -753,6 +826,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// :param 普K序列: K线序列
     fn 统计MACD行为(
         _cls: &Bound<'_, PyType>,
         普K序列: Vec<Py<K线Py>>,
@@ -793,6 +867,7 @@ impl 虚线Py {
     }
 
     #[classmethod]
+    /// 静止是相对的，而运动是绝对的
     fn 买卖意义(
         _cls: &Bound<'_, PyType>,
         实线: &Bound<'_, Self>,
@@ -823,7 +898,12 @@ impl 虚线Py {
 ///   新建(序号, 文, 武, 基础序列?) -> 线段特征
 ///   静态分析(虚线序列, 配置) -> 线段特征|None
 ///   获取分型序列(虚线序列, 配置) -> list[线段特征]
-#[pyclass(name = "线段特征", unsendable)]
+#[pyclass(
+    name = "线段特征",
+    module = "chanlun._chanlun",
+    unsendable,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct 线段特征Py {
     pub(crate) inner: Rc<chanlun::structure::segment_feat::线段特征>,
@@ -939,14 +1019,27 @@ impl 线段特征Py {
         Rc::as_ptr(&self.inner) as u64
     }
 
+    /// pandas 兼容 — 返回关键标量字段构成的字典
+    #[getter]
+    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("序号", self.序号())?;
+        dict.set_item("标识", self.标识())?;
+        dict.set_item("线段方向", self.线段方向())?;
+        dict.set_item("图表标题", self.图表标题())?;
+        Ok(dict.into())
+    }
+
     // ---- instance methods ----
 
     #[getter]
+    /// :return: 图表标题
     fn 图表标题(&self) -> String {
         self.inner.图表标题()
     }
 
     #[getter]
+    /// 起点分型（向上线段取高高中的最大者，向下线段取低低中的最小者）
     fn 文(&self) -> 分型Py {
         分型Py {
             inner: self.inner.文(),
@@ -954,6 +1047,7 @@ impl 线段特征Py {
     }
 
     #[getter]
+    /// 终点分型（向上线段取高高中的最大者，向下线段取低低中的最小者）
     fn 武(&self) -> 分型Py {
         分型Py {
             inner: self.inner.武(),
@@ -961,6 +1055,7 @@ impl 线段特征Py {
     }
 
     #[getter]
+    /// :return: 特征序列方向（线段方向的翻转）
     fn 方向(&self) -> 相对方向Py {
         相对方向Py {
             inner: self.inner.方向(),
@@ -968,15 +1063,18 @@ impl 线段特征Py {
     }
 
     #[getter]
+    /// :return: 文和武中分型特征值的较大者
     fn 高(&self) -> f64 {
         self.inner.高()
     }
 
     #[getter]
+    /// :return: 文和武中分型特征值的较小者
     fn 低(&self) -> f64 {
         self.inner.低()
     }
 
+    /// :param 待添加虚线: 待添加的虚线
     fn 添加(&mut self, 待添加虚线: &Bound<'_, 虚线Py>) -> PyResult<()> {
         let inner = Rc::make_mut(&mut self.inner);
         inner
@@ -984,6 +1082,7 @@ impl 线段特征Py {
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
     }
 
+    /// :param 待删除虚线: 待删除的虚线
     fn 删除(&mut self, 待删除虚线: &Bound<'_, 虚线Py>) -> PyResult<()> {
         let inner = Rc::make_mut(&mut self.inner);
         inner
@@ -994,6 +1093,7 @@ impl 线段特征Py {
     // ---- classmethods ----
 
     #[classmethod]
+    /// :param 虚线序列: 基础虚线列表
     fn 新建(
         _cls: &Bound<'_, PyType>,
         虚线序列: Vec<Py<虚线Py>>,
@@ -1013,6 +1113,7 @@ impl 线段特征Py {
     }
 
     #[classmethod]
+    /// 静态分析虚线序列，生成特征序列
     fn 静态分析(
         _cls: &Bound<'_, PyType>,
         虚线序列: Vec<Py<虚线Py>>,
@@ -1037,6 +1138,7 @@ impl 线段特征Py {
     }
 
     #[classmethod]
+    /// 从特征序列提取特征分型序列
     fn 获取分型序列(
         _cls: &Bound<'_, PyType>,
         特征序列: Vec<Py<Self>>,
@@ -1062,7 +1164,12 @@ impl 线段特征Py {
 /// 属性 (只读):
 ///   左: 线段特征|None / 中: 线段特征 / 右: 线段特征|None
 ///   结构: 分型结构 — 顶/底分型判定结果
-#[pyclass(name = "特征分型", unsendable)]
+#[pyclass(
+    name = "特征分型",
+    module = "chanlun._chanlun",
+    unsendable,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct 特征分型Py {
     pub(crate) inner: Rc<chanlun::structure::feat_fractal::特征分型>,
@@ -1113,6 +1220,14 @@ impl 特征分型Py {
         分型结构Py {
             inner: self.inner.结构,
         }
+    }
+
+    /// pandas 兼容 — 返回关键标量字段构成的字典
+    #[getter]
+    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("结构", self.结构())?;
+        Ok(dict.into())
     }
 
     fn __str__(&self) -> String {

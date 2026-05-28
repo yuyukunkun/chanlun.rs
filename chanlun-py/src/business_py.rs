@@ -23,7 +23,7 @@
  */
 
 use pyo3::prelude::*;
-use pyo3::types::PyType;
+use pyo3::types::{PyDict, PyType};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -44,7 +44,12 @@ use crate::types_py::买卖点类型Py;
 ///   有效性: bool — 买卖点是否仍有效
 ///   与MACD柱子匹配: bool|None — 是否与MACD柱状图方向匹配
 ///   与MACD柱子分型匹配: bool|None — 是否与MACD柱分型匹配
-#[pyclass(name = "基础买卖点", unsendable)]
+#[pyclass(
+    name = "基础买卖点",
+    module = "chanlun._chanlun",
+    unsendable,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct 基础买卖点Py {
     pub(crate) inner: chanlun::business::bsp::基础买卖点,
@@ -102,6 +107,7 @@ impl 基础买卖点Py {
     }
 
     #[getter]
+    /// 当前K线
     fn 当前K线(&self) -> K线Py {
         K线Py {
             inner: self.inner.当前K线.clone(),
@@ -123,6 +129,7 @@ impl 基础买卖点Py {
     }
 
     #[getter]
+    /// 破位值
     fn 破位值(&self) -> f64 {
         self.inner.破位值
     }
@@ -135,28 +142,51 @@ impl 基础买卖点Py {
     }
 
     #[getter]
+    /// 偏移
     fn 偏移(&self) -> i64 {
         self.inner.偏移()
     }
 
     #[getter]
+    /// 失效偏移
     fn 失效偏移(&self) -> i64 {
         self.inner.失效偏移()
     }
 
     #[getter]
+    /// 有效性
     fn 有效性(&self) -> bool {
         self.inner.有效性()
     }
 
     #[getter]
+    /// 与MACD柱子匹配
     fn 与MACD柱子匹配(&self) -> bool {
         self.inner.与MACD柱子匹配()
     }
 
     #[getter]
+    /// 与MACD柱子分型匹配
     fn 与MACD柱子分型匹配(&self) -> bool {
         self.inner.与MACD柱子分型匹配()
+    }
+
+    /// pandas 兼容 — 返回关键标量字段构成的字典
+    #[getter]
+    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("备注", self.备注())?;
+        dict.set_item("类型", self.类型())?;
+        dict.set_item("破位值", self.破位值())?;
+        dict.set_item("偏移", self.偏移())?;
+        dict.set_item("失效偏移", self.失效偏移())?;
+        dict.set_item("有效性", self.有效性())?;
+        dict.set_item("与MACD柱子匹配", self.与MACD柱子匹配())?;
+        dict.set_item("与MACD柱子分型匹配", self.与MACD柱子分型匹配())?;
+        if let Some(v) = self.结构() {
+            dict.set_item("结构", v)?;
+        }
+        Ok(dict.into())
     }
 
     fn __str__(&self) -> String {
@@ -176,12 +206,13 @@ impl 基础买卖点Py {
 ///   一卖点(...) / 一买点(...) / 二卖点(...) / 二买点(...) / 三卖点(...) / 三买点(...)
 ///   生成买卖点(特征, 序号, 级别, 分型, 当前缠K, 备注?) -> 买卖点
 ///      — 根据特征字符串自动路由到对应的一/二/三类买卖点构造函数
-#[pyclass(name = "买卖点")]
+#[pyclass(name = "买卖点", module = "chanlun._chanlun")]
 pub struct 买卖点Py;
 
 #[pymethods]
 impl 买卖点Py {
     #[classmethod]
+    /// :param 买卖点分型: 买卖点对应的分型
     fn 一卖点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -202,6 +233,7 @@ impl 买卖点Py {
     }
 
     #[classmethod]
+    /// :param 买卖点分型: 买卖点对应的分型
     fn 一买点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -222,6 +254,7 @@ impl 买卖点Py {
     }
 
     #[classmethod]
+    /// :param 买卖点分型: 买卖点对应的分型
     fn 二卖点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -242,6 +275,7 @@ impl 买卖点Py {
     }
 
     #[classmethod]
+    /// :param 买卖点分型: 买卖点对应的分型
     fn 二买点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -262,6 +296,7 @@ impl 买卖点Py {
     }
 
     #[classmethod]
+    /// :param 买卖点分型: 买卖点对应的分型
     fn 三卖点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -282,6 +317,7 @@ impl 买卖点Py {
     }
 
     #[classmethod]
+    /// :param 买卖点分型: 买卖点对应的分型
     fn 三买点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -302,6 +338,7 @@ impl 买卖点Py {
     }
 
     #[classmethod]
+    /// :param 特征: 特征字符串
     fn 生成买卖点(
         _cls: &Bound<'_, PyType>,
         特征: &str,
@@ -353,7 +390,7 @@ impl 买卖点Py {
 /// 调试方法:
 ///   测试_保存数据(root?) — 将各层级序列保存到文件，用于与Python版对比
 ///   读取数据文件(文件路径, 配置) -> 观察者 (classmethod) — 从 .nb 文件加载数据
-#[pyclass(name = "观察者", subclass, unsendable)]
+#[pyclass(name = "观察者", module = "chanlun._chanlun", subclass, unsendable)]
 pub struct 观察者Py {
     pub(crate) inner: Option<Rc<RefCell<chanlun::business::observer::观察者>>>,
 }
@@ -442,16 +479,19 @@ impl 观察者Py {
     }
 
     #[getter]
+    /// 观察员（自引用）
     fn 观察员(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
     #[getter]
+    /// :return: "{符号}:{周期}"
     fn 标识(&self) -> String {
         self.obs().标识()
     }
 
     #[getter]
+    /// :return: 最后一根原始K线
     fn 当前K线(&self) -> Option<K线Py> {
         self.obs().当前K线().map(|k| K线Py {
             inner: Rc::clone(k),
@@ -459,6 +499,7 @@ impl 观察者Py {
     }
 
     #[getter]
+    /// :return: 最后一根缠论K线
     fn 当前缠K(&self) -> Option<缠论K线Py> {
         self.obs()
             .当前缠K()
@@ -480,10 +521,12 @@ impl 观察者Py {
         缠论配置Py::from_rust_config(&self.obs().配置)
     }
 
+    /// 清空所有分析序列，重置为初始状态
     fn 重置基础序列(&mut self) {
         self.obs_mut().重置基础序列();
     }
 
+    /// 核心入口 — 投喂一根原始K线，增量更新所有层级
     fn 增加原始K线(&mut self, 普K: &Bound<'_, K线Py>) {
         self.obs_mut().增加原始K线((*普K.borrow().inner).clone());
     }
@@ -516,16 +559,19 @@ impl 观察者Py {
         Ok(())
     }
 
+    /// 静态重新分析（占位方法）
     fn 静态重新分析(&mut self) {
         self.obs_mut().静态重新分析();
     }
 
+    /// 拆分各序列数据，单独存文件，文件名为对应变量名
     fn 测试_保存数据(&self, root: Option<&str>) {
         self.obs().测试_保存数据(root);
     }
 
     #[classmethod]
     #[pyo3(signature = (文件路径, 配置 = None))]
+    /// :param 文件路径: 数据文件路径 格式如: btcusd-300-1631772074-1632222374.nb
     fn 读取数据文件(
         cls: &Bound<'_, PyType>,
         文件路径: &str,
@@ -760,7 +806,7 @@ impl 观察者Py {
 ///   投喂(时间戳, 开盘价, 最高价, 最低价, 收盘价, 成交量) -> list[(周期, K线)]
 ///      — 快捷入口，免去构造K线对象
 ///   获取当前K线(周期) -> K线|None — 获取指定周期的当前合成结果
-#[pyclass(name = "K线合成器", unsendable)]
+#[pyclass(name = "K线合成器", module = "chanlun._chanlun", unsendable)]
 pub struct K线合成器Py {
     pub(crate) inner: chanlun::business::synthesizer::K线合成器,
 }
@@ -774,6 +820,7 @@ impl K线合成器Py {
         }
     }
 
+    /// 统一入口 — 投喂最小周期K线，自动合成大周期并分发给各周期观察者
     fn 投喂K线(
         &mut self,
         普K: &Bound<'_, K线Py>,
@@ -786,6 +833,7 @@ impl K线合成器Py {
             .collect())
     }
 
+    /// 投喂原始tick数据
     fn 投喂(
         &mut self,
         时间戳: i64,
@@ -814,6 +862,7 @@ impl K线合成器Py {
             .collect()
     }
 
+    /// 获取指定周期当前正在合成的K线
     fn 获取当前K线(&self, 周期: i64) -> Option<K线Py> {
         self.inner.获取当前K线(周期).map(|k| K线Py {
             inner: Rc::new(k.clone()),
@@ -844,7 +893,7 @@ impl K线合成器Py {
 /// 方法:
 ///   投喂K线(普K) — 喂入最小周期K线，自动合成大周期并分发给各周期观察者
 ///   测试_保存数据(root?) — 保存各周期的分析数据到文件
-#[pyclass(name = "立体分析器", unsendable)]
+#[pyclass(name = "立体分析器", module = "chanlun._chanlun", unsendable)]
 pub struct 立体分析器Py {
     pub(crate) inner: chanlun::business::multi_frame::立体分析器,
 }
@@ -884,6 +933,7 @@ impl 立体分析器Py {
         })
     }
 
+    /// 统一入口 — 投喂最小周期K线，自动合成大周期并分发给各周期观察者
     fn 投喂K线(&mut self, 普K: &Bound<'_, K线Py>) {
         self.inner.投喂K线((*普K.borrow().inner).clone());
     }
@@ -894,6 +944,7 @@ impl 立体分析器Py {
             .map(|rc| 观察者Py { inner: Some(rc) })
     }
 
+    /// 拆分各序列数据，单独存文件，文件名为对应变量名
     fn 测试_保存数据(&self) {
         self.inner.测试_保存数据();
     }
