@@ -25,7 +25,9 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyType};
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 use crate::config_py::缠论配置Py;
 use crate::indicators_py::{平滑异同移动平均线Py, 相对强弱指数Py, 随机指标Py};
@@ -52,9 +54,9 @@ use crate::types_py::相对方向Py;
 ///   获取MACD(K线序列, 计算方式, 快线周期?, 慢线周期?, 信号周期?) -> list[平滑异同移动平均线]
 ///      — 对整个K线序列批量计算 MACD
 ///   截取(序列, 起点K线, 终点K线) -> list — 按时间戳截取K线区间
-#[pyclass(name = "K线", module = "chanlun._chanlun", unsendable)]
+#[pyclass(name = "K线", module = "chanlun._chanlun")]
 pub struct K线Py {
-    pub(crate) inner: Rc<chanlun::kline::bar::K线>,
+    pub(crate) inner: Arc<chanlun::kline::bar::K线>,
 }
 
 #[pymethods]
@@ -73,7 +75,7 @@ impl K线Py {
         成交量: f64,
     ) -> Self {
         Self {
-            inner: Rc::new(chanlun::kline::bar::K线 {
+            inner: Arc::new(chanlun::kline::bar::K线 {
                 标识: 标识.to_string(),
                 序号,
                 周期,
@@ -94,81 +96,45 @@ impl K线Py {
     fn 标识(&self) -> String {
         self.inner.标识.clone()
     }
-    #[setter]
-    fn set_标识(&mut self, v: String) {
-        Rc::make_mut(&mut self.inner).标识 = v;
-    }
 
     #[getter]
     fn 序号(&self) -> i64 {
         self.inner.序号
-    }
-    #[setter]
-    fn set_序号(&mut self, v: i64) {
-        Rc::make_mut(&mut self.inner).序号 = v;
     }
 
     #[getter]
     fn 周期(&self) -> i64 {
         self.inner.周期
     }
-    #[setter]
-    fn set_周期(&mut self, v: i64) {
-        Rc::make_mut(&mut self.inner).周期 = v;
-    }
 
     #[getter]
     fn 时间戳(&self) -> i64 {
         self.inner.时间戳
-    }
-    #[setter]
-    fn set_时间戳(&mut self, v: i64) {
-        Rc::make_mut(&mut self.inner).时间戳 = v;
     }
 
     #[getter]
     fn 高(&self) -> f64 {
         self.inner.高
     }
-    #[setter]
-    fn set_高(&mut self, v: f64) {
-        Rc::make_mut(&mut self.inner).高 = v;
-    }
 
     #[getter]
     fn 低(&self) -> f64 {
         self.inner.低
-    }
-    #[setter]
-    fn set_低(&mut self, v: f64) {
-        Rc::make_mut(&mut self.inner).低 = v;
     }
 
     #[getter]
     fn 开盘价(&self) -> f64 {
         self.inner.开盘价
     }
-    #[setter]
-    fn set_开盘价(&mut self, v: f64) {
-        Rc::make_mut(&mut self.inner).开盘价 = v;
-    }
 
     #[getter]
     fn 收盘价(&self) -> f64 {
         self.inner.收盘价
     }
-    #[setter]
-    fn set_收盘价(&mut self, v: f64) {
-        Rc::make_mut(&mut self.inner).收盘价 = v;
-    }
 
     #[getter]
     fn 成交量(&self) -> f64 {
         self.inner.成交量
-    }
-    #[setter]
-    fn set_成交量(&mut self, v: f64) {
-        Rc::make_mut(&mut self.inner).成交量 = v;
     }
 
     #[getter]
@@ -243,13 +209,13 @@ impl K线Py {
 
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
         if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
-            return Rc::as_ptr(&self.inner) == Rc::as_ptr(&other.inner);
+            return Arc::as_ptr(&self.inner) == Arc::as_ptr(&other.inner);
         }
         false
     }
 
     fn __hash__(&self) -> u64 {
-        Rc::as_ptr(&self.inner) as u64
+        Arc::as_ptr(&self.inner) as u64
     }
 
     #[classmethod]
@@ -268,7 +234,7 @@ impl K线Py {
         周期: Option<i64>,
     ) -> Self {
         Self {
-            inner: Rc::new(chanlun::kline::bar::K线::创建普K(
+            inner: Arc::new(chanlun::kline::bar::K线::创建普K(
                 标识,
                 时间戳,
                 开盘价,
@@ -306,7 +272,7 @@ impl K线Py {
     ) -> Option<Self> {
         chanlun::kline::bar::K线::读取大端字节数组(字节组.as_bytes(), 周期, 标识).map(|inner| {
             Self {
-                inner: Rc::new(inner),
+                inner: Arc::new(inner),
             }
         })
     }
@@ -333,21 +299,21 @@ impl K线Py {
         终: &Bound<'_, Self>,
         py: Python<'_>,
     ) -> PyResult<Vec<Py<Self>>> {
-        let start_ptr = Rc::as_ptr(&始.borrow().inner);
-        let end_ptr = Rc::as_ptr(&终.borrow().inner);
+        let start_ptr = Arc::as_ptr(&始.borrow().inner);
+        let end_ptr = Arc::as_ptr(&终.borrow().inner);
         let start_ts = 始.borrow().inner.时间戳;
         let end_ts = 终.borrow().inner.时间戳;
         let start_idx = 序列
             .iter()
             .position(|k| {
-                Rc::as_ptr(&k.borrow(py).inner) == start_ptr
+                Arc::as_ptr(&k.borrow(py).inner) == start_ptr
                     || k.borrow(py).inner.时间戳 == start_ts
             })
             .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("始 不在序列中"))?;
         let end_idx = 序列
             .iter()
             .position(|k| {
-                Rc::as_ptr(&k.borrow(py).inner) == end_ptr || k.borrow(py).inner.时间戳 == end_ts
+                Arc::as_ptr(&k.borrow(py).inner) == end_ptr || k.borrow(py).inner.时间戳 == end_ts
             })
             .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("终 不在序列中"))?;
         if start_idx > end_idx {
@@ -380,31 +346,71 @@ impl K线Py {
 ///   分析(缠K序列, 配置, 可以逆序包含?, 忽视顺序包含?, 可以逆序包含新?) -> (str, 分型|None)
 ///      — 分析分型形成结果
 ///   截取(序列, 起点分型, 终点分型) -> list — 截取分型间的缠K子序列
-#[pyclass(
-    name = "缠论K线",
-    module = "chanlun._chanlun",
-    unsendable,
-    from_py_object
-)]
+#[pyclass(name = "缠论K线", module = "chanlun._chanlun", from_py_object)]
 pub struct 缠论K线Py {
-    pub(crate) inner: std::rc::Rc<chanlun::kline::chan_kline::缠论K线>,
-    bsp_set: std::cell::RefCell<Option<Py<pyo3::types::PySet>>>,
+    pub(crate) inner: std::sync::Arc<chanlun::kline::chan_kline::缠论K线>,
+    bsp_set: std::sync::RwLock<Option<Py<pyo3::types::PySet>>>,
 }
 
 impl 缠论K线Py {
-    pub(crate) fn from_rc(inner: std::rc::Rc<chanlun::kline::chan_kline::缠论K线>) -> Self {
+    pub(crate) fn from_rc(inner: std::sync::Arc<chanlun::kline::chan_kline::缠论K线>) -> Self {
         Self {
             inner,
-            bsp_set: std::cell::RefCell::new(None),
+            bsp_set: std::sync::RwLock::new(None),
         }
     }
+}
+
+thread_local! {
+    /// 对象标识缓存：Rc 地址 → 规范 Python 对象
+    /// 确保同一底层 Rc 指针在 Python 侧始终映射到同一 PyObject
+
+    static BAR_IDENTITY: RwLock<HashMap<usize, Py<K线Py>>> = RwLock::new(HashMap::new());
+
+    static KLINE_IDENTITY: RwLock<HashMap<usize, Py<缠论K线Py>>> = RwLock::new(HashMap::new());
+}
+
+/// 将 Rc<K线> 转为 Py<K线Py>，确保同一 Rc 地址总是返回同一 Python 对象
+pub(crate) fn bar_to_py(
+    py: Python<'_>,
+    inner: std::sync::Arc<chanlun::kline::bar::K线>,
+) -> Py<K线Py> {
+    let key = Arc::as_ptr(&inner) as usize;
+    if let Some(cached) =
+        BAR_IDENTITY.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)))
+    {
+        return cached;
+    }
+    let obj = Py::new(py, K线Py { inner }).unwrap();
+    BAR_IDENTITY.with(|c| {
+        c.write().unwrap().insert(key, obj.clone_ref(py));
+    });
+    obj
+}
+
+/// 将 Rc<缠论K线> 转为 Py<缠论K线Py>，确保同一 Rc 地址总是返回同一 Python 对象
+pub(crate) fn chan_kline_to_py(
+    py: Python<'_>,
+    inner: std::sync::Arc<chanlun::kline::chan_kline::缠论K线>,
+) -> Py<缠论K线Py> {
+    let key = Arc::as_ptr(&inner) as usize;
+    if let Some(cached) =
+        KLINE_IDENTITY.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)))
+    {
+        return cached;
+    }
+    let obj = Py::new(py, 缠论K线Py::from_rc(inner)).unwrap();
+    KLINE_IDENTITY.with(|c| {
+        c.write().unwrap().insert(key, obj.clone_ref(py));
+    });
+    obj
 }
 
 impl Clone for 缠论K线Py {
     fn clone(&self) -> Self {
         Self {
-            inner: std::rc::Rc::clone(&self.inner),
-            bsp_set: std::cell::RefCell::new(None),
+            inner: std::sync::Arc::clone(&self.inner),
+            bsp_set: std::sync::RwLock::new(None),
         }
     }
 }
@@ -418,28 +424,28 @@ impl 缠论K线Py {
 
     #[getter]
     fn 序号(&self) -> i64 {
-        self.inner.序号
+        self.inner.序号.load(Ordering::Relaxed)
     }
 
     #[getter]
     fn 时间戳(&self) -> i64 {
-        self.inner.时间戳
+        self.inner.时间戳.load(Ordering::Relaxed)
     }
 
     #[getter]
     fn 高(&self) -> f64 {
-        self.inner.高
+        self.inner.高.get()
     }
 
     #[getter]
     fn 低(&self) -> f64 {
-        self.inner.低
+        self.inner.低.get()
     }
 
     #[getter]
     fn 方向(&self) -> 相对方向Py {
         相对方向Py {
-            inner: self.inner.方向,
+            inner: *self.inner.方向.read().unwrap(),
         }
     }
 
@@ -447,6 +453,8 @@ impl 缠论K线Py {
     fn 分型(&self) -> Option<crate::types_py::分型结构Py> {
         self.inner
             .分型
+            .read()
+            .unwrap()
             .map(|f| crate::types_py::分型结构Py { inner: f })
     }
 
@@ -462,7 +470,7 @@ impl 缠论K线Py {
 
     #[getter]
     fn 分型特征值(&self) -> f64 {
-        self.inner.分型特征值
+        self.inner.分型特征值.get()
     }
 
     #[getter]
@@ -472,14 +480,12 @@ impl 缠论K线Py {
 
     #[getter]
     fn 原始结束序号(&self) -> i64 {
-        self.inner.原始结束序号
+        self.inner.原始结束序号.load(Ordering::Relaxed)
     }
 
     #[getter]
-    fn 标的K线(&self) -> K线Py {
-        K线Py {
-            inner: self.inner.标的K线.clone(),
-        }
+    fn 标的K线(&self, py: Python<'_>) -> Py<K线Py> {
+        bar_to_py(py, self.inner.标的K线.read().unwrap().clone())
     }
 
     /// pandas 兼容 — 返回所有字段构成的字典
@@ -516,28 +522,28 @@ impl 缠论K线Py {
 
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
         if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
-            return Rc::as_ptr(&self.inner) == Rc::as_ptr(&other.inner);
+            return Arc::as_ptr(&self.inner) == Arc::as_ptr(&other.inner);
         }
         false
     }
 
     fn __hash__(&self) -> u64 {
-        Rc::as_ptr(&self.inner) as u64
+        Arc::as_ptr(&self.inner) as u64
     }
 
     #[getter]
     /// 创建当前缠K的浅拷贝副本
     fn 镜像(&self, py: Python<'_>) -> Self {
         let mut mirror = Self {
-            inner: std::rc::Rc::new(self.inner.镜像()),
-            bsp_set: std::cell::RefCell::new(None),
+            inner: std::sync::Arc::new(self.inner.镜像()),
+            bsp_set: std::sync::RwLock::new(None),
         };
-        if let Some(ref src_set) = *self.bsp_set.borrow() {
+        if let Some(ref src_set) = *self.bsp_set.read().unwrap() {
             if let Ok(new_set) = pyo3::types::PySet::empty(py) {
                 for item in src_set.bind(py).iter() {
                     let _ = new_set.add(item);
                 }
-                mirror.bsp_set = std::cell::RefCell::new(Some(new_set.into()));
+                mirror.bsp_set = std::sync::RwLock::new(Some(new_set.into()));
             }
         }
         mirror
@@ -563,16 +569,17 @@ impl 缠论K线Py {
 
     #[getter]
     fn 买卖点信息(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        if self.bsp_set.borrow().is_none() {
+        if self.bsp_set.read().unwrap().is_none() {
             let set = pyo3::types::PySet::empty(py)?;
-            for s in self.inner.买卖点信息.borrow().iter() {
+            for s in self.inner.买卖点信息.read().unwrap().iter() {
                 set.add(s.clone())?;
             }
-            *self.bsp_set.borrow_mut() = Some(set.into());
+            *self.bsp_set.write().unwrap() = Some(set.into());
         }
         Ok(self
             .bsp_set
-            .borrow()
+            .read()
+            .unwrap()
             .as_ref()
             .unwrap()
             .clone_ref(py)
@@ -589,12 +596,13 @@ impl 缠论K线Py {
     ) -> i64 {
         let rc_list: Vec<_> = 基线
             .iter()
-            .map(|k| std::rc::Rc::clone(&k.bind(py).borrow().inner))
+            .map(|k| std::sync::Arc::clone(&k.bind(py).borrow().inner))
             .collect();
         chanlun::kline::chan_kline::缠论K线::时间戳对齐(&rc_list, &k线.borrow().inner)
     }
 
     #[classmethod]
+    #[pyo3(signature = (时间戳, 高, 低, 方向, 结构, 原始序号, 普k, 之前 = None))]
     /// 创建新的缠论K线
     fn 创建缠K(
         _cls: &Bound<'_, PyType>,
@@ -606,7 +614,8 @@ impl 缠论K线Py {
         原始序号: i64,
         普k: &Bound<'_, K线Py>,
         之前: Option<&Bound<'_, Self>>,
-    ) -> Self {
+        py: Python<'_>,
+    ) -> Py<Self> {
         let prev_ref = 之前.map(|prev| prev.borrow());
         let prev_inner = prev_ref.as_ref().map(|r| r.inner.as_ref());
         let inner = chanlun::kline::chan_kline::缠论K线::创建缠K(
@@ -619,7 +628,7 @@ impl 缠论K线Py {
             普k.borrow().inner.clone(),
             prev_inner,
         );
-        Self::from_rc(std::rc::Rc::new(inner))
+        chan_kline_to_py(py, std::sync::Arc::new(inner))
     }
 
     #[classmethod]
@@ -631,7 +640,7 @@ impl 缠论K线Py {
         当前普K: &Bound<'_, K线Py>,
         配置: &Bound<'_, 缠论配置Py>,
         py: Python<'_>,
-    ) -> PyResult<(Option<Self>, Option<String>)> {
+    ) -> PyResult<(Option<Py<Self>>, Option<String>)> {
         let mut ck_inner = (*当前缠K.borrow().inner).clone();
         let config = 配置.borrow().to_rust_config(py)?;
         let prev_ref = 之前缠K.map(|prev| prev.borrow());
@@ -642,7 +651,7 @@ impl 缠论K线Py {
             &当前普K.borrow().inner,
             &config,
         );
-        Ok((result.map(Self::from_rc), mode))
+        Ok((result.map(|rc| chan_kline_to_py(py, rc)), mode))
     }
 
     #[classmethod]
@@ -660,7 +669,7 @@ impl 缠论K线Py {
 
         let mut ck_seq: Vec<_> = 缠K序列
             .iter()
-            .map(|k| std::rc::Rc::clone(&k.bind(py).borrow().inner))
+            .map(|k| std::sync::Arc::clone(&k.bind(py).borrow().inner))
             .collect();
         let mut bar_seq: Vec<_> = 普K序列
             .iter()
@@ -685,21 +694,22 @@ impl 缠论K线Py {
         终: &Bound<'_, Self>,
         py: Python<'_>,
     ) -> PyResult<Vec<Py<Self>>> {
-        let start_ptr = Rc::as_ptr(&始.borrow().inner);
-        let end_ptr = Rc::as_ptr(&终.borrow().inner);
-        let start_ts = 始.borrow().inner.时间戳;
-        let end_ts = 终.borrow().inner.时间戳;
+        let start_ptr = Arc::as_ptr(&始.borrow().inner);
+        let end_ptr = Arc::as_ptr(&终.borrow().inner);
+        let start_ts = 始.borrow().inner.时间戳.load(Ordering::Relaxed);
+        let end_ts = 终.borrow().inner.时间戳.load(Ordering::Relaxed);
         let start_idx = 序列
             .iter()
             .position(|k| {
-                Rc::as_ptr(&k.borrow(py).inner) == start_ptr
-                    || k.borrow(py).inner.时间戳 == start_ts
+                Arc::as_ptr(&k.borrow(py).inner) == start_ptr
+                    || k.borrow(py).inner.时间戳.load(Ordering::Relaxed) == start_ts
             })
             .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("始 不在序列中"))?;
         let end_idx = 序列
             .iter()
             .position(|k| {
-                Rc::as_ptr(&k.borrow(py).inner) == end_ptr || k.borrow(py).inner.时间戳 == end_ts
+                Arc::as_ptr(&k.borrow(py).inner) == end_ptr
+                    || k.borrow(py).inner.时间戳.load(Ordering::Relaxed) == end_ts
             })
             .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("终 不在序列中"))?;
         if start_idx > end_idx {

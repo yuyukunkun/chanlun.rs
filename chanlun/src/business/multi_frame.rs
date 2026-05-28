@@ -26,9 +26,9 @@ use crate::business::observer::观察者;
 use crate::business::synthesizer::K线合成器;
 use crate::config::缠论配置;
 use crate::kline::bar::K线;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 /// 立体分析器 — 多周期协调器
 ///
@@ -38,7 +38,7 @@ pub struct 立体分析器 {
     pub 周期组: Vec<i64>,
     输入周期: i64,
     K线合成器: K线合成器,
-    单体分析器: HashMap<i64, Rc<RefCell<观察者>>>,
+    单体分析器: HashMap<i64, Arc<RwLock<观察者>>>,
 }
 
 impl 立体分析器 {
@@ -96,13 +96,13 @@ impl 立体分析器 {
         // Dispatch on completion events (matching Python's __K线回调)
         for (周期, 完成K线) in 完成事件 {
             if let Some(观察员) = self.单体分析器.get(&周期) {
-                观察员.borrow_mut().增加原始K线(完成K线);
+                观察员.write().unwrap().增加原始K线(完成K线);
             }
         }
     }
 
     /// 获取指定周期的观察者
-    pub fn 获取观察者(&self, 周期: i64) -> Option<Rc<RefCell<观察者>>> {
+    pub fn 获取观察者(&self, 周期: i64) -> Option<Arc<RwLock<观察者>>> {
         self.单体分析器.get(&周期).cloned()
     }
 
@@ -116,23 +116,23 @@ impl 立体分析器 {
         let 起始时间 = self
             .单体分析器
             .get(&self.输入周期)
-            .and_then(|o| o.borrow().普通K线序列.first().map(|k| k.时间戳))
+            .and_then(|o| o.read().unwrap().普通K线序列.first().map(|k| k.时间戳))
             .unwrap_or(0);
         let 结束时间 = self
             .单体分析器
             .get(&self.输入周期)
-            .and_then(|o| o.borrow().普通K线序列.last().map(|k| k.时间戳))
+            .and_then(|o| o.read().unwrap().普通K线序列.last().map(|k| k.时间戳))
             .unwrap_or(0);
         let 标识 = self
             .单体分析器
             .get(&self.输入周期)
-            .map(|o| o.borrow().符号.clone())
+            .map(|o| o.read().unwrap().符号.clone())
             .unwrap_or_default();
 
         let 周期 = self
             .单体分析器
             .get(&self.输入周期)
-            .map(|o| o.borrow().周期)
+            .map(|o| o.read().unwrap().周期)
             .unwrap_or_default();
 
         let 目录标识 = format!("RustM_{}:{}_{}_{}", 标识, 周期, 起始时间, 结束时间);
@@ -146,7 +146,8 @@ impl 立体分析器 {
         for 周期 in &self.周期组 {
             if let Some(观察员) = self.单体分析器.get(周期) {
                 观察员
-                    .borrow()
+                    .read()
+                    .unwrap()
                     .测试_保存数据(Some(&保存路径.to_string_lossy()));
             }
         }

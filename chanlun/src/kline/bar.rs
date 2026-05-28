@@ -28,7 +28,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// 原始K线 (OHLCV + 指标)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,12 +202,12 @@ impl K线 {
         Some(&序列[始_idx..=终_idx])
     }
 
-    /// 截取Rc<K线>序列中从始到终的片段
-    pub fn 截取rc(序列: &[Rc<Self>], 始: &Rc<Self>, 终: &Rc<Self>) -> Vec<Rc<Self>> {
-        let 始_ptr = Rc::as_ptr(始);
-        let 终_ptr = Rc::as_ptr(终);
-        let 始_idx = 序列.iter().position(|k| Rc::as_ptr(k) == 始_ptr);
-        let 终_idx = 序列.iter().position(|k| Rc::as_ptr(k) == 终_ptr);
+    /// 截取Arc<K线>序列中从始到终的片段
+    pub fn 截取rc(序列: &[Arc<Self>], 始: &Arc<Self>, 终: &Arc<Self>) -> Vec<Arc<Self>> {
+        let 始_ptr = Arc::as_ptr(始);
+        let 终_ptr = Arc::as_ptr(终);
+        let 始_idx = 序列.iter().position(|k| Arc::as_ptr(k) == 始_ptr);
+        let 终_idx = 序列.iter().position(|k| Arc::as_ptr(k) == 终_ptr);
         match (始_idx, 终_idx) {
             (Some(s), Some(e)) => 序列[s..=e].to_vec(),
             _ => Vec::new(),

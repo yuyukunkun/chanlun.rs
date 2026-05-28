@@ -286,17 +286,15 @@ impl 分型结构Py {
     /// 返回:
     ///   分型结构 或 None — 无法判定时返回 None
     #[classmethod]
+    #[pyo3(signature = (左, 中, 右, 可以逆序包含 = false, 忽视顺序包含 = false))]
     fn 分析(
         _cls: &Bound<'_, PyType>,
         左: &Bound<'_, PyAny>,
         中: &Bound<'_, PyAny>,
         右: &Bound<'_, PyAny>,
-        可以逆序包含: Option<bool>,
-        忽视顺序包含: Option<bool>,
+        可以逆序包含: bool,
+        忽视顺序包含: bool,
     ) -> PyResult<Option<Self>> {
-        let 可以逆序包含 = 可以逆序包含.unwrap_or(false);
-        let 忽视顺序包含 = 忽视顺序包含.unwrap_or(false);
-
         let get_hl = |obj: &Bound<'_, PyAny>| -> PyResult<(f64, f64)> {
             Ok((
                 obj.getattr("高")?.extract::<f64>()?,
@@ -456,13 +454,13 @@ impl 缺口Py {
     /// 返回:
     ///   缺口 或 None — 起点==终点时返回 None
     #[classmethod]
+    #[pyo3(signature = (起点, 终点, 比例 = 0.15))]
     fn 居中截取区间(
         _cls: &Bound<'_, PyType>,
         起点: f64,
         终点: f64,
-        比例: Option<f64>,
+        比例: f64,
     ) -> Option<Self> {
-        let 比例 = 比例.unwrap_or(0.15);
         chanlun::types::缺口::居中截取区间(起点, 终点, 比例).map(|inner| Self { inner })
     }
 }

@@ -30,24 +30,49 @@ use crate::kline::bar::K线;
 use crate::structure::fractal_obj::分型;
 use crate::types::分型结构;
 use crate::types::相对方向;
-use std::rc::Rc;
+use crate::types::SyncF64;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, RwLock};
 
 /// 缠论K线 — 经包含处理过后的K线
-#[derive(Debug, Clone)]
+///
+/// 部分字段使用 Cell/RefCell 实现内部可变性，确保包含处理原地修改时
+/// Rc 指针不变，所有持有该 Rc 的引用（如分型.右）能看到最新数据。
+#[derive(Debug)]
 pub struct 缠论K线 {
-    pub 序号: i64,
-    pub 时间戳: i64,
-    pub 高: f64,
-    pub 低: f64,
-    pub 方向: 相对方向,
-    pub 分型: Option<分型结构>,
+    pub 序号: AtomicI64,
+    pub 时间戳: AtomicI64,
+    pub 高: SyncF64,
+    pub 低: SyncF64,
+    pub 方向: RwLock<相对方向>,
+    pub 分型: RwLock<Option<分型结构>>,
     pub 周期: i64,
     pub 标识: String,
-    pub 分型特征值: f64,
+    pub 分型特征值: SyncF64,
     pub 原始起始序号: i64,
-    pub 原始结束序号: i64,
-    pub 标的K线: Rc<K线>,
-    pub 买卖点信息: std::cell::RefCell<Vec<String>>,
+    pub 原始结束序号: AtomicI64,
+    pub 标的K线: RwLock<Arc<K线>>,
+    pub 买卖点信息: RwLock<Vec<String>>,
+}
+
+impl Clone for 缠论K线 {
+    fn clone(&self) -> Self {
+        Self {
+            序号: AtomicI64::new(self.序号.load(Ordering::Relaxed)),
+            时间戳: AtomicI64::new(self.时间戳.load(Ordering::Relaxed)),
+            高: SyncF64::new(self.高.get()),
+            低: SyncF64::new(self.低.get()),
+            方向: RwLock::new(*self.方向.read().unwrap()),
+            分型: RwLock::new(*self.分型.read().unwrap()),
+            周期: self.周期,
+            标识: self.标识.clone(),
+            分型特征值: SyncF64::new(self.分型特征值.get()),
+            原始起始序号: self.原始起始序号,
+            原始结束序号: AtomicI64::new(self.原始结束序号.load(Ordering::Relaxed)),
+            标的K线: RwLock::new(Arc::clone(&self.标的K线.read().unwrap())),
+            买卖点信息: RwLock::new(self.买卖点信息.read().unwrap().clone()),
+        }
+    }
 }
 
 impl std::fmt::Display for 缠论K线 {
@@ -57,13 +82,16 @@ impl std::fmt::Display for 缠论K线 {
             f,
             "{}<{}, {}, {}, {}, {}, {}, {}>",
             self.标识,
-            self.序号,
-            self.分型.map_or("None".to_string(), |fx| fx.to_string()),
+            self.序号.load(Ordering::Relaxed),
+            self.分型
+                .read()
+                .unwrap()
+                .map_or("None".to_string(), |fx| fx.to_string()),
             self.周期,
-            self.方向,
-            self.时间戳,
-            format_f64_g(self.高),
-            format_f64_g(self.低)
+            *self.方向.read().unwrap(),
+            self.时间戳.load(Ordering::Relaxed),
+            format_f64_g(self.高.get()),
+            format_f64_g(self.低.get())
         )
     }
 }
@@ -72,34 +100,34 @@ impl 缠论K线 {
     /// 创建镜像（浅拷贝 Rc 引用）
     pub fn 镜像(&self) -> Self {
         Self {
-            序号: self.序号,
-            时间戳: self.时间戳,
-            高: self.高,
-            低: self.低,
-            方向: self.方向,
-            分型: self.分型,
+            序号: AtomicI64::new(self.序号.load(Ordering::Relaxed)),
+            时间戳: AtomicI64::new(self.时间戳.load(Ordering::Relaxed)),
+            高: SyncF64::new(self.高.get()),
+            低: SyncF64::new(self.低.get()),
+            方向: RwLock::new(*self.方向.read().unwrap()),
+            分型: RwLock::new(*self.分型.read().unwrap()),
             周期: self.周期,
             标识: self.标识.clone(),
-            分型特征值: self.分型特征值,
+            分型特征值: SyncF64::new(self.分型特征值.get()),
             原始起始序号: self.原始起始序号,
-            原始结束序号: self.原始结束序号,
-            标的K线: Rc::clone(&self.标的K线),
-            买卖点信息: std::cell::RefCell::new(self.买卖点信息.borrow().clone()),
+            原始结束序号: AtomicI64::new(self.原始结束序号.load(Ordering::Relaxed)),
+            标的K线: RwLock::new(Arc::clone(&self.标的K线.read().unwrap())),
+            买卖点信息: RwLock::new(self.买卖点信息.read().unwrap().clone()),
         }
     }
 
     /// 与MACD柱子匹配 — 底分型时MACD柱应<0, 顶分型时>0
     pub fn 与MACD柱子匹配(&self) -> bool {
-        match self.分型 {
+        match *self.分型.read().unwrap() {
             Some(分型结构::底) | Some(分型结构::下) => {
-                if let Some(ref macd) = self.标的K线.macd {
+                if let Some(ref macd) = self.标的K线.read().unwrap().macd {
                     macd.MACD柱 < 0.0
                 } else {
                     false
                 }
             }
             Some(分型结构::顶) | Some(分型结构::上) => {
-                if let Some(ref macd) = self.标的K线.macd {
+                if let Some(ref macd) = self.标的K线.read().unwrap().macd {
                     macd.MACD柱 > 0.0
                 } else {
                     false
@@ -111,9 +139,9 @@ impl 缠论K线 {
 
     /// 与RSI匹配 — 底分型时RSI应低于SMA, 顶分型时高于SMA
     pub fn 与RSI匹配(&self) -> bool {
-        match self.分型 {
+        match *self.分型.read().unwrap() {
             Some(分型结构::底) | Some(分型结构::下) => {
-                if let Some(ref rsi) = self.标的K线.rsi {
+                if let Some(ref rsi) = self.标的K线.read().unwrap().rsi {
                     match (rsi.RSI, rsi.RSI_SMA) {
                         (Some(r), Some(sma)) => r < sma,
                         _ => false,
@@ -123,7 +151,7 @@ impl 缠论K线 {
                 }
             }
             Some(分型结构::顶) | Some(分型结构::上) => {
-                if let Some(ref rsi) = self.标的K线.rsi {
+                if let Some(ref rsi) = self.标的K线.read().unwrap().rsi {
                     match (rsi.RSI, rsi.RSI_SMA) {
                         (Some(r), Some(sma)) => r > sma,
                         _ => false,
@@ -138,9 +166,9 @@ impl 缠论K线 {
 
     /// 与KDJ匹配 — 底分型时K应低于D(死叉后), 顶分型时K应高于D(金叉后)
     pub fn 与KDJ匹配(&self) -> bool {
-        match self.分型 {
+        match *self.分型.read().unwrap() {
             Some(分型结构::底) | Some(分型结构::下) => {
-                if let Some(ref kdj) = self.标的K线.kdj {
+                if let Some(ref kdj) = self.标的K线.read().unwrap().kdj {
                     match (kdj.K, kdj.D) {
                         (Some(k), Some(d)) => k < d,
                         _ => false,
@@ -150,7 +178,7 @@ impl 缠论K线 {
                 }
             }
             Some(分型结构::顶) | Some(分型结构::上) => {
-                if let Some(ref kdj) = self.标的K线.kdj {
+                if let Some(ref kdj) = self.标的K线.read().unwrap().kdj {
                     match (kdj.K, kdj.D) {
                         (Some(k), Some(d)) => k > d,
                         _ => false,
@@ -164,25 +192,30 @@ impl 缠论K线 {
     }
 
     /// 时间戳对齐 — 从基线序列中找匹配的时间戳
-    pub fn 时间戳对齐(基线: &[Rc<缠论K线>], k线: &缠论K线) -> i64 {
+    pub fn 时间戳对齐(基线: &[Arc<缠论K线>], k线: &缠论K线) -> i64 {
         if let Some(基) = 基线.first() {
             for k in 基线.iter().rev() {
                 if 基.周期 < k线.周期 {
-                    if k线.时间戳 <= k.时间戳 && k.时间戳 <= k线.时间戳 + k线.周期
+                    if k线.时间戳.load(Ordering::Relaxed) <= k.时间戳.load(Ordering::Relaxed)
+                        && k.时间戳.load(Ordering::Relaxed)
+                            <= k线.时间戳.load(Ordering::Relaxed) + k线.周期
                     {
-                        if (k线.分型特征值 - k.分型特征值).abs() < f64::EPSILON {
-                            return k.时间戳;
+                        if (k线.分型特征值.get() - k.分型特征值.get()).abs() < f64::EPSILON
+                        {
+                            return k.时间戳.load(Ordering::Relaxed);
                         }
                     }
-                } else if k.时间戳 <= k线.时间戳 && k线.时间戳 <= k.时间戳 + k.周期
+                } else if k.时间戳.load(Ordering::Relaxed) <= k线.时间戳.load(Ordering::Relaxed)
+                    && k线.时间戳.load(Ordering::Relaxed)
+                        <= k.时间戳.load(Ordering::Relaxed) + k.周期
                 {
-                    if (k线.分型特征值 - k.分型特征值).abs() < f64::EPSILON {
-                        return k.时间戳;
+                    if (k线.分型特征值.get() - k.分型特征值.get()).abs() < f64::EPSILON {
+                        return k.时间戳.load(Ordering::Relaxed);
                     }
                 }
             }
         }
-        k线.时间戳
+        k线.时间戳.load(Ordering::Relaxed)
     }
 
     /// 创建缠K
@@ -193,7 +226,7 @@ impl 缠论K线 {
         方向: 相对方向,
         结构: Option<分型结构>,
         原始序号: i64,
-        普k: Rc<K线>,
+        普k: Arc<K线>,
         之前: Option<&缠论K线>,
     ) -> Self {
         if 高.is_nan() || 低.is_nan() {
@@ -204,25 +237,28 @@ impl 缠论K线 {
         let 周期 = 普k.周期;
         let 标识 = 普k.标识.clone();
 
-        let mut 当前 = Self {
-            序号: 0,
-            时间戳,
-            高,
-            低,
-            方向,
-            分型: 结构,
+        let 当前 = Self {
+            序号: AtomicI64::new(0),
+            时间戳: AtomicI64::new(时间戳),
+            高: SyncF64::new(高),
+            低: SyncF64::new(低),
+            方向: RwLock::new(方向),
+            分型: RwLock::new(结构),
             周期,
             标识,
-            分型特征值: 高,
+            分型特征值: SyncF64::new(高),
             原始起始序号: 原始序号,
-            原始结束序号: 原始序号,
-            标的K线: 普k,
-            买卖点信息: std::cell::RefCell::new(Vec::new()),
+            原始结束序号: AtomicI64::new(原始序号),
+            标的K线: RwLock::new(普k),
+            买卖点信息: RwLock::new(Vec::new()),
         };
 
         if let Some(之前) = 之前 {
-            当前.序号 = 之前.序号 + 1;
-            let 关系 = 相对方向::分析(之前.高, 之前.低, 当前.高, 当前.低);
+            当前
+                .序号
+                .store(之前.序号.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
+            let 关系 =
+                相对方向::分析(之前.高.get(), 之前.低.get(), 当前.高.get(), 当前.低.get());
             if 关系.是否包含() {
                 panic!(
                     "创建缠K 包含关系: {:?}\n  之前: {}\n  当前: {}",
@@ -238,11 +274,11 @@ impl 缠论K线 {
     /// 返回 (新缠K, 模式) — 模式: "添加"/"替换"/None
     pub fn 兼并(
         之前缠K: Option<&缠论K线>,
-        当前缠K: &mut 缠论K线,
-        当前普K: &Rc<K线>,
+        当前缠K: &缠论K线,
+        当前普K: &Arc<K线>,
         配置: &缠论配置,
-    ) -> (Option<Rc<缠论K线>>, Option<String>) {
-        let 关系 = 相对方向::分析(当前缠K.高, 当前缠K.低, 当前普K.高, 当前普K.低);
+    ) -> (Option<Arc<缠论K线>>, Option<String>) {
+        let 关系 = 相对方向::分析(当前缠K.高.get(), 当前缠K.低.get(), 当前普K.高, 当前普K.低);
 
         // 无包含关系 — 创建新元素追加
         if !关系.是否包含() {
@@ -251,37 +287,47 @@ impl 缠论K线 {
             } else {
                 Some(分型结构::上)
             };
-            let mut 新缠K = Self::创建缠K(
+            let 新缠K = Self::创建缠K(
                 当前普K.时间戳,
                 当前普K.高,
                 当前普K.低,
                 当前普K.方向(),
                 结构,
                 当前普K.序号,
-                Rc::clone(当前普K),
+                Arc::clone(当前普K),
                 Some(当前缠K),
             );
-            新缠K.序号 = 当前缠K.序号 + 1;
-            return (Some(Rc::new(新缠K)), Some("添加".into()));
+            新缠K
+                .序号
+                .store(当前缠K.序号.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
+            return (Some(Arc::new(新缠K)), Some("添加".into()));
         }
 
         // 重复提交检测 — 当序号相同时认为是重复提交K线
-        if 当前普K.序号 == 当前缠K.原始结束序号 {
+        if 当前普K.序号 == 当前缠K.原始结束序号.load(Ordering::Relaxed) {
             return (None, None);
         }
 
         // 序号连续性检查
-        if 当前普K.序号 - 1 != 当前缠K.原始结束序号 && 当前普K.序号 != 当前缠K.原始结束序号
+        if 当前普K.序号 - 1 != 当前缠K.原始结束序号.load(Ordering::Relaxed)
+            && 当前普K.序号 != 当前缠K.原始结束序号.load(Ordering::Relaxed)
         {
             panic!(
                 "兼并: 不可追加不连续元素 缠K.原始结束序号: {}, 当前普K.序号: {}",
-                当前缠K.原始结束序号, 当前普K.序号
+                当前缠K.原始结束序号.load(Ordering::Relaxed),
+                当前普K.序号
             );
         }
 
         // 包含关系 — 原地合并到当前缠K
         let 取值函数: fn(f64, f64) -> f64 = if let Some(之前) = 之前缠K {
-            if 相对方向::分析(之前.高, 之前.低, 当前缠K.高, 当前缠K.低).是否向下()
+            if 相对方向::分析(
+                之前.高.get(),
+                之前.低.get(),
+                当前缠K.高.get(),
+                当前缠K.低.get(),
+            )
+            .是否向下()
             {
                 f64::min
             } else {
@@ -293,20 +339,22 @@ impl 缠论K线 {
 
         // 逆序包含时更新时间和标的K线
         if 关系 != 相对方向::顺 {
-            当前缠K.时间戳 = 当前普K.时间戳;
-            当前缠K.标的K线 = Rc::clone(当前普K);
+            当前缠K.时间戳.store(当前普K.时间戳, Ordering::Relaxed);
+            *当前缠K.标的K线.write().unwrap() = Arc::clone(当前普K);
         }
-        当前缠K.高 = 取值函数(当前缠K.高, 当前普K.高);
-        当前缠K.低 = 取值函数(当前缠K.低, 当前普K.低);
-        当前缠K.原始结束序号 = 当前普K.序号;
-        当前缠K.方向 = 当前普K.方向();
+        当前缠K.高.set(取值函数(当前缠K.高.get(), 当前普K.高));
+        当前缠K.低.set(取值函数(当前缠K.低.get(), 当前普K.低));
+        当前缠K.原始结束序号.store(当前普K.序号, Ordering::Relaxed);
+        *当前缠K.方向.write().unwrap() = 当前普K.方向();
 
         if let Some(之前) = 之前缠K {
-            当前缠K.序号 = 之前.序号 + 1;
+            当前缠K
+                .序号
+                .store(之前.序号.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
         }
 
         if 配置.缠K合并替换 {
-            (Some(Rc::new(当前缠K.镜像())), Some("替换".into()))
+            (Some(Arc::new(当前缠K.镜像())), Some("替换".into()))
         } else {
             (None, None)
         }
@@ -317,10 +365,10 @@ impl 缠论K线 {
     /// 返回 (状态, 形态)
     pub fn 分析(
         mut 当前K线: K线,
-        缠K序列: &mut Vec<Rc<缠论K线>>,
-        普K序列: &mut Vec<Rc<K线>>,
+        缠K序列: &mut Vec<Arc<缠论K线>>,
+        普K序列: &mut Vec<Arc<K线>>,
         配置: &缠论配置,
-    ) -> (String, Option<Rc<分型>>) {
+    ) -> (String, Option<Arc<分型>>) {
         当前K线.标识 = 配置.标识.clone();
 
         // ---- 阶段1: 普K序列管理 + 指标增量计算 ----
@@ -365,7 +413,7 @@ impl 缠论K线 {
                     配置.随机指标_超卖阈值,
                 ));
             }
-            let 当前K线_rc = Rc::new(当前K线);
+            let 当前K线_rc = Arc::new(当前K线);
             普K序列.push(当前K线_rc);
         } else {
             let 之前普K = 普K序列.last().unwrap();
@@ -412,7 +460,7 @@ impl 缠论K线 {
                     }
                 }
                 普K序列.pop();
-                普K序列.push(Rc::new(当前K线));
+                普K序列.push(Arc::new(当前K线));
             } else {
                 if 之前普K.时间戳 > 当前K线.时间戳 {
                     panic!("时序错误: 之前={}, 当前={}", 之前普K.时间戳, 当前K线.时间戳);
@@ -455,20 +503,20 @@ impl 缠论K线 {
                         ));
                     }
                 }
-                普K序列.push(Rc::new(当前K线));
+                普K序列.push(Arc::new(当前K线));
             }
         }
 
         // ---- 阶段2: 缠K合并 ----
         let 状态: String;
-        let 当前K线_ref: &Rc<K线> = 普K序列.last().unwrap();
+        let 当前K线_ref: &Arc<K线> = 普K序列.last().unwrap();
 
         if !缠K序列.is_empty() {
             let len = 缠K序列.len();
             let (左边, 右边) = 缠K序列.split_at_mut(len - 1);
-            let 之前缠K: Option<&缠论K线> = 左边.last().map(|rc| Rc::as_ref(rc));
-            let 最后一个缠K_mut = Rc::make_mut(&mut 右边[0]);
-            let (新缠K, 模式) = Self::兼并(之前缠K, 最后一个缠K_mut, 当前K线_ref, 配置);
+            let 之前缠K: Option<&缠论K线> = 左边.last().map(|rc| Arc::as_ref(rc));
+            let 最后一个缠K = &*右边[0];
+            let (新缠K, 模式) = Self::兼并(之前缠K, 最后一个缠K, 当前K线_ref, 配置);
 
             if let Some(k) = 新缠K {
                 match 模式.as_deref() {
@@ -477,9 +525,8 @@ impl 缠论K线 {
                         状态 = "创建".into();
                     }
                     Some("替换") => {
-                        缠K序列.pop();
-                        缠K序列.push(k);
-                        状态 = "替换".into();
+                        // Cell::set 已原地更新数据，无需 pop+push 打破 Rc 身份
+                        状态 = "兼并".into();
                     }
                     _ => {
                         状态 = "兼并".into();
@@ -496,10 +543,10 @@ impl 缠论K线 {
                 当前K线_ref.方向(),
                 None,
                 当前K线_ref.序号,
-                Rc::clone(普K序列.last().unwrap()),
+                Arc::clone(普K序列.last().unwrap()),
                 None,
             );
-            缠K序列.push(Rc::new(新缠K));
+            缠K序列.push(Arc::new(新缠K));
             状态 = "新建".into();
         }
 
@@ -509,106 +556,89 @@ impl 缠论K线 {
         }
 
         let idx = 缠K序列.len();
-        let 左 = Rc::clone(&缠K序列[idx - 3]);
-        let 中 = Rc::clone(&缠K序列[idx - 2]);
-        let 右 = Rc::clone(&缠K序列[idx - 1]);
+        let 左 = Arc::clone(&缠K序列[idx - 3]);
+        let 中 = Arc::clone(&缠K序列[idx - 2]);
+        let 右 = Arc::clone(&缠K序列[idx - 1]);
 
         let 结构 = 分型结构::分析(&*左, &*中, &*右, false, false);
 
-        // 需要通过 Rc::get_mut 或 RefCell 修改 中.分型
-        // 由于使用 Rc，中是不可变的。这里采用创建新 Rc 替换的方式。
-        // 但这是在 Vec 内部修改，需要使用 Rc::make_mut 或重新构建
+        // 对齐 Python：无条件设置 中.分型、中.分型特征值、右.分型特征值、右.分型
+        *缠K序列[idx - 2].分型.write().unwrap() = 结构;
+
         if let Some(结构) = 结构 {
-            // 只在分型未设置或需要更新时才修改缠K，以保持 Rc 指针不变
-            let 当前分型标记 = 缠K序列[idx - 2].分型;
-            let 中需要更新 = 当前分型标记.is_none() || 当前分型标记 != Some(结构);
-
-            if 中需要更新 {
-                let 中_mut = Rc::make_mut(&mut 缠K序列[idx - 2]);
-                中_mut.分型 = Some(结构);
-
-                match 结构 {
-                    分型结构::底 => {
-                        中_mut.分型特征值 = 中_mut.低;
-                        let 右标记 = 缠K序列[idx - 1].分型;
-                        if 右标记.is_none() {
-                            let 右_mut = Rc::make_mut(&mut 缠K序列[idx - 1]);
-                            右_mut.分型特征值 = 右_mut.高;
-                            右_mut.分型 = Some(分型结构::顶);
-                        }
-                    }
-                    分型结构::顶 => {
-                        中_mut.分型特征值 = 中_mut.高;
-                        let 右标记 = 缠K序列[idx - 1].分型;
-                        if 右标记.is_none() {
-                            let 右_mut = Rc::make_mut(&mut 缠K序列[idx - 1]);
-                            右_mut.分型特征值 = 右_mut.低;
-                            右_mut.分型 = Some(分型结构::底);
-                        }
-                    }
-                    分型结构::上 => {
-                        中_mut.分型特征值 = 中_mut.高;
-                        let 右标记 = 缠K序列[idx - 1].分型;
-                        if 右标记.is_none() {
-                            let 右_mut = Rc::make_mut(&mut 缠K序列[idx - 1]);
-                            右_mut.分型特征值 = 右_mut.高;
-                            右_mut.分型 = Some(分型结构::顶);
-                        }
-                    }
-                    分型结构::下 => {
-                        中_mut.分型特征值 = 中_mut.低;
-                        let 右标记 = 缠K序列[idx - 1].分型;
-                        if 右标记.is_none() {
-                            let 右_mut = Rc::make_mut(&mut 缠K序列[idx - 1]);
-                            右_mut.分型特征值 = 右_mut.低;
-                            右_mut.分型 = Some(分型结构::底);
-                        }
-                    }
-                    分型结构::散 => {}
+            match 结构 {
+                分型结构::底 => {
+                    缠K序列[idx - 2].分型特征值.set(缠K序列[idx - 2].低.get());
+                    缠K序列[idx - 1].分型特征值.set(缠K序列[idx - 1].高.get());
+                    *缠K序列[idx - 1].分型.write().unwrap() = Some(分型结构::顶);
                 }
+                分型结构::顶 => {
+                    缠K序列[idx - 2].分型特征值.set(缠K序列[idx - 2].高.get());
+                    缠K序列[idx - 1].分型特征值.set(缠K序列[idx - 1].低.get());
+                    *缠K序列[idx - 1].分型.write().unwrap() = Some(分型结构::底);
+                }
+                分型结构::上 => {
+                    缠K序列[idx - 2].分型特征值.set(缠K序列[idx - 2].高.get());
+                    缠K序列[idx - 1].分型特征值.set(缠K序列[idx - 1].高.get());
+                    *缠K序列[idx - 1].分型.write().unwrap() = Some(分型结构::顶);
+                }
+                分型结构::下 => {
+                    缠K序列[idx - 2].分型特征值.set(缠K序列[idx - 2].低.get());
+                    缠K序列[idx - 1].分型特征值.set(缠K序列[idx - 1].低.get());
+                    *缠K序列[idx - 1].分型.write().unwrap() = Some(分型结构::底);
+                }
+                分型结构::散 => {}
             }
 
             let 形态 = if matches!(结构, 分型结构::上 | 分型结构::下) {
                 // Python: 形态 = 分型(中, 右, None) — 左=中K线, 中=右K线, 右=None
-                Rc::new(分型::new(
-                    Some(Rc::clone(&缠K序列[idx - 2])),
-                    Rc::clone(&缠K序列[idx - 1]),
+                Arc::new(分型::new(
+                    Some(Arc::clone(&缠K序列[idx - 2])),
+                    Arc::clone(&缠K序列[idx - 1]),
                     None,
                 ))
             } else {
-                Rc::new(分型::new(
-                    Some(Rc::clone(&缠K序列[idx - 3])),
-                    Rc::clone(&缠K序列[idx - 2]),
-                    Some(Rc::clone(&缠K序列[idx - 1])),
+                Arc::new(分型::new(
+                    Some(Arc::clone(&缠K序列[idx - 3])),
+                    Arc::clone(&缠K序列[idx - 2]),
+                    Some(Arc::clone(&缠K序列[idx - 1])),
                 ))
             };
 
             return (状态, Some(形态));
         }
 
-        (状态, None)
+        // 对齐 Python：结构为 None 时仍创建并返回分型
+        let 形态 = Arc::new(分型::new(
+            Some(Arc::clone(&缠K序列[idx - 3])),
+            Arc::clone(&缠K序列[idx - 2]),
+            Some(Arc::clone(&缠K序列[idx - 1])),
+        ));
+        return (状态, Some(形态));
     }
 
     /// 截取缠K序列从始到终
     pub fn 截取(
-        序列: &[Rc<缠论K线>], 始: &缠论K线, 终: &缠论K线
-    ) -> Option<Vec<Rc<缠论K线>>> {
+        序列: &[Arc<缠论K线>],
+        始: &缠论K线,
+        终: &缠论K线,
+    ) -> Option<Vec<Arc<缠论K线>>> {
         let 始_idx = 序列
             .iter()
-            .position(|k| Rc::as_ptr(k) == (始 as *const _))?;
+            .position(|k| Arc::as_ptr(k) == (始 as *const _))?;
         let 终_idx = 序列
             .iter()
-            .position(|k| Rc::as_ptr(k) == (终 as *const _))?;
+            .position(|k| Arc::as_ptr(k) == (终 as *const _))?;
         Some(序列[始_idx..=终_idx].to_vec())
     }
 }
 
 impl crate::types::fractal::有高低 for 缠论K线 {
     fn 高(&self) -> f64 {
-        self.高
+        self.高.get()
     }
     fn 低(&self) -> f64 {
-        self.低
+        self.低.get()
     }
 }
 
@@ -623,11 +653,11 @@ mod tests {
 
     #[test]
     fn test_创建缠K_basic() {
-        let pk = Rc::new(make_普K(1000, 100.0, 110.0, 95.0, 105.0, 0));
+        let pk = Arc::new(make_普K(1000, 100.0, 110.0, 95.0, 105.0, 0));
         let ck = 缠论K线::创建缠K(1000, 110.0, 95.0, 相对方向::向上, None, 0, pk, None);
-        assert_eq!(ck.高, 110.0);
-        assert_eq!(ck.低, 95.0);
-        assert_eq!(ck.序号, 0);
+        assert_eq!(ck.高.get(), 110.0);
+        assert_eq!(ck.低.get(), 95.0);
+        assert_eq!(ck.序号.load(Ordering::Relaxed), 0);
     }
 
     #[test]

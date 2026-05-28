@@ -27,18 +27,19 @@ use crate::kline::chan_kline::缠论K线;
 use crate::structure::fractal_obj::分型;
 use crate::types::bsp_type::买卖点类型;
 use crate::types::分型结构;
-use std::rc::Rc;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 /// 基础买卖点 — 买卖点的基础数据结构
 #[derive(Debug, Clone)]
 pub struct 基础买卖点 {
     pub 备注: String,
     pub 类型: 买卖点类型,
-    pub 买卖点分型: Rc<分型>,
-    pub 买卖点K线: Rc<缠论K线>,
-    pub 当前K线: Rc<K线>,
-    pub 失效K线: Option<Rc<K线>>,
-    pub 终结K线: Option<Rc<K线>>,
+    pub 买卖点分型: Arc<分型>,
+    pub 买卖点K线: Arc<缠论K线>,
+    pub 当前K线: Arc<K线>,
+    pub 失效K线: Option<Arc<K线>>,
+    pub 终结K线: Option<Arc<K线>>,
     pub 破位值: f64,
     pub 结构: Option<分型结构>,
 }
@@ -46,12 +47,12 @@ pub struct 基础买卖点 {
 impl 基础买卖点 {
     pub fn new(
         类型: 买卖点类型,
-        当前K线: Rc<K线>,
-        买卖点分型: Rc<分型>,
+        当前K线: Arc<K线>,
+        买卖点分型: Arc<分型>,
         备注: String,
         中枢破位值: f64,
     ) -> Self {
-        let 买卖点K线 = Rc::clone(&买卖点分型.中);
+        let 买卖点K线 = Arc::clone(&买卖点分型.中);
         Self {
             备注,
             类型,
@@ -67,13 +68,13 @@ impl 基础买卖点 {
 
     /// 偏移 — 当前K线与买卖点K线的序号差
     pub fn 偏移(&self) -> i64 {
-        self.当前K线.序号 - self.买卖点K线.序号
+        self.当前K线.序号 - self.买卖点K线.序号.load(Ordering::Relaxed)
     }
 
     /// 失效偏移
     pub fn 失效偏移(&self) -> i64 {
         match &self.失效K线 {
-            Some(k) => k.序号 - self.买卖点K线.序号,
+            Some(k) => k.序号 - self.买卖点K线.序号.load(Ordering::Relaxed),
             None => -1,
         }
     }
@@ -112,8 +113,8 @@ pub struct 买卖点;
 
 impl 买卖点 {
     pub fn 一卖点(
-        买卖点分型: Rc<分型>,
-        当前K线: Rc<K线>,
+        买卖点分型: Arc<分型>,
+        当前K线: Arc<K线>,
         _标识: &str,
         备注: String,
         中枢破位值: f64,
@@ -122,8 +123,8 @@ impl 买卖点 {
     }
 
     pub fn 一买点(
-        买卖点分型: Rc<分型>,
-        当前K线: Rc<K线>,
+        买卖点分型: Arc<分型>,
+        当前K线: Arc<K线>,
         _标识: &str,
         备注: String,
         中枢破位值: f64,
@@ -132,8 +133,8 @@ impl 买卖点 {
     }
 
     pub fn 二卖点(
-        买卖点分型: Rc<分型>,
-        当前K线: Rc<K线>,
+        买卖点分型: Arc<分型>,
+        当前K线: Arc<K线>,
         _标识: &str,
         备注: String,
         中枢破位值: f64,
@@ -142,8 +143,8 @@ impl 买卖点 {
     }
 
     pub fn 二买点(
-        买卖点分型: Rc<分型>,
-        当前K线: Rc<K线>,
+        买卖点分型: Arc<分型>,
+        当前K线: Arc<K线>,
         _标识: &str,
         备注: String,
         中枢破位值: f64,
@@ -152,8 +153,8 @@ impl 买卖点 {
     }
 
     pub fn 三卖点(
-        买卖点分型: Rc<分型>,
-        当前K线: Rc<K线>,
+        买卖点分型: Arc<分型>,
+        当前K线: Arc<K线>,
         _标识: &str,
         备注: String,
         中枢破位值: f64,
@@ -162,8 +163,8 @@ impl 买卖点 {
     }
 
     pub fn 三买点(
-        买卖点分型: Rc<分型>,
-        当前K线: Rc<K线>,
+        买卖点分型: Arc<分型>,
+        当前K线: Arc<K线>,
         _标识: &str,
         备注: String,
         中枢破位值: f64,
@@ -176,8 +177,8 @@ impl 买卖点 {
         特征: &str,
         序号: &str,
         级别: &str,
-        买卖点分型: Rc<分型>,
-        当前缠K: Rc<缠论K线>,
+        买卖点分型: Arc<分型>,
+        当前缠K: Arc<缠论K线>,
     ) -> 基础买卖点 {
         let 买卖 = if matches!(买卖点分型.结构, 分型结构::底 | 分型结构::下) {
             "买"
@@ -188,7 +189,7 @@ impl 买卖点 {
         let 破位值 = 买卖点分型.分型特征值;
 
         // 当前K线 — 从缠K获取其标的K线
-        let 当前K线 = Rc::clone(&当前缠K.标的K线);
+        let 当前K线 = Arc::clone(&*当前缠K.标的K线.read().unwrap());
 
         let 类型 = match (序号, 买卖) {
             ("一", "买") => 买卖点类型::一买,

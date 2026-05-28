@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 fn is_infinite_f64(v: &f64) -> bool {
     v.is_infinite()
@@ -70,6 +70,7 @@ pub struct 缠论配置 {
 
     // ---- 指标 ----
     pub 计算指标: bool,
+    #[serde(deserialize_with = "deserialize_指标计算方式")]
     pub 指标计算方式: String,
 
     // ---- MACD ----
@@ -115,6 +116,7 @@ pub struct 缠论配置 {
     pub 买卖点激进识别: bool,
     pub 买卖点与MACD柱强相关: bool,
     pub 买卖点错过误差值: f64,
+    #[serde(deserialize_with = "deserialize_买卖点_指标模式")]
     pub 买卖点_指标模式: String,
     pub 买卖点_指标匹配_MACD: bool,
     pub 买卖点_指标匹配_KDJ: bool,
@@ -136,10 +138,64 @@ pub struct 缠论配置 {
     pub 线段内部背驰_MACD: bool,
     pub 线段内部背驰_斜率: bool,
     pub 线段内部背驰_测度: bool,
+    #[serde(deserialize_with = "deserialize_线段内部背驰_模式")]
     pub 线段内部背驰_模式: String,
 
     // ---- 文件 ----
     pub 加载文件路径: String,
+}
+
+fn deserialize_指标计算方式<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    const VALID: &[&str] = &[
+        "开",
+        "高",
+        "低",
+        "收",
+        "高低均值",
+        "高低收均值",
+        "开高低收均值",
+    ];
+    const DEFAULT: &str = "收";
+    if VALID.contains(&s.as_str()) {
+        Ok(s)
+    } else {
+        eprintln!("\x1b[33m[配置警告]\x1b[m 指标计算方式: \"{s}\" 不在有效值 {VALID:?} 内，已使用默认值 \"{DEFAULT}\"");
+        Ok(DEFAULT.to_string())
+    }
+}
+
+fn deserialize_买卖点_指标模式<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    const VALID: &[&str] = &["任意", "配置", "全量", "相对"];
+    const DEFAULT: &str = "配置";
+    if VALID.contains(&s.as_str()) {
+        Ok(s)
+    } else {
+        eprintln!("\x1b[33m[配置警告]\x1b[m 买卖点_指标模式: \"{s}\" 不在有效值 {VALID:?} 内，已使用默认值 \"{DEFAULT}\"");
+        Ok(DEFAULT.to_string())
+    }
+}
+
+fn deserialize_线段内部背驰_模式<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    const VALID: &[&str] = &["任意", "配置", "全量", "相对"];
+    const DEFAULT: &str = "相对";
+    if VALID.contains(&s.as_str()) {
+        Ok(s)
+    } else {
+        eprintln!("\x1b[33m[配置警告]\x1b[m 线段内部背驰_模式: \"{s}\" 不在有效值 {VALID:?} 内，已使用默认值 \"{DEFAULT}\"");
+        Ok(DEFAULT.to_string())
+    }
 }
 
 impl Default for 缠论配置 {
@@ -351,6 +407,39 @@ mod tests {
         assert_eq!(config.笔内元素数量, 7);
         // 未指定字段使用默认值
         assert_eq!(config.买卖点偏移, 1);
+    }
+
+    #[test]
+    fn test_invalid_enum_field_fallback() {
+        // 无效的 指标计算方式 → 回退默认值 "收"
+        let json = r#"{"指标计算方式": "胡写"}"#;
+        let config: 缠论配置 = serde_json::from_str(json).unwrap();
+        assert_eq!(config.指标计算方式, "收");
+
+        // 有效的 指标计算方式 → 正常通过
+        let json = r#"{"指标计算方式": "开"}"#;
+        let config: 缠论配置 = serde_json::from_str(json).unwrap();
+        assert_eq!(config.指标计算方式, "开");
+
+        // 无效的 买卖点_指标模式 → 回退默认值 "配置"
+        let json = r#"{"买卖点_指标模式": "瞎搞"}"#;
+        let config: 缠论配置 = serde_json::from_str(json).unwrap();
+        assert_eq!(config.买卖点_指标模式, "配置");
+
+        // 有效的 买卖点_指标模式 → 正常通过
+        let json = r#"{"买卖点_指标模式": "任意"}"#;
+        let config: 缠论配置 = serde_json::from_str(json).unwrap();
+        assert_eq!(config.买卖点_指标模式, "任意");
+
+        // 无效的 线段内部背驰_模式 → 回退默认值 "相对"
+        let json = r#"{"线段内部背驰_模式": "乱来"}"#;
+        let config: 缠论配置 = serde_json::from_str(json).unwrap();
+        assert_eq!(config.线段内部背驰_模式, "相对");
+
+        // 有效的 线段内部背驰_模式 → 正常通过
+        let json = r#"{"线段内部背驰_模式": "全量"}"#;
+        let config: 缠论配置 = serde_json::from_str(json).unwrap();
+        assert_eq!(config.线段内部背驰_模式, "全量");
     }
 
     #[test]

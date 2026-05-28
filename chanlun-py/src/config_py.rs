@@ -183,20 +183,16 @@ impl 缠论配置Py {
     }
 
     /// 保存配置到 JSON 文件（默认路径 "缠论配置.json"）。
-    fn 保存配置(&self, py: Python<'_>, path: Option<&str>) -> PyResult<()> {
-        let path = path.unwrap_or("缠论配置.json");
+    #[pyo3(signature = (path = "缠论配置.json"))]
+    fn 保存配置(&self, py: Python<'_>, path: &str) -> PyResult<()> {
         let json = self.to_json(py)?;
         std::fs::write(path, json).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
     }
 
     /// 从 JSON 文件加载配置（默认路径 "缠论配置.json"）。
     #[classmethod]
-    fn 加载配置(
-        _cls: &Bound<'_, PyType>,
-        py: Python<'_>,
-        path: Option<&str>,
-    ) -> PyResult<Self> {
-        let path = path.unwrap_or("缠论配置.json");
+    #[pyo3(signature = (path = "缠论配置.json"))]
+    fn 加载配置(_cls: &Bound<'_, PyType>, py: Python<'_>, path: &str) -> PyResult<Self> {
         let json_str = std::fs::read_to_string(path)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
         Self::from_json_str(py, &json_str)
@@ -336,9 +332,102 @@ fn dict_to_rust_config(
         let mut value: serde_json::Value = serde_json::from_str(&json_str)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("配置转换失败: {e}")))?;
         coerce_strings_to_numbers(&mut value);
-        serde_json::from_value(value)
+
+        // 获取默认配置的 JSON 表示作为 schema
+        let default_config = chanlun::config::缠论配置::default();
+        let default_json = serde_json::to_value(&default_config)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("配置转换失败: {e}")))?;
+
+        // 用默认值做基准，只合并类型匹配的字段
+        let mut merged = default_json.clone();
+        if let serde_json::Value::Object(ref input_map) = value {
+            if let serde_json::Value::Object(ref default_map) = default_json {
+                for (key, input_val) in input_map {
+                    if let Some(default_val) = default_map.get(key) {
+                        match validate_field(key, input_val, default_val) {
+                            Ok(()) => {
+                                merged[key] = input_val.clone();
+                            }
+                            Err(msg) => {
+                                eprintln!("\x1b[33m[配置警告]\x1b[m {key}: {msg}，已使用默认值 {default_val}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        serde_json::from_value(merged)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("配置转换失败: {e}")))
     })
+}
+
+/// 字符串字段的有效值集合
+fn valid_string_values(field: &str) -> Option<&'static [&'static str]> {
+    match field {
+        "指标计算方式" => Some(&[
+            "开",
+            "高",
+            "低",
+            "收",
+            "高低均值",
+            "高低收均值",
+            "开高低收均值",
+        ]),
+        "买卖点_指标模式" => Some(&["任意", "配置", "全量", "相对"]),
+        "线段内部背驰_模式" => Some(&["任意", "配置", "全量", "相对"]),
+        _ => None,
+    }
+}
+
+/// 验证单个字段的值是否与默认值类型兼容
+fn validate_field(
+    key: &str,
+    input: &serde_json::Value,
+    default: &serde_json::Value,
+) -> Result<(), String> {
+    use serde_json::Value;
+
+    // 输入为 null → 跳过（保留默认）
+    if input.is_null() {
+        return Err("值为 null".into());
+    }
+
+    // 字符串字段：检查有效值白名单
+    if default.is_string() && input.is_string() {
+        if let Some(valid) = valid_string_values(key) {
+            let s = input.as_str().unwrap();
+            if !valid.contains(&s) {
+                return Err(format!("\"{s}\" 不在有效值 {valid:?} 内"));
+            }
+        }
+        return Ok(());
+    }
+
+    // 类型匹配：直接通过
+    match (default, input) {
+        (Value::Bool(_), Value::Bool(_)) => return Ok(()),
+        (Value::Number(_), Value::Number(_)) => return Ok(()),
+        (Value::String(_), Value::String(_)) => return Ok(()),
+        _ => {}
+    }
+
+    // 类型不匹配
+    let type_name = match input {
+        Value::Bool(_) => "布尔",
+        Value::Number(_) => "数值",
+        Value::String(_) => "字符串",
+        Value::Array(_) => "数组",
+        Value::Object(_) => "字典",
+        Value::Null => "null",
+    };
+    let expected = match default {
+        Value::Bool(_) => "布尔",
+        Value::Number(_) => "数值",
+        Value::String(_) => "字符串",
+        _ => "其他",
+    };
+    Err(format!("类型不匹配（需要 {expected}，收到 {type_name}）"))
 }
 
 /// 递归遍历 JSON Value，将数字/布尔字符串转为对应类型。

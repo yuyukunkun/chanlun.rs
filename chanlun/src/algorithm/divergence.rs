@@ -26,7 +26,7 @@ use crate::config::缠论配置;
 use crate::kline::bar::K线;
 use crate::structure::dash_line::虚线;
 use crate::types::相对方向;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// 背驰分析 — 判断进入段和离开段之间是否存在背驰
 pub struct 背驰分析;
@@ -35,12 +35,18 @@ impl 背驰分析 {
     /// MACD背驰 — MACD柱状线面积背驰
     /// 方式: "总"=阳+|阴|总面积, 其他=按进入段方向选阳或阴
     pub fn MACD背驰(
-        进入段: &虚线, 离开段: &虚线, K线序列: &[Rc<K线>], 方式: &str
+        进入段: &虚线, 离开段: &虚线, K线序列: &[Arc<K线>], 方式: &str
     ) -> bool {
-        let 进入MACD =
-            Self::_获取MACD面积(K线序列, &进入段.文.中.标的K线, &进入段.武.中.标的K线);
-        let 离开MACD =
-            Self::_获取MACD面积(K线序列, &离开段.文.中.标的K线, &离开段.武.中.标的K线);
+        let 进入MACD = Self::_获取MACD面积(
+            K线序列,
+            &*进入段.文.中.标的K线.read().unwrap(),
+            &*进入段.武.read().unwrap().中.标的K线.read().unwrap(),
+        );
+        let 离开MACD = Self::_获取MACD面积(
+            K线序列,
+            &*离开段.文.中.标的K线.read().unwrap(),
+            &*离开段.武.read().unwrap().中.标的K线.read().unwrap(),
+        );
 
         // 计算面积（绝对值求和）
         let 进入面积 = if 方式 == "总" {
@@ -63,18 +69,18 @@ impl 背驰分析 {
 
     /// 斜率背驰 — 价格斜率背驰
     pub fn 斜率背驰(进入段: &虚线, 离开段: &虚线) -> bool {
-        let dx = (进入段.武.时间戳 - 进入段.文.时间戳) as f64;
+        let dx = (进入段.武.read().unwrap().时间戳 - 进入段.文.时间戳) as f64;
         if dx == 0.0 {
             return false;
         }
-        let dy = 进入段.武.分型特征值 - 进入段.文.分型特征值;
+        let dy = 进入段.武.read().unwrap().分型特征值 - 进入段.文.分型特征值;
         let 进入斜率 = dy / dx;
 
-        let dx = (离开段.武.时间戳 - 离开段.文.时间戳) as f64;
+        let dx = (离开段.武.read().unwrap().时间戳 - 离开段.文.时间戳) as f64;
         if dx == 0.0 {
             return false;
         }
-        let dy = 离开段.武.分型特征值 - 离开段.文.分型特征值;
+        let dy = 离开段.武.read().unwrap().分型特征值 - 离开段.文.分型特征值;
         let 离开斜率 = dy / dx;
 
         if 进入段.方向() == 相对方向::向上 {
@@ -86,12 +92,12 @@ impl 背驰分析 {
 
     /// 测度背驰 — 价格时间测度背驰
     pub fn 测度背驰(进入段: &虚线, 离开段: &虚线) -> bool {
-        let dx = (进入段.武.时间戳 - 进入段.文.时间戳) as f64;
-        let dy = 进入段.武.分型特征值 - 进入段.文.分型特征值;
+        let dx = (进入段.武.read().unwrap().时间戳 - 进入段.文.时间戳) as f64;
+        let dy = 进入段.武.read().unwrap().分型特征值 - 进入段.文.分型特征值;
         let 进入测度 = (dx * dx + dy * dy).sqrt();
 
-        let dx = (离开段.武.时间戳 - 离开段.文.时间戳) as f64;
-        let dy = 离开段.武.分型特征值 - 离开段.文.分型特征值;
+        let dx = (离开段.武.read().unwrap().时间戳 - 离开段.文.时间戳) as f64;
+        let dy = 离开段.武.read().unwrap().分型特征值 - 离开段.文.分型特征值;
         let 离开测度 = (dx * dx + dy * dy).sqrt();
 
         if 进入段.方向() == 相对方向::向上 {
@@ -102,14 +108,14 @@ impl 背驰分析 {
     }
 
     /// 全量背驰 — MACD + 斜率 + 测度 三者全满足
-    pub fn 全量背驰(进入段: &虚线, 离开段: &虚线, 普K序列: &[Rc<K线>]) -> bool {
+    pub fn 全量背驰(进入段: &虚线, 离开段: &虚线, 普K序列: &[Arc<K线>]) -> bool {
         Self::MACD背驰(进入段, 离开段, 普K序列, "总")
             && Self::测度背驰(进入段, 离开段)
             && Self::斜率背驰(进入段, 离开段)
     }
 
     /// 任意背驰 — 任一条件满足即可
-    pub fn 任意背驰(进入段: &虚线, 离开段: &虚线, 普K序列: &[Rc<K线>]) -> bool {
+    pub fn 任意背驰(进入段: &虚线, 离开段: &虚线, 普K序列: &[Arc<K线>]) -> bool {
         Self::MACD背驰(进入段, 离开段, 普K序列, "总")
             || Self::测度背驰(进入段, 离开段)
             || Self::斜率背驰(进入段, 离开段)
@@ -119,7 +125,7 @@ impl 背驰分析 {
     pub fn 配置背驰(
         进入段: &虚线,
         离开段: &虚线,
-        普K序列: &[Rc<K线>],
+        普K序列: &[Arc<K线>],
         配置: &缠论配置,
     ) -> bool {
         match (
@@ -152,7 +158,7 @@ impl 背驰分析 {
     }
 
     /// 任选背驰 — 至少两个条件满足（多数投票）
-    pub fn 任选背驰(进入段: &虚线, 离开段: &虚线, 普K序列: &[Rc<K线>]) -> bool {
+    pub fn 任选背驰(进入段: &虚线, 离开段: &虚线, 普K序列: &[Arc<K线>]) -> bool {
         let 混沌槽 = [
             Self::MACD背驰(进入段, 离开段, 普K序列, "总"),
             Self::测度背驰(进入段, 离开段),
@@ -165,7 +171,7 @@ impl 背驰分析 {
     pub fn 背驰模式(
         进入段: &虚线,
         离开段: &虚线,
-        普K序列: &[Rc<K线>],
+        普K序列: &[Arc<K线>],
         配置: &缠论配置,
         模式: &str,
     ) -> bool {
@@ -180,9 +186,13 @@ impl 背驰分析 {
 
     // ---- 内部辅助 ----
 
-    fn _获取MACD面积(K线序列: &[Rc<K线>], 始: &Rc<K线>, 终: &Rc<K线>) -> MACD面积 {
-        let 始_idx = K线序列.iter().position(|k| Rc::as_ptr(k) == Rc::as_ptr(始));
-        let 终_idx = K线序列.iter().position(|k| Rc::as_ptr(k) == Rc::as_ptr(终));
+    fn _获取MACD面积(K线序列: &[Arc<K线>], 始: &Arc<K线>, 终: &Arc<K线>) -> MACD面积 {
+        let 始_idx = K线序列
+            .iter()
+            .position(|k| Arc::as_ptr(k) == Arc::as_ptr(始));
+        let 终_idx = K线序列
+            .iter()
+            .position(|k| Arc::as_ptr(k) == Arc::as_ptr(终));
 
         let mut 阳 = 0.0f64;
         let mut 阴 = 0.0f64;

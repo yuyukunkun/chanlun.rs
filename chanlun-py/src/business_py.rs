@@ -24,9 +24,13 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
-use std::cell::RefCell;
+use std::sync::RwLock;
+
+use crate::algorithm_py::hub_to_py;
+use crate::kline_py::bar_to_py;
+use crate::structure_py::{dashed_to_py, fractal_to_py};
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::algorithm_py::中枢Py;
 use crate::config_py::缠论配置Py;
@@ -44,12 +48,7 @@ use crate::types_py::买卖点类型Py;
 ///   有效性: bool — 买卖点是否仍有效
 ///   与MACD柱子匹配: bool|None — 是否与MACD柱状图方向匹配
 ///   与MACD柱子分型匹配: bool|None — 是否与MACD柱分型匹配
-#[pyclass(
-    name = "基础买卖点",
-    module = "chanlun._chanlun",
-    unsendable,
-    from_py_object
-)]
+#[pyclass(name = "基础买卖点", module = "chanlun._chanlun", from_py_object)]
 #[derive(Clone)]
 pub struct 基础买卖点Py {
     pub(crate) inner: chanlun::business::bsp::基础买卖点,
@@ -69,7 +68,7 @@ impl 基础买卖点Py {
             inner: chanlun::business::bsp::基础买卖点::new(
                 类型.borrow().inner,
                 当前K线.borrow().inner.clone(),
-                Rc::clone(&买卖点分型.borrow().inner),
+                Arc::clone(&买卖点分型.borrow().inner),
                 备注,
                 中枢破位值,
             ),
@@ -97,35 +96,35 @@ impl 基础买卖点Py {
     #[getter]
     fn 买卖点分型(&self) -> 分型Py {
         分型Py {
-            inner: Rc::clone(&self.inner.买卖点分型),
+            inner: Arc::clone(&self.inner.买卖点分型),
         }
     }
 
     #[getter]
-    fn 买卖点K线(&self) -> 缠论K线Py {
-        缠论K线Py::from_rc(Rc::clone(&self.inner.买卖点K线))
+    fn 买卖点K线(&self, py: Python<'_>) -> Py<缠论K线Py> {
+        crate::kline_py::chan_kline_to_py(py, Arc::clone(&self.inner.买卖点K线))
     }
 
     #[getter]
     /// 当前K线
-    fn 当前K线(&self) -> K线Py {
-        K线Py {
-            inner: self.inner.当前K线.clone(),
-        }
+    fn 当前K线(&self, py: Python<'_>) -> Py<K线Py> {
+        bar_to_py(py, self.inner.当前K线.clone())
     }
 
     #[getter]
-    fn 失效K线(&self) -> Option<K线Py> {
-        self.inner.失效K线.as_ref().map(|k| K线Py {
-            inner: Rc::clone(k),
-        })
+    fn 失效K线(&self, py: Python<'_>) -> Option<Py<K线Py>> {
+        self.inner
+            .失效K线
+            .as_ref()
+            .map(|k| bar_to_py(py, Arc::clone(k)))
     }
 
     #[getter]
-    fn 终结K线(&self) -> Option<K线Py> {
-        self.inner.终结K线.as_ref().map(|k| K线Py {
-            inner: Rc::clone(k),
-        })
+    fn 终结K线(&self, py: Python<'_>) -> Option<Py<K线Py>> {
+        self.inner
+            .终结K线
+            .as_ref()
+            .map(|k| bar_to_py(py, Arc::clone(k)))
     }
 
     #[getter]
@@ -223,7 +222,7 @@ impl 买卖点Py {
     ) -> 基础买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::一卖点(
-                Rc::clone(&买卖点分型.borrow().inner),
+                Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
                 标识,
                 备注,
@@ -244,7 +243,7 @@ impl 买卖点Py {
     ) -> 基础买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::一买点(
-                Rc::clone(&买卖点分型.borrow().inner),
+                Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
                 标识,
                 备注,
@@ -265,7 +264,7 @@ impl 买卖点Py {
     ) -> 基础买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::二卖点(
-                Rc::clone(&买卖点分型.borrow().inner),
+                Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
                 标识,
                 备注,
@@ -286,7 +285,7 @@ impl 买卖点Py {
     ) -> 基础买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::二买点(
-                Rc::clone(&买卖点分型.borrow().inner),
+                Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
                 标识,
                 备注,
@@ -307,7 +306,7 @@ impl 买卖点Py {
     ) -> 基础买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::三卖点(
-                Rc::clone(&买卖点分型.borrow().inner),
+                Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
                 标识,
                 备注,
@@ -328,7 +327,7 @@ impl 买卖点Py {
     ) -> 基础买卖点Py {
         基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::三买点(
-                Rc::clone(&买卖点分型.borrow().inner),
+                Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
                 标识,
                 备注,
@@ -352,8 +351,8 @@ impl 买卖点Py {
                 特征,
                 序号,
                 级别,
-                Rc::clone(&买卖点分型.borrow().inner),
-                Rc::clone(&当前缠K.borrow().inner),
+                Arc::clone(&买卖点分型.borrow().inner),
+                Arc::clone(&当前缠K.borrow().inner),
             ),
         }
     }
@@ -390,24 +389,30 @@ impl 买卖点Py {
 /// 调试方法:
 ///   测试_保存数据(root?) — 将各层级序列保存到文件，用于与Python版对比
 ///   读取数据文件(文件路径, 配置) -> 观察者 (classmethod) — 从 .nb 文件加载数据
-#[pyclass(name = "观察者", module = "chanlun._chanlun", subclass, unsendable)]
+#[pyclass(name = "观察者", module = "chanlun._chanlun", subclass)]
 pub struct 观察者Py {
-    pub(crate) inner: Option<Rc<RefCell<chanlun::business::observer::观察者>>>,
+    pub(crate) inner: Option<Arc<RwLock<chanlun::business::observer::观察者>>>,
 }
 
 impl 观察者Py {
-    pub(crate) fn obs(&self) -> std::cell::Ref<'_, chanlun::business::observer::观察者> {
+    pub(crate) fn obs(
+        &self,
+    ) -> std::sync::RwLockReadGuard<'_, chanlun::business::observer::观察者> {
         self.inner
             .as_ref()
             .expect("观察者 尚未初始化，请通过 __init__(符号, 周期, 配置) 构造")
-            .borrow()
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
-    pub(crate) fn obs_mut(&self) -> std::cell::RefMut<'_, chanlun::business::observer::观察者> {
+    pub(crate) fn obs_mut(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, chanlun::business::observer::观察者> {
         self.inner
             .as_ref()
             .expect("观察者 尚未初始化，请通过 __init__(符号, 周期, 配置) 构造")
-            .borrow_mut()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -492,18 +497,16 @@ impl 观察者Py {
 
     #[getter]
     /// :return: 最后一根原始K线
-    fn 当前K线(&self) -> Option<K线Py> {
-        self.obs().当前K线().map(|k| K线Py {
-            inner: Rc::clone(k),
-        })
+    fn 当前K线(&self, py: Python<'_>) -> Option<Py<K线Py>> {
+        self.obs().当前K线().map(|k| bar_to_py(py, Arc::clone(k)))
     }
 
     #[getter]
     /// :return: 最后一根缠论K线
-    fn 当前缠K(&self) -> Option<缠论K线Py> {
+    fn 当前缠K(&self, py: Python<'_>) -> Option<Py<缠论K线Py>> {
         self.obs()
             .当前缠K()
-            .map(|k| 缠论K线Py::from_rc(Rc::clone(k)))
+            .map(|k| crate::kline_py::chan_kline_to_py(py, Arc::clone(k)))
     }
 
     #[getter]
@@ -551,7 +554,7 @@ impl 观察者Py {
             let k线_py = Py::new(
                 py,
                 K线Py {
-                    inner: Rc::new(k线),
+                    inner: Arc::new(k线),
                 },
             )?;
             slf.call_method1("增加原始K线", (k线_py,))?;
@@ -564,6 +567,7 @@ impl 观察者Py {
         self.obs_mut().静态重新分析();
     }
 
+    #[pyo3(signature = (root = None))]
     /// 拆分各序列数据，单独存文件，文件名为对应变量名
     fn 测试_保存数据(&self, root: Option<&str>) {
         self.obs().测试_保存数据(root);
@@ -618,7 +622,7 @@ impl 观察者Py {
                 let k线_py = Py::new(
                     py,
                     K线Py {
-                        inner: Rc::new(k线),
+                        inner: Arc::new(k线),
                     },
                 )?;
                 obj.call_method1("增加原始K线", (k线_py,))?;
@@ -634,18 +638,38 @@ impl 观察者Py {
     fn 普通K线序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for k in &self.obs().普通K线序列 {
-            list.append(K线Py {
-                inner: Rc::clone(k),
-            })?;
+            list.append(bar_to_py(py, Arc::clone(k)))?;
         }
         Ok(list.into())
+    }
+
+    #[getter]
+    fn 基础缠K序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::empty(py);
+        for k in &self.obs().基础缠K序列 {
+            list.append(crate::kline_py::chan_kline_to_py(py, Arc::clone(k)))?;
+        }
+        Ok(list.into())
+    }
+
+    #[setter]
+    #[pyo3(name = "基础缠K序列")]
+    fn 设置_基础缠K序列(&mut self, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        let list: &Bound<'_, pyo3::types::PyList> = value.cast()?;
+        let mut vec = Vec::new();
+        for item in list {
+            let 缠k: PyRef<'_, 缠论K线Py> = item.extract()?;
+            vec.push(Arc::clone(&缠k.inner));
+        }
+        self.obs_mut().基础缠K序列 = vec;
+        Ok(())
     }
 
     #[getter]
     fn 缠论K线序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for k in &self.obs().缠论K线序列 {
-            list.append(缠论K线Py::from_rc(Rc::clone(k)))?;
+            list.append(crate::kline_py::chan_kline_to_py(py, Arc::clone(k)))?;
         }
         Ok(list.into())
     }
@@ -654,9 +678,7 @@ impl 观察者Py {
     fn 分型序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for f in &self.obs().分型序列 {
-            list.append(分型Py {
-                inner: Rc::clone(f),
-            })?;
+            list.append(fractal_to_py(py, Arc::clone(f)))?;
         }
         Ok(list.into())
     }
@@ -665,9 +687,7 @@ impl 观察者Py {
     fn 笔序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in &self.obs().笔序列 {
-            list.append(虚线Py {
-                inner: Rc::clone(d),
-            })?;
+            list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
     }
@@ -676,9 +696,7 @@ impl 观察者Py {
     fn 笔_中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for h in &self.obs().笔_中枢序列 {
-            list.append(中枢Py {
-                inner: Rc::clone(h),
-            })?;
+            list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
     }
@@ -687,9 +705,7 @@ impl 观察者Py {
     fn 线段序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in &self.obs().线段序列 {
-            list.append(虚线Py {
-                inner: Rc::clone(d),
-            })?;
+            list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
     }
@@ -698,9 +714,7 @@ impl 观察者Py {
     fn 中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for h in &self.obs().中枢序列 {
-            list.append(中枢Py {
-                inner: Rc::clone(h),
-            })?;
+            list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
     }
@@ -709,9 +723,7 @@ impl 观察者Py {
     fn 扩展线段序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in &self.obs().扩展线段序列 {
-            list.append(虚线Py {
-                inner: Rc::clone(d),
-            })?;
+            list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
     }
@@ -720,9 +732,7 @@ impl 观察者Py {
     fn 扩展中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for h in &self.obs().扩展中枢序列 {
-            list.append(中枢Py {
-                inner: Rc::clone(h),
-            })?;
+            list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
     }
@@ -731,9 +741,7 @@ impl 观察者Py {
     fn 扩展线段序列_线段(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in &self.obs().扩展线段序列_线段 {
-            list.append(虚线Py {
-                inner: Rc::clone(d),
-            })?;
+            list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
     }
@@ -742,9 +750,7 @@ impl 观察者Py {
     fn 扩展中枢序列_线段(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for h in &self.obs().扩展中枢序列_线段 {
-            list.append(中枢Py {
-                inner: Rc::clone(h),
-            })?;
+            list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
     }
@@ -753,9 +759,7 @@ impl 观察者Py {
     fn 线段_线段序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in &self.obs().线段_线段序列 {
-            list.append(虚线Py {
-                inner: Rc::clone(d),
-            })?;
+            list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
     }
@@ -764,9 +768,7 @@ impl 观察者Py {
     fn 线段_中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for h in &self.obs().线段_中枢序列 {
-            list.append(中枢Py {
-                inner: Rc::clone(h),
-            })?;
+            list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
     }
@@ -775,9 +777,7 @@ impl 观察者Py {
     fn 扩展线段序列_扩展线段(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in &self.obs().扩展线段序列_扩展线段 {
-            list.append(虚线Py {
-                inner: Rc::clone(d),
-            })?;
+            list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
     }
@@ -786,9 +786,7 @@ impl 观察者Py {
     fn 扩展中枢序列_扩展线段(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for h in &self.obs().扩展中枢序列_扩展线段 {
-            list.append(中枢Py {
-                inner: Rc::clone(h),
-            })?;
+            list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
     }
@@ -806,7 +804,7 @@ impl 观察者Py {
 ///   投喂(时间戳, 开盘价, 最高价, 最低价, 收盘价, 成交量) -> list[(周期, K线)]
 ///      — 快捷入口，免去构造K线对象
 ///   获取当前K线(周期) -> K线|None — 获取指定周期的当前合成结果
-#[pyclass(name = "K线合成器", module = "chanlun._chanlun", unsendable)]
+#[pyclass(name = "K线合成器", module = "chanlun._chanlun")]
 pub struct K线合成器Py {
     pub(crate) inner: chanlun::business::synthesizer::K线合成器,
 }
@@ -829,7 +827,7 @@ impl K线合成器Py {
         let results = self.inner.投喂K线((*普K.borrow().inner).clone());
         Ok(results
             .into_iter()
-            .map(|(周期, k)| (周期, K线Py { inner: Rc::new(k) }))
+            .map(|(周期, k)| (周期, K线Py { inner: Arc::new(k) }))
             .collect())
     }
 
@@ -858,14 +856,21 @@ impl K线合成器Py {
         let results = self.inner.投喂K线(k);
         results
             .into_iter()
-            .map(|(周期, k2)| (周期, K线Py { inner: Rc::new(k2) }))
+            .map(|(周期, k2)| {
+                (
+                    周期,
+                    K线Py {
+                        inner: Arc::new(k2),
+                    },
+                )
+            })
             .collect()
     }
 
     /// 获取指定周期当前正在合成的K线
     fn 获取当前K线(&self, 周期: i64) -> Option<K线Py> {
         self.inner.获取当前K线(周期).map(|k| K线Py {
-            inner: Rc::new(k.clone()),
+            inner: Arc::new(k.clone()),
         })
     }
 
@@ -893,7 +898,7 @@ impl K线合成器Py {
 /// 方法:
 ///   投喂K线(普K) — 喂入最小周期K线，自动合成大周期并分发给各周期观察者
 ///   测试_保存数据(root?) — 保存各周期的分析数据到文件
-#[pyclass(name = "立体分析器", module = "chanlun._chanlun", unsendable)]
+#[pyclass(name = "立体分析器", module = "chanlun._chanlun")]
 pub struct 立体分析器Py {
     pub(crate) inner: chanlun::business::multi_frame::立体分析器,
 }

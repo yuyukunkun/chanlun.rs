@@ -79,7 +79,7 @@ fn 测试_读取数据(文件路径: &str) {
     let 配置 = 缠论配置::default().不推送();
     match 观察者::读取数据文件(文件路径, Some(配置)) {
         Ok(观察员) => {
-            let 观察员 = 观察员.borrow();
+            let 观察员 = 观察员.read().unwrap();
             let 消耗用时 = 启动时间.elapsed();
             println!(
                 "测试_读取数据 耗时 {:.2?} 普K数量 {}",
@@ -162,7 +162,7 @@ fn 测试_周期合成(文件路径: &str) {
     // Display stats per period
     for &p in &[周期, 周期 * 5, 周期 * 5 * 6] {
         if let Some(观察员) = 多级别分析.获取观察者(p) {
-            let 观察员 = 观察员.borrow();
+            let 观察员 = 观察员.read().unwrap();
             println!(
                 "周期<{}>: 缠K={}, 分型={}, 笔={}, 线段={}, 中枢={}",
                 p,

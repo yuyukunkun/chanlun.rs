@@ -32,8 +32,8 @@ use crate::structure::dash_line::虚线;
 use crate::structure::fractal_obj::分型;
 use crate::types::相对方向;
 use crate::utils::datetime;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, RwLock};
 
 /// 观察者 — 单周期分析器，持有所有层级序列，接收K线流式输入后逐层计算
 pub struct 观察者 {
@@ -42,40 +42,41 @@ pub struct 观察者 {
     pub 配置: 缠论配置,
 
     // K线序列
-    pub 普通K线序列: Vec<Rc<K线>>,
-    pub 缠论K线序列: Vec<Rc<缠论K线>>,
+    pub 普通K线序列: Vec<Arc<K线>>,
+    pub 基础缠K序列: Vec<Arc<缠论K线>>,
+    pub 缠论K线序列: Vec<Arc<缠论K线>>,
 
     // 分型与笔
-    pub 分型序列: Vec<Rc<分型>>,
-    pub 笔序列: Vec<Rc<虚线>>,
-    pub 笔_中枢序列: Vec<Rc<中枢>>,
+    pub 分型序列: Vec<Arc<分型>>,
+    pub 笔序列: Vec<Arc<虚线>>,
+    pub 笔_中枢序列: Vec<Arc<中枢>>,
 
     // 线段
-    pub 线段序列: Vec<Rc<虚线>>,
-    pub 中枢序列: Vec<Rc<中枢>>,
+    pub 线段序列: Vec<Arc<虚线>>,
+    pub 中枢序列: Vec<Arc<中枢>>,
 
     // 扩展线段（笔级）
-    pub 扩展线段序列: Vec<Rc<虚线>>,
-    pub 扩展中枢序列: Vec<Rc<中枢>>,
+    pub 扩展线段序列: Vec<Arc<虚线>>,
+    pub 扩展中枢序列: Vec<Arc<中枢>>,
 
     // 扩展线段（线段级）
-    pub 扩展线段序列_线段: Vec<Rc<虚线>>,
-    pub 扩展中枢序列_线段: Vec<Rc<中枢>>,
+    pub 扩展线段序列_线段: Vec<Arc<虚线>>,
+    pub 扩展中枢序列_线段: Vec<Arc<中枢>>,
 
     // 线段之线段
-    pub 线段_线段序列: Vec<Rc<虚线>>,
-    pub 线段_中枢序列: Vec<Rc<中枢>>,
+    pub 线段_线段序列: Vec<Arc<虚线>>,
+    pub 线段_中枢序列: Vec<Arc<中枢>>,
 
     // 扩展线段之扩展线段
-    pub 扩展线段序列_扩展线段: Vec<Rc<虚线>>,
-    pub 扩展中枢序列_扩展线段: Vec<Rc<中枢>>,
+    pub 扩展线段序列_扩展线段: Vec<Arc<虚线>>,
+    pub 扩展中枢序列_扩展线段: Vec<Arc<中枢>>,
 
     // 终止时间戳
     终止时间戳: Option<i64>,
 }
 
 impl 观察者 {
-    pub fn new(符号: String, 周期: i64, 配置: 缠论配置) -> Rc<RefCell<Self>> {
+    pub fn new(符号: String, 周期: i64, 配置: 缠论配置) -> Arc<RwLock<Self>> {
         let 终止时间戳 = if 配置.手动终止 != "1970-01-01 00:00:00" && !配置.手动终止.is_empty()
         {
             datetime::转化为时间戳(&配置.手动终止)
@@ -88,6 +89,7 @@ impl 观察者 {
             周期,
             配置,
             普通K线序列: Vec::new(),
+            基础缠K序列: Vec::new(),
             缠论K线序列: Vec::new(),
             分型序列: Vec::new(),
             笔序列: Vec::new(),
@@ -105,7 +107,7 @@ impl 观察者 {
             终止时间戳,
         };
         instance.配置.标识 = 符号;
-        Rc::new(RefCell::new(instance))
+        Arc::new(RwLock::new(instance))
     }
 
     /// 标识
@@ -114,18 +116,19 @@ impl 观察者 {
     }
 
     /// 当前K线
-    pub fn 当前K线(&self) -> Option<&Rc<K线>> {
+    pub fn 当前K线(&self) -> Option<&Arc<K线>> {
         self.普通K线序列.last()
     }
 
     /// 当前缠K
-    pub fn 当前缠K(&self) -> Option<&Rc<缠论K线>> {
+    pub fn 当前缠K(&self) -> Option<&Arc<缠论K线>> {
         self.缠论K线序列.last()
     }
 
     /// 重置基础序列
     pub fn 重置基础序列(&mut self) {
         self.普通K线序列.clear();
+        self.基础缠K序列.clear();
         self.缠论K线序列.clear();
         self.分型序列.clear();
         self.笔序列.clear();
@@ -232,13 +235,7 @@ impl 观察者 {
                 &mut self.线段_线段序列,
                 &self.配置,
                 0,
-                &[
-                    相对方向::向下,
-                    相对方向::向上,
-                    相对方向::顺,
-                    相对方向::逆,
-                    相对方向::同,
-                ],
+                &[相对方向::向上, 相对方向::向下],
             );
         }
         if self.配置.分析线段中枢 {
@@ -282,12 +279,12 @@ impl 观察者 {
 
         for i in 1..self.缠论K线序列.len() - 1 {
             let 当前分型 = 分型::new(
-                Some(Rc::clone(&self.缠论K线序列[i - 1])),
-                Rc::clone(&self.缠论K线序列[i]),
-                Some(Rc::clone(&self.缠论K线序列[i + 1])),
+                Some(Arc::clone(&self.缠论K线序列[i - 1])),
+                Arc::clone(&self.缠论K线序列[i]),
+                Some(Arc::clone(&self.缠论K线序列[i + 1])),
             );
             笔::分析(
-                Rc::new(当前分型),
+                Arc::new(当前分型),
                 &mut self.分型序列,
                 &mut self.笔序列,
                 &self.缠论K线序列,
@@ -339,13 +336,7 @@ impl 观察者 {
                 &mut self.线段_线段序列,
                 &self.配置,
                 0,
-                &[
-                    相对方向::向下,
-                    相对方向::向上,
-                    相对方向::顺,
-                    相对方向::逆,
-                    相对方向::同,
-                ],
+                &[相对方向::向上, 相对方向::向下],
             );
         }
         if self.配置.分析线段中枢 {
@@ -424,14 +415,14 @@ impl 观察者 {
             .map(|ck| {
                 format!(
                     "缠K, {}, {}, {:?}, {}, {}, {}, {}, {}",
-                    ck.序号,
-                    ck.时间戳,
+                    ck.序号.load(Ordering::Relaxed),
+                    ck.时间戳.load(Ordering::Relaxed),
                     ck.分型,
-                    ck.方向,
-                    ck.高,
-                    ck.低,
+                    *ck.方向.read().unwrap(),
+                    ck.高.get(),
+                    ck.低.get(),
                     ck.原始起始序号,
-                    ck.原始结束序号
+                    ck.原始结束序号.load(Ordering::Relaxed)
                 )
             })
             .collect();
@@ -442,7 +433,12 @@ impl 观察者 {
             .map(|(i, fx)| {
                 format!(
                     "分型, {}, {}, {:?}, {}, {}, {}",
-                    i, fx.时间戳, fx.结构, fx.分型特征值, fx.中.时间戳, fx.中.低,
+                    i,
+                    fx.时间戳,
+                    fx.结构,
+                    fx.分型特征值,
+                    fx.中.时间戳.load(Ordering::Relaxed),
+                    fx.中.低.get(),
                 )
             })
             .collect();
@@ -510,7 +506,7 @@ impl 观察者 {
     pub fn 读取数据文件(
         文件路径: &str,
         配置: Option<缠论配置>,
-    ) -> Result<Rc<RefCell<Self>>, String> {
+    ) -> Result<Arc<RwLock<Self>>, String> {
         let 配置 = 配置.unwrap_or_default();
 
         // Parse filename: btcusd-300-1631772074-1632222374.nb
@@ -535,7 +531,7 @@ impl 观察者 {
         for i in 0..data.len() / size {
             let offset = i * size;
             if let Some(k线) = K线::from_bytes(&data[offset..offset + size], 周期, "nb") {
-                实例.borrow_mut().增加原始K线(k线);
+                实例.write().unwrap().增加原始K线(k线);
             }
         }
 
@@ -548,37 +544,42 @@ mod tests {
     use super::*;
     use crate::config::缠论配置;
 
+    const TEST_DATA_PATH: &str = "/home/moscow/chanlun.rs/btcusd-300-1777649100-1778398800.nb";
+
     #[test]
     fn test_普k序列指针一致性() {
         let config = 缠论配置::default();
-        let obs = 观察者::读取数据文件(
-            "/home/moscow/chanlun.rs/btcusd-300-1777649100-1778398800.nb",
-            Some(config),
-        )
-        .unwrap();
-        let obs_ref = obs.borrow();
+        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs_ref = obs.read().unwrap();
 
-        // 1. Check that each 笔's 获取普K序列 returns K lines whose Rc pointers
-        //    match entries in 普通K线序列
         for (i, bi) in obs_ref.笔序列.iter().enumerate() {
             let pu_seq = bi.获取普K序列(&obs_ref.普通K线序列);
             if pu_seq.is_empty() {
                 println!("笔 {}: 获取普K序列 返回空 (fallback failed)", i);
                 println!("  文.中.标的K线 原始起始序号: {}", bi.文.中.原始起始序号);
-                println!("  武.中.标的K线 原始结束序号: {}", bi.武.中.原始结束序号);
+                println!(
+                    "  武.中.标的K线 原始结束序号: {}",
+                    bi.武
+                        .read()
+                        .unwrap()
+                        .中
+                        .原始结束序号
+                        .load(Ordering::Relaxed)
+                );
                 println!("  普通K线序列.len: {}", obs_ref.普通K线序列.len());
             } else {
-                // Check first element's pointer
-                let first_ptr = Rc::as_ptr(&pu_seq[0]);
+                let first_ptr = Arc::as_ptr(&pu_seq[0]);
                 let found = obs_ref
                     .普通K线序列
                     .iter()
-                    .any(|k| Rc::as_ptr(k) == first_ptr);
+                    .any(|k| Arc::as_ptr(k) == first_ptr);
                 if !found {
                     println!("笔 {}: 获取普K序列[0] 的 Rc 指针不在 普通K线序列 中!", i);
-                    // Check if 文.中.标的K线  pointer is in 普通K线序列
-                    let wen_ptr = Rc::as_ptr(&bi.文.中.标的K线);
-                    let wen_found = obs_ref.普通K线序列.iter().any(|k| Rc::as_ptr(k) == wen_ptr);
+                    let wen_ptr = Arc::as_ptr(&*bi.文.中.标的K线.read().unwrap());
+                    let wen_found = obs_ref
+                        .普通K线序列
+                        .iter()
+                        .any(|k| Arc::as_ptr(k) == wen_ptr);
                     println!("  文.中.标的K线 在序列中: {}", wen_found);
                 } else {
                     println!("笔 {}: OK, 获取普K序列[0] 在序列中找到", i);
@@ -589,49 +590,476 @@ mod tests {
 
     #[test]
     fn test_pyo3_flow_pointer_consistency() {
-        // Simulate what the PyO3 读取数据文件 classmethod does:
-        // 1. Parse K lines from file
-        // 2. Create "K线Py { inner: Rc::new(k线) }" for each
-        // 3. Call observer.增加原始K线(k线_value)
-
         let config = 缠论配置::default();
         let obs_ref = 观察者::new("btcusd".into(), 300, config);
 
-        let file_path = "/home/moscow/chanlun.rs/btcusd-300-1777649100-1778398800.nb";
-        let data = std::fs::read(file_path).unwrap();
+        let data = std::fs::read(TEST_DATA_PATH).unwrap();
         let size = 48;
 
         for i in 0..data.len() / size {
             let offset = i * size;
             if let Some(k线) = K线::from_bytes(&data[offset..offset + size], 300, "btcusd") {
-                // Simulate: K线Py { inner: Rc::new(k线) }
-                let _k线_py_inner = Rc::new(k线.clone());
-                // In the actual PyO3 path, (*普K.borrow().inner).clone() extracts K线 value
-                // which then gets Rc::wrapped inside the observer
-                obs_ref.borrow_mut().增加原始K线(k线);
+                let _k线_py_inner = Arc::new(k线.clone());
+                obs_ref.write().unwrap().增加原始K线(k线);
             }
         }
 
-        let obs = obs_ref.borrow();
+        let obs = obs_ref.read().unwrap();
         println!("普通K线序列.len: {}", obs.普通K线序列.len());
         println!("笔序列.len: {}", obs.笔序列.len());
 
-        // Now check: does 获取普K序列 return K lines whose pointers match 普通K线序列?
         for (i, bi) in obs.笔序列.iter().enumerate() {
             let pu_seq = bi.获取普K序列(&obs.普通K线序列);
             if pu_seq.is_empty() {
                 println!("笔 {}: 获取普K序列 返回空!", i);
             } else {
-                let first_ptr = Rc::as_ptr(&pu_seq[0]);
-                let found = obs.普通K线序列.iter().any(|k| Rc::as_ptr(k) == first_ptr);
+                let first_ptr = Arc::as_ptr(&pu_seq[0]);
+                let found = obs.普通K线序列.iter().any(|k| Arc::as_ptr(k) == first_ptr);
                 if !found {
                     println!("笔 {}: 获取普K序列[0] 指针不在序列中!", i);
                 }
-                // Only print first few
                 if i < 5 {
                     println!("笔 {}: OK, len={}", i, pu_seq.len());
                 }
             }
         }
+    }
+
+    // ============================================================
+    // 分型到笔的 Rc 指针一致性
+    // ============================================================
+
+    #[test]
+    fn test_分型到笔的文武Rc指针一致性() {
+        let config = 缠论配置::default();
+        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs_ref = obs.read().unwrap();
+
+        // 每个笔的文/武 分型 Rc 指针必须在 分型序列 中
+        for (i, bi) in obs_ref.笔序列.iter().enumerate() {
+            let 文_ptr = Arc::as_ptr(&bi.文);
+            let 文_found = obs_ref.分型序列.iter().any(|f| Arc::as_ptr(f) == 文_ptr);
+            if !文_found {
+                println!("笔 {}: 文(时间戳={}) 不在分型序列中!", i, bi.文.时间戳);
+            }
+
+            let 武_ptr = Arc::as_ptr(&*bi.武.read().unwrap());
+            let 武_found = obs_ref.分型序列.iter().any(|f| Arc::as_ptr(f) == 武_ptr);
+            if !武_found {
+                println!(
+                    "笔 {}: 武(时间戳={}) 不在分型序列中!",
+                    i,
+                    bi.武.read().unwrap().时间戳
+                );
+            }
+        }
+    }
+
+    // ============================================================
+    // 笔到线段的 Rc 指针一致性
+    // ============================================================
+
+    #[test]
+    fn test_笔到线段的基础序列Rc指针一致性() {
+        let config = 缠论配置::default();
+        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs_ref = obs.read().unwrap();
+
+        // 每个线段的基础序列中的笔 Rc 指针必须在 笔序列 中
+        for (i, seg) in obs_ref.线段序列.iter().enumerate() {
+            for (j, bi_in_seg) in seg.基础序列.read().unwrap().iter().enumerate() {
+                let bi_ptr = Arc::as_ptr(bi_in_seg);
+                let found = obs_ref.笔序列.iter().any(|b| Arc::as_ptr(b) == bi_ptr);
+                if !found {
+                    println!("线段 {} 的基础序列[{}] 不在笔序列中!", i, j);
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // 中枢基础序列与源的 Rc 指针一致性
+    // ============================================================
+
+    #[test]
+    fn test_中枢基础序列与笔序列Rc指针一致() {
+        let config = 缠论配置::default();
+        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs_ref = obs.read().unwrap();
+
+        for (i, hub) in obs_ref.笔_中枢序列.iter().enumerate() {
+            for (j, bi_in_hub) in hub.基础序列.read().unwrap().iter().enumerate() {
+                let bi_ptr = Arc::as_ptr(bi_in_hub);
+                let found = obs_ref.笔序列.iter().any(|b| Arc::as_ptr(b) == bi_ptr);
+                if !found {
+                    println!("笔中枢 {} 的基础序列[{}] 不在笔序列中!", i, j);
+                }
+            }
+        }
+
+        for (i, hub) in obs_ref.中枢序列.iter().enumerate() {
+            for (j, seg_in_hub) in hub.基础序列.read().unwrap().iter().enumerate() {
+                let seg_ptr = Arc::as_ptr(seg_in_hub);
+                let found = obs_ref.线段序列.iter().any(|s| Arc::as_ptr(s) == seg_ptr);
+                if !found {
+                    println!("线段中枢 {} 的基础序列[{}] 不在线段序列中!", i, j);
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // 重复计算一致性
+    // ============================================================
+
+    #[test]
+    fn test_重复计算后结果一致() {
+        let data = std::fs::read(TEST_DATA_PATH).unwrap();
+        let size = 48;
+
+        let 计算 = || {
+            let config = 缠论配置::default();
+            let obs_ref = 观察者::new("btcusd".into(), 300, config);
+            for i in 0..data.len() / size {
+                let offset = i * size;
+                if let Some(k线) = K线::from_bytes(&data[offset..offset + size], 300, "btcusd") {
+                    obs_ref.write().unwrap().增加原始K线(k线);
+                }
+            }
+            let obs = obs_ref.read().unwrap();
+            (
+                obs.笔序列.len(),
+                obs.线段序列.len(),
+                obs.中枢序列.len(),
+                obs.笔_中枢序列.len(),
+            )
+        };
+
+        let (笔数1, 段数1, 中枢1, 笔中枢1) = 计算();
+        let (笔数2, 段数2, 中枢2, 笔中枢2) = 计算();
+
+        assert_eq!(笔数1, 笔数2, "重复计算笔数不一致");
+        assert_eq!(段数1, 段数2, "重复计算线段数不一致");
+        assert_eq!(中枢1, 中枢2, "重复计算中枢数不一致");
+        assert_eq!(笔中枢1, 笔中枢2, "重复计算笔中枢数不一致");
+
+        println!(
+            "两次计算结果一致: 笔={}, 线段={}, 中枢={}, 笔中枢={}",
+            笔数1, 段数1, 中枢1, 笔中枢1
+        );
+    }
+
+    // ============================================================
+    // 重置后重新投喂数据一致性
+    // ============================================================
+
+    #[test]
+    fn test_重置后重新投喂数据一致() {
+        let config = 缠论配置::default();
+        let obs_ref = 观察者::new("btcusd".into(), 300, config);
+
+        let data = std::fs::read(TEST_DATA_PATH).unwrap();
+        let size = 48;
+
+        for i in 0..data.len() / size {
+            let offset = i * size;
+            if let Some(k线) = K线::from_bytes(&data[offset..offset + size], 300, "btcusd") {
+                obs_ref.write().unwrap().增加原始K线(k线);
+            }
+        }
+
+        let 第一次笔数 = obs_ref.read().unwrap().笔序列.len();
+        let 第一次段数 = obs_ref.read().unwrap().线段序列.len();
+
+        // 重置
+        obs_ref.write().unwrap().重置基础序列();
+        assert_eq!(obs_ref.read().unwrap().笔序列.len(), 0);
+        assert_eq!(obs_ref.read().unwrap().线段序列.len(), 0);
+
+        // 重新投喂
+        for i in 0..data.len() / size {
+            let offset = i * size;
+            if let Some(k线) = K线::from_bytes(&data[offset..offset + size], 300, "btcusd") {
+                obs_ref.write().unwrap().增加原始K线(k线);
+            }
+        }
+
+        let 第二次笔数 = obs_ref.read().unwrap().笔序列.len();
+        let 第二次段数 = obs_ref.read().unwrap().线段序列.len();
+
+        assert_eq!(第一次笔数, 第二次笔数, "重置后重新投喂笔数不一致");
+        assert_eq!(第一次段数, 第二次段数, "重置后重新投喂线段数不一致");
+        println!("重置后重投一致: 笔={}, 线段={}", 第一次笔数, 第一次段数);
+    }
+
+    // ============================================================
+    // RefCell 借用安全性 — 连续大量操作不应 panic
+    // ============================================================
+
+    #[test]
+    fn test_RefCell借用安全性_连续读取不panic() {
+        let config = 缠论配置::default();
+        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs_ref = obs.read().unwrap();
+
+        // 连续大量读取所有 RefCell 字段，不应 panic
+        for _ in 0..100 {
+            for bi in &obs_ref.笔序列 {
+                let _标识 = bi.标识.read().unwrap().clone();
+                let _wu = bi.武.read().unwrap().clone();
+                let _基础序列 = bi.基础序列.read().unwrap().len();
+                let _特征序列 = bi.特征序列.read().unwrap().len();
+                let _模式 = bi.模式.read().unwrap().clone();
+                let _实中枢 = bi.实_中枢序列.read().unwrap().len();
+                let _虚中枢 = bi.虚_中枢序列.read().unwrap().len();
+                let _合中枢 = bi.合_中枢序列.read().unwrap().len();
+                let _确认K = bi.确认K线.read().unwrap().is_some();
+                let _序号 = bi.序号.load(Ordering::Relaxed);
+                let _有效性 = bi.有效性.load(Ordering::Relaxed);
+                let _短路 = bi.短路修正.load(Ordering::Relaxed);
+                let _前一缺口 = *bi.前一缺口.read().unwrap();
+            }
+            for seg in &obs_ref.线段序列 {
+                let _ = seg.标识.read().unwrap().clone();
+                let _ = seg.基础序列.read().unwrap().len();
+            }
+        }
+        // 到达这里 = 无 panic
+    }
+
+    #[test]
+    fn test_RefCell借用安全性_交替读写不panic() {
+        let config = 缠论配置::default();
+        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs_ref = obs.read().unwrap();
+
+        // 交替读写 RefCell 字段 — 先读再写同字段，分离 borrow 作用域
+        if !obs_ref.笔序列.is_empty() {
+            let bi = &obs_ref.笔序列[0];
+            // 读
+            let old_mode = bi.模式.read().unwrap().clone();
+            // Ref 已释放，可以写
+            *bi.模式.write().unwrap() = "测试模式".into();
+            let new_mode = bi.模式.read().unwrap().clone();
+            assert_eq!(new_mode, "测试模式");
+            // 恢复
+            *bi.模式.write().unwrap() = old_mode;
+
+            // 读武
+            let old_wu = bi.武.read().unwrap().clone();
+            // Ref 已释放，可以检查
+            assert!(Arc::as_ptr(&old_wu) == Arc::as_ptr(&old_wu));
+        }
+    }
+
+    // ============================================================
+    // 缠K 到 分型 的 Rc 指针一致性
+    // ============================================================
+
+    #[test]
+    fn test_缠K到分型的Rc指针一致性() {
+        let config = 缠论配置::default();
+        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs_ref = obs.read().unwrap();
+
+        // 每个分型的左/中/右 缠K 指针必须在 缠论K线序列 中
+        for (i, f) in obs_ref.分型序列.iter().enumerate() {
+            let 中_ptr = Arc::as_ptr(&f.中);
+            let 中_found = obs_ref.缠论K线序列.iter().any(|k| Arc::as_ptr(k) == 中_ptr);
+            if !中_found {
+                println!("分型 {} 的 中(时间戳={}) 不在缠论K线序列中!", i, f.时间戳);
+            }
+
+            if let Some(ref 左) = f.左 {
+                let 左_ptr = Arc::as_ptr(左);
+                let 左_found = obs_ref.缠论K线序列.iter().any(|k| Arc::as_ptr(k) == 左_ptr);
+                if !左_found {
+                    println!("分型 {} 的 左 不在缠论K线序列中!", i);
+                }
+            }
+
+            if let Some(ref 右) = f.右 {
+                let 右_ptr = Arc::as_ptr(右);
+                let 右_found = obs_ref.缠论K线序列.iter().any(|k| Arc::as_ptr(k) == 右_ptr);
+                if !右_found {
+                    println!("分型 {} 的 右 不在缠论K线序列中!", i);
+                }
+            }
+        }
+    }
+
+    // ========== 跨线程安全测试 ==========
+
+    // 编译期断言：核心类型必须实现 Send + Sync
+    #[allow(dead_code)]
+    fn 断言_Send_Sync_编译期检查() {
+        fn _需要_Send<T: Send>() {}
+        fn _需要_Sync<T: Sync>() {}
+        fn _需要_Send_Sync<T: Send + Sync>() {}
+
+        // 核心数据结构
+        _需要_Send::<crate::kline::chan_kline::缠论K线>();
+        _需要_Send::<crate::structure::dash_line::虚线>();
+        _需要_Send::<crate::algorithm::hub::中枢>();
+        _需要_Send_Sync::<crate::kline::chan_kline::缠论K线>();
+        _需要_Send_Sync::<crate::structure::dash_line::虚线>();
+        _需要_Send_Sync::<crate::algorithm::hub::中枢>();
+
+        // Arc 包装后的 Send 检查
+        _需要_Send::<Arc<crate::kline::chan_kline::缠论K线>>();
+        _需要_Send::<Arc<crate::structure::dash_line::虚线>>();
+        _需要_Send::<Arc<crate::algorithm::hub::中枢>>();
+
+        // 观察者
+        _需要_Send::<crate::business::observer::观察者>();
+    }
+
+    /// 测试：Arc<缠论K线> 可跨线程传递
+    #[test]
+    fn test_跨线程_缠论K线_Send() {
+        use crate::kline::bar::K线;
+        use crate::kline::chan_kline::缠论K线;
+
+        let 普k = Arc::new(K线::创建普K(
+            "test", 1000, 100.0, 110.0, 90.0, 95.0, 1000.0, 0, 300,
+        ));
+        let ck = 缠论K线::创建缠K(
+            1000,
+            110.0,
+            90.0,
+            crate::types::相对方向::向上,
+            None,
+            1,
+            普k,
+            None,
+        );
+        let arc_ck = Arc::new(ck);
+        let arc_ck2 = Arc::clone(&arc_ck);
+
+        let handle = std::thread::spawn(move || {
+            let _ = arc_ck2;
+            42
+        });
+        assert_eq!(handle.join().unwrap(), 42);
+        assert!((arc_ck.高.get() - 110.0).abs() < 0.01);
+    }
+
+    /// 测试：Arc<虚线> 可跨线程传递
+    #[test]
+    fn test_跨线程_虚线_Send() {
+        use crate::kline::bar::K线;
+        use crate::kline::chan_kline::缠论K线;
+        use crate::structure::dash_line::虚线;
+        use crate::structure::fractal_obj::分型;
+
+        let 普k = Arc::new(K线::创建普K(
+            "test", 1000, 100.0, 110.0, 90.0, 95.0, 1000.0, 0, 300,
+        ));
+        let ck = Arc::new(缠论K线::创建缠K(
+            1000,
+            110.0,
+            90.0,
+            crate::types::相对方向::向上,
+            None,
+            1,
+            普k,
+            None,
+        ));
+        let frac = Arc::new(分型::new(None, Arc::clone(&ck), None));
+        let frac2 = Arc::new(分型::new(None, ck, None));
+
+        let dash = Arc::new(虚线::创建笔(frac, frac2, true));
+        let dash2 = Arc::clone(&dash);
+
+        let handle = std::thread::spawn(move || {
+            let _ = Arc::as_ptr(&dash2.文);
+            99
+        });
+        assert_eq!(handle.join().unwrap(), 99);
+        assert_eq!(dash.标识.read().unwrap().as_str(), "笔");
+    }
+
+    /// 测试：Arc<中枢> 可跨线程传递
+    #[test]
+    fn test_跨线程_中枢_Send() {
+        let hub = crate::algorithm::hub::中枢::new(1, "test".into(), 1, vec![]);
+        let arc_hub = Arc::new(hub);
+        let arc_hub2 = Arc::clone(&arc_hub);
+
+        let handle = std::thread::spawn(move || {
+            let _ = arc_hub2.序号.load(Ordering::Relaxed);
+            77
+        });
+        assert_eq!(handle.join().unwrap(), 77);
+        assert_eq!(arc_hub.序号.load(Ordering::Relaxed), 1);
+    }
+
+    /// 测试：多线程并发读取 观察者
+    #[test]
+    fn test_跨线程_观察者_多线程读取() {
+        let obs = 观察者::new("btcusd".into(), 86400, Default::default());
+        let obs2 = Arc::clone(&obs);
+        let obs3 = Arc::clone(&obs);
+
+        let h1 = std::thread::spawn(move || {
+            let guard = obs2.read().unwrap();
+            guard.符号.clone()
+        });
+        let h2 = std::thread::spawn(move || {
+            let guard = obs3.read().unwrap();
+            guard.周期
+        });
+
+        assert_eq!(h1.join().unwrap(), "btcusd");
+        assert_eq!(h2.join().unwrap(), 86400);
+    }
+
+    /// 测试：Cell 字段跨线程读写不 panic
+    #[test]
+    fn test_跨线程_Cell字段_并发读写() {
+        use crate::kline::bar::K线;
+        use crate::kline::chan_kline::缠论K线;
+
+        let 普k = Arc::new(K线::创建普K(
+            "test", 1000, 100.0, 110.0, 90.0, 95.0, 1000.0, 0, 300,
+        ));
+        let ck = Arc::new(缠论K线::创建缠K(
+            1000,
+            110.0,
+            90.0,
+            crate::types::相对方向::向上,
+            None,
+            1,
+            普k,
+            None,
+        ));
+        let ck2 = Arc::clone(&ck);
+
+        let handle = std::thread::spawn(move || {
+            let 序号 = ck2.序号.load(Ordering::Relaxed);
+            let 高 = ck2.高.get();
+            (序号, 高)
+        });
+
+        let (序号, 高) = handle.join().unwrap();
+        assert_eq!(序号, 0); // 序号 初始值为 0
+        assert!((高 - 110.0).abs() < 0.01);
+        ck.序号.store(2, Ordering::Relaxed);
+        assert_eq!(ck.序号.load(Ordering::Relaxed), 2);
+    }
+
+    /// 测试：Arc<观察者> 直接跨线程传递
+    #[test]
+    fn test_跨线程_观察者_所有权转移() {
+        let obs = 观察者::new("ethusd".into(), 7200, Default::default());
+
+        let handle = std::thread::spawn(move || {
+            let guard = obs.read().unwrap();
+            (guard.符号.clone(), guard.周期)
+        });
+
+        let (符号, 周期) = handle.join().unwrap();
+        assert_eq!(符号, "ethusd");
+        assert_eq!(周期, 7200);
     }
 }
