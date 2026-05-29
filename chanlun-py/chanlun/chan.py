@@ -5551,6 +5551,7 @@ def 测试_周期合成(配置: 缠论配置, 配置组: Dict[int, 缠论配置]
 
 if __name__ == "__main__":
     当前配置 = 缠论配置.不推送()
-    当前配置.加载文件路径 = str(Path(__file__).parent / "btcusd-300-1761327300-1776327900.nb")
-    测试_读取数据(当前配置)().测试_保存数据()
-    测试_周期合成(当前配置)().测试_保存数据()
+    当前配置.加载文件路径 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "btcusd-300-1761327300-1776327900.nb")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        测试_读取数据(当前配置)().测试_保存数据(tmpdir)
+        测试_周期合成(当前配置)().测试_保存数据(tmpdir)

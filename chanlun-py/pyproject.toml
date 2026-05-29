@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "chanlun"
-version = "2605.93"
+version = "2605.94"
 description = "缠论技术分析库 — Rust 高性能实现"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE", content-type = "text/plain" }
@@ -37,3 +37,7 @@ features = ["pyo3/extension-module"]
 python-source = "."
 module-name = "chanlun._chanlun"
 manifest-path = "Cargo.toml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-v", "--tb=short", "--durations=10"]
