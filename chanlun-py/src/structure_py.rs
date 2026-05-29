@@ -233,12 +233,15 @@ impl 分型Py {
 
     #[getter]
     /// 左、中、右三对相对方向关系
-    fn 关系组(&self) -> Option<(相对方向Py, 相对方向Py, 相对方向Py)> {
+    fn 关系组(
+        &self,
+        py: Python<'_>,
+    ) -> Option<(Py<相对方向Py>, Py<相对方向Py>, Py<相对方向Py>)> {
         self.inner.关系组().map(|(a, b, c)| {
             (
-                相对方向Py { inner: a },
-                相对方向Py { inner: b },
-                相对方向Py { inner: c },
+                crate::types_py::获取相对方向单例(py, a),
+                crate::types_py::获取相对方向单例(py, b),
+                crate::types_py::获取相对方向单例(py, c),
             )
         })
     }
@@ -271,7 +274,7 @@ impl 分型Py {
         if let Some(v) = self.右(py) {
             dict.set_item("右", v)?;
         }
-        if let Some(v) = self.关系组() {
+        if let Some(v) = self.关系组(py) {
             dict.set_item("关系组", v)?;
         }
         Ok(dict.into())
@@ -545,10 +548,8 @@ impl 虚线Py {
 
     #[getter]
     /// :return: 运行方向
-    fn 方向(&self) -> 相对方向Py {
-        相对方向Py {
-            inner: self.inner.方向(),
-        }
+    fn 方向(&self, py: Python<'_>) -> Py<相对方向Py> {
+        crate::types_py::获取相对方向单例(py, self.inner.方向())
     }
 
     #[getter]
@@ -1036,10 +1037,8 @@ impl 线段特征Py {
     }
 
     #[getter]
-    fn 线段方向(&self) -> 相对方向Py {
-        相对方向Py {
-            inner: self.inner.线段方向,
-        }
+    fn 线段方向(&self, py: Python<'_>) -> Py<相对方向Py> {
+        crate::types_py::获取相对方向单例(py, self.inner.线段方向)
     }
 
     #[getter]
@@ -1101,7 +1100,7 @@ impl 线段特征Py {
         let dict = PyDict::new(py);
         dict.set_item("序号", self.序号())?;
         dict.set_item("标识", self.标识())?;
-        dict.set_item("线段方向", self.线段方向())?;
+        dict.set_item("线段方向", self.线段方向(py))?;
         dict.set_item("图表标题", self.图表标题())?;
         Ok(dict.into())
     }
@@ -1128,10 +1127,8 @@ impl 线段特征Py {
 
     #[getter]
     /// :return: 特征序列方向（线段方向的翻转）
-    fn 方向(&self) -> 相对方向Py {
-        相对方向Py {
-            inner: self.inner.方向(),
-        }
+    fn 方向(&self, py: Python<'_>) -> Py<相对方向Py> {
+        crate::types_py::获取相对方向单例(py, self.inner.方向())
     }
 
     #[getter]

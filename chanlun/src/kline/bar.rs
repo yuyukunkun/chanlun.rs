@@ -125,6 +125,21 @@ impl K线 {
         Self::from_bytes(字节组, 周期, 标识)
     }
 
+    /// 解析原始数据 — 只提取时间戳+OHLCV，不构造 K线
+    pub fn 解析原始数据(字节组: &[u8]) -> Option<(i64, f64, f64, f64, f64, f64)> {
+        if 字节组.len() < 48 {
+            return None;
+        }
+        let mut reader = &字节组[..48];
+        let 时间戳 = reader.read_f64::<BigEndian>().ok()? as i64;
+        let 开 = reader.read_f64::<BigEndian>().ok()?;
+        let 高 = reader.read_f64::<BigEndian>().ok()?;
+        let 低 = reader.read_f64::<BigEndian>().ok()?;
+        let 收 = reader.read_f64::<BigEndian>().ok()?;
+        let 量 = reader.read_f64::<BigEndian>().ok()?;
+        Some((时间戳, 开, 高, 低, 收, 量))
+    }
+
     /// 创建普通K线
     pub fn 创建普K(
         标识: &str,

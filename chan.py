@@ -5078,6 +5078,17 @@ class 观察者:
         self.扩展线段序列_扩展线段: List[虚线] = []
         self.扩展中枢序列_扩展线段: List[中枢] = []
 
+    def 投喂原始数据(self, 时间戳: datetime, 开: float, 高: float, 低: float, 收: float, 量: float):
+        """便捷入口，直接从 OHLCV 创建 K线 并投喂
+        :param 时间戳: 时间戳
+        :param 开: 开盘价
+        :param 高: 最高价
+        :param 低: 最低价
+        :param 收: 收盘价
+        :param 量: 成交量
+        """
+        self.增加原始K线(K线.创建普K(self.标识, 时间戳, 开, 高, 低, 收, 量, 0, self.周期))
+
     @final
     def 增加原始K线(self, 普K: K线):
         """核心入口 — 投喂一根原始K线，增量更新所有层级
@@ -5224,33 +5235,32 @@ class 观察者:
         self.配置.分析线段中枢 and 中枢.分析(self.线段_线段序列, self.线段_中枢序列)
 
     def 加载本地数据(self, 文件路径: str):
+        """重置基础序列后加载数据文件
+        :param 文件路径: 数据文件路径 格式如: btcusd-300-1631772074-1632222374.nb
+        """
         self.重置基础序列()
         with open(文件路径, "rb") as f:
             buffer = f.read()
             size = struct.calcsize(">6d")
             for i in range(len(buffer) // size):
-                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], self.周期, self.标识)
-                self.增加原始K线(k线)
+                时间戳, 开盘价, 最高价, 最低价, 收盘价, 成交量 = struct.unpack(">6d", buffer[i * size: i * size + size])
+                self.投喂原始数据(转化为时间戳(int(时间戳)), 开盘价, 最高价, 最低价, 收盘价, 成交量)
 
     @classmethod
-    def 读取数据文件(cls, 文件路径: str, 配置=缠论配置()) -> Self:
-        """
+    def 读取数据文件(cls,观察员:"观察者", 文件路径: str, 配置=缠论配置()) -> Self:
+        """ 加载数据文件
+        :param 观察员: 观察者
         :param 文件路径: 数据文件路径 格式如: btcusd-300-1631772074-1632222374.nb
         :param 配置: 缠论配置
         :return: 观察者实例
         """
         name = Path(文件路径).name.split(".")[0]
         符号, 周期, 起始时间戳, 结束时间戳 = name.split("-")
-        实例 = cls(符号=符号, 周期=int(周期), 配置=配置)
-
-        with open(文件路径, "rb") as f:
-            buffer = f.read()
-            size = struct.calcsize(">6d")
-            for i in range(len(buffer) // size):
-                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], int(周期), 符号)
-                实例.增加原始K线(k线)
-
-        return 实例
+        观察员.符号 = 符号
+        观察员.周期 = int(周期)
+        观察员.配置 = 配置
+        观察员.加载本地数据(文件路径)
+        return 观察员
 
 
 class K线合成器:
@@ -5503,16 +5513,16 @@ class 立体分析器:
         print(f"多级别数据拆分保存完成，目录：{保存路径.resolve()}")
 
 
-def 测试_读取数据(配置: 缠论配置):
+def 测试_读取数据(观察员: 观察者, 配置: 缠论配置)-> Callable[[], "观察者"]:
     """测试_读取数据
-
+    :param 观察员: 观察者
     :param 配置: 缠论配置
     :return: 测试函数
     """
 
     def 魔法():
         启动时间 = datetime.now()
-        观察员 = 观察者.读取数据文件(配置.加载文件路径, 配置)
+        观察者.读取数据文件(观察员, 配置.加载文件路径, 配置)
         消耗用时 = datetime.now() - 启动时间
         print("测试_读取数据 耗时", 消耗用时, "普K数量", len(观察员.普通K线序列))
         return 观察员
@@ -5552,5 +5562,6 @@ def 测试_周期合成(配置: 缠论配置, 配置组: Dict[int, 缠论配置]
 if __name__ == "__main__":
     当前配置 = 缠论配置.不推送()
     当前配置.加载文件路径 = str(Path(__file__).parent / "btcusd-300-1761327300-1776327900.nb")
-    测试_读取数据(当前配置)().测试_保存数据()
-    测试_周期合成(当前配置)().测试_保存数据()
+    观察员 = 观察者("", 0, 当前配置)
+    测试_读取数据(观察员,当前配置)()# .测试_保存数据()
+    # 测试_周期合成(当前配置)().测试_保存数据()

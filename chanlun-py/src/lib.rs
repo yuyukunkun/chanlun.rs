@@ -71,39 +71,40 @@ fn _chanlun(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use pyo3::prelude::*;
 
     #[test]
-    fn test_rc_pointer_across_getters() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+    fn test_分型模式_get_set() {
+        // 手动初始化 Python 解释器（cargo test 环境下 auto-initialize 不一定生效）
+        unsafe {
+            if pyo3::ffi::Py_IsInitialized() == 0 {
+                pyo3::ffi::Py_Initialize();
+            }
+        }
+        pyo3::Python::try_attach(|py| {
             let module = PyModule::new(py, "test_module").unwrap();
-            module.add_class::<business_py::观察者Py>().unwrap();
-            module.add_class::<business_py::基础买卖点Py>().unwrap();
-            module.add_class::<business_py::买卖点Py>().unwrap();
-            module.add_class::<kline_py::K线Py>().unwrap();
-            module.add_class::<kline_py::缠论K线Py>().unwrap();
-            module.add_class::<structure_py::分型Py>().unwrap();
-            module.add_class::<structure_py::虚线Py>().unwrap();
-            module.add_class::<config_py::缠论配置Py>().unwrap();
+            module
+                .add_function(wrap_pyfunction!(get_分型模式, &module).unwrap())
+                .unwrap();
+            module
+                .add_function(wrap_pyfunction!(set_分型模式, &module).unwrap())
+                .unwrap();
 
-            let config = config_py::缠论配置Py::from_rust_config(&Default::default()).unwrap();
-            let obs = business_py::观察者Py::new_impl("btcusd".into(), 300, config, py).unwrap();
+            // 默认 true
+            let getter = module.getattr("get_分型模式").unwrap();
+            let result: bool = getter.call0().unwrap().extract().unwrap();
+            assert!(result, "分型模式 默认应为 True");
 
-            // Feed one K line
-            let kline = kline_py::K线Py::new_impl(
-                "btcusd".into(),
-                1000,
-                100.0,
-                105.0,
-                99.0,
-                103.0,
-                1000.0,
-                0,
-                300,
-            );
-            let kline_ref = kline.into_ref(py);
-            // ... this is too complex
-        });
+            // 设置为 false
+            let setter = module.getattr("set_分型模式").unwrap();
+            setter.call1((false,)).unwrap();
+            let result: bool = getter.call0().unwrap().extract().unwrap();
+            assert!(!result, "分型模式 应为 False");
+
+            // 恢复 true
+            setter.call1((true,)).unwrap();
+            let result: bool = getter.call0().unwrap().extract().unwrap();
+            assert!(result, "分型模式 应为 True");
+        })
+        .expect("Python 解释器初始化后 attach 仍失败");
     }
 }

@@ -560,30 +560,30 @@ impl 观察者Py {
         self.obs_mut().增加原始K线((*普K.borrow().inner).clone());
     }
 
+    /// 投喂原始数据 — 便捷入口，直接从 OHLCV 创建 K线 并投喂
+    fn 投喂原始数据(
+        &mut self, 时间戳: i64, 开: f64, 高: f64, 低: f64, 收: f64, 量: f64
+    ) {
+        self.obs_mut().投喂原始数据(时间戳, 开, 高, 低, 收, 量);
+    }
+
     /// 加载本地数据 — 从 .nb 文件加载K线数据（先重置，再通过 Python dispatch 逐根投喂，
     /// 确保子类重写的 增加原始K线 被正确调用）。
     fn 加载本地数据(slf: &Bound<'_, Self>, 文件路径: &str) -> PyResult<()> {
-        let py = slf.py();
-
         // 重置基础序列
         slf.borrow_mut().obs_mut().重置基础序列();
 
-        // 解析文件得到 K线 列表
-        let bars = slf
-            .borrow()
-            .obs()
-            .解析本地数据(文件路径)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
-
-        // 通过 Python dispatch 逐根投喂，确保子类重写生效
-        for k线 in bars {
-            let k线_py = Py::new(
-                py,
-                K线Py {
-                    inner: Arc::new(k线),
-                },
-            )?;
-            slf.call_method1("增加原始K线", (k线_py,))?;
+        // 读取文件，通过 Python dispatch 逐根投喂（支持子类重写 增加原始K线）
+        let data = std::fs::read(文件路径)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("read file: {}", e)))?;
+        let size: usize = 48;
+        for i in 0..data.len() / size {
+            let offset = i * size;
+            if let Some((时间戳, 开, 高, 低, 收, 量)) =
+                chanlun::kline::bar::K线::解析原始数据(&data[offset..offset + size])
+            {
+                slf.call_method1("投喂原始数据", (时间戳, 开, 高, 低, 收, 量))?;
+            }
         }
         Ok(())
     }
@@ -600,10 +600,14 @@ impl 观察者Py {
     }
 
     #[classmethod]
-    #[pyo3(signature = (文件路径, 配置 = None))]
+    #[pyo3(signature = (观察员, 文件路径, 配置 = None))]
+    /// :param 观察员: 观察者实例
     /// :param 文件路径: 数据文件路径 格式如: btcusd-300-1631772074-1632222374.nb
+    /// :param 配置: 缠论配置
+    /// :return: 观察者实例
     fn 读取数据文件(
-        cls: &Bound<'_, PyType>,
+        _cls: &Bound<'_, PyType>,
+        观察员: &Bound<'_, Self>,
         文件路径: &str,
         配置: Option<&Bound<'_, 缠论配置Py>>,
         py: Python<'_>,
@@ -631,31 +635,19 @@ impl 观察者Py {
             .parse()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("parse period: {}", e)))?;
 
-        // 通过 cls 构造实例（支持子类化）
-        let cfg_py = 缠论配置Py::from_rust_config(&config)?;
-        let cfg_obj = Py::new(py, cfg_py)?;
-        let obj = cls.call1((符号.clone(), 周期, cfg_obj))?;
-
-        // 读取文件并通过 Python 分发逐根投喂（支持子类重写 增加原始K线）
-        let data = std::fs::read(文件路径)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("read file: {}", e)))?;
-        let size: usize = 48;
-        for i in 0..data.len() / size {
-            let offset = i * size;
-            if let Some(k线) =
-                chanlun::kline::bar::K线::from_bytes(&data[offset..offset + size], 周期, &符号)
-            {
-                let k线_py = Py::new(
-                    py,
-                    K线Py {
-                        inner: Arc::new(k线),
-                    },
-                )?;
-                obj.call_method1("增加原始K线", (k线_py,))?;
-            }
+        // 设置观察员属性
+        {
+            let slf_ref = 观察员.borrow_mut();
+            let mut obs_mut = slf_ref.obs_mut();
+            obs_mut.符号 = 符号;
+            obs_mut.周期 = 周期;
+            obs_mut.配置 = config;
         }
 
-        Ok(obj.unbind())
+        // 调用加载本地数据
+        观察员.call_method1("加载本地数据", (文件路径,))?;
+
+        Ok(观察员.clone().unbind().into())
     }
 
     // ---- 序列 getters ----

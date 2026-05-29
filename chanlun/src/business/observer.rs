@@ -155,6 +155,14 @@ impl 观察者 {
         self.__处理数据(普K);
     }
 
+    /// 投喂原始数据 — 便捷入口，直接从 OHLCV 创建 K线 并投喂
+    pub fn 投喂原始数据(
+        &mut self, 时间戳: i64, 开: f64, 高: f64, 低: f64, 收: f64, 量: f64
+    ) {
+        let 普K = K线::创建普K(&self.符号, 时间戳, 开, 高, 低, 收, 量, 0, self.周期);
+        self.增加原始K线(普K);
+    }
+
     /// 核心数据处理管道
     fn __处理数据(&mut self, 普K: K线) {
         // Step 1: 缠论K线分析 (普K is consumed by 分析 as &mut)
@@ -479,39 +487,26 @@ impl 观察者 {
         println!("全部数据拆分保存完成，目录：{}", 保存路径.display());
     }
 
-    /// 解析本地数据文件 — 从 .nb 文件读取并解析所有 K线
-    pub fn 解析本地数据(&self, 文件路径: &str) -> Result<Vec<K线>, String> {
-        let data = std::fs::read(文件路径).map_err(|e| format!("read file: {}", e))?;
-        let mut bars = Vec::new();
-        let size = 48;
-        for i in 0..data.len() / size {
-            let offset = i * size;
-            if let Some(k线) = K线::from_bytes(&data[offset..offset + size], self.周期, &self.符号)
-            {
-                bars.push(k线);
-            }
-        }
-        Ok(bars)
-    }
-
     /// 加载本地数据 — 从 .nb 文件加载数据到当前观察者（先重置再投喂）
     pub fn 加载本地数据(&mut self, 文件路径: &str) -> Result<(), String> {
         self.重置基础序列();
-        let bars = self.解析本地数据(文件路径)?;
-        for k线 in bars {
-            self.增加原始K线(k线);
+        let data = std::fs::read(文件路径).map_err(|e| format!("read file: {}", e))?;
+        let size = 48;
+        for i in 0..data.len() / size {
+            let offset = i * size;
+            if let Some((时间戳, 开, 高, 低, 收, 量)) =
+                K线::解析原始数据(&data[offset..offset + size])
+            {
+                self.投喂原始数据(时间戳, 开, 高, 低, 收, 量);
+            }
         }
         Ok(())
     }
 
-    /// 读取数据文件 — 从 .nb 文件加载数据
+    /// 读取数据文件 — 更新当前观察者并加载 .nb 文件
     pub fn 读取数据文件(
-        文件路径: &str,
-        配置: Option<缠论配置>,
-    ) -> Result<Arc<RwLock<Self>>, String> {
-        let 配置 = 配置.unwrap_or_default();
-
-        // Parse filename: btcusd-300-1631772074-1632222374.nb
+        &mut self, 文件路径: &str, 配置: 缠论配置
+    ) -> Result<(), String> {
         let path = std::path::Path::new(文件路径);
         let name = path
             .file_stem()
@@ -521,23 +516,12 @@ impl 观察者 {
         if parts.len() < 4 {
             return Err(format!("invalid filename format: {}", name));
         }
-        let 符号 = parts[0].to_string();
-        let 周期: i64 = parts[1]
+        self.符号 = parts[0].to_string();
+        self.周期 = parts[1]
             .parse()
             .map_err(|e| format!("parse period: {}", e))?;
-
-        let 实例 = Self::new(符号, 周期, 配置);
-
-        let data = std::fs::read(文件路径).map_err(|e| format!("read file: {}", e))?;
-        let size = 48; // 6 × 8 bytes (big-endian double)
-        for i in 0..data.len() / size {
-            let offset = i * size;
-            if let Some(k线) = K线::from_bytes(&data[offset..offset + size], 周期, "nb") {
-                实例.write().unwrap().增加原始K线(k线);
-            }
-        }
-
-        Ok(实例)
+        self.配置 = 配置;
+        self.加载本地数据(文件路径)
     }
 }
 
@@ -546,12 +530,23 @@ mod tests {
     use super::*;
     use crate::config::缠论配置;
 
-    const TEST_DATA_PATH: &str = "/home/moscow/chanlun.rs/btcusd-300-1777649100-1778398800.nb";
+    fn test_data_path() -> String {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        manifest
+            .parent()
+            .unwrap()
+            .join("btcusd-300-1777649100-1778398800.nb")
+            .to_string_lossy()
+            .to_string()
+    }
 
     #[test]
     fn test_普k序列指针一致性() {
-        let config = 缠论配置::default();
-        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs = 观察者::new("btcusd".into(), 300, Default::default());
+        obs.write()
+            .unwrap()
+            .读取数据文件(&test_data_path(), Default::default())
+            .unwrap();
         let obs_ref = obs.read().unwrap();
 
         for (i, bi) in obs_ref.笔序列.iter().enumerate() {
@@ -595,7 +590,7 @@ mod tests {
         let config = 缠论配置::default();
         let obs_ref = 观察者::new("btcusd".into(), 300, config);
 
-        let data = std::fs::read(TEST_DATA_PATH).unwrap();
+        let data = std::fs::read(&test_data_path()).unwrap();
         let size = 48;
 
         for i in 0..data.len() / size {
@@ -633,8 +628,11 @@ mod tests {
 
     #[test]
     fn test_分型到笔的文武Rc指针一致性() {
-        let config = 缠论配置::default();
-        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs = 观察者::new("btcusd".into(), 300, Default::default());
+        obs.write()
+            .unwrap()
+            .读取数据文件(&test_data_path(), Default::default())
+            .unwrap();
         let obs_ref = obs.read().unwrap();
 
         // 每个笔的文/武 分型 Rc 指针必须在 分型序列 中
@@ -663,8 +661,11 @@ mod tests {
 
     #[test]
     fn test_笔到线段的基础序列Rc指针一致性() {
-        let config = 缠论配置::default();
-        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs = 观察者::new("btcusd".into(), 300, Default::default());
+        obs.write()
+            .unwrap()
+            .读取数据文件(&test_data_path(), Default::default())
+            .unwrap();
         let obs_ref = obs.read().unwrap();
 
         // 每个线段的基础序列中的笔 Rc 指针必须在 笔序列 中
@@ -685,8 +686,11 @@ mod tests {
 
     #[test]
     fn test_中枢基础序列与笔序列Rc指针一致() {
-        let config = 缠论配置::default();
-        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs = 观察者::new("btcusd".into(), 300, Default::default());
+        obs.write()
+            .unwrap()
+            .读取数据文件(&test_data_path(), Default::default())
+            .unwrap();
         let obs_ref = obs.read().unwrap();
 
         for (i, hub) in obs_ref.笔_中枢序列.iter().enumerate() {
@@ -716,7 +720,7 @@ mod tests {
 
     #[test]
     fn test_重复计算后结果一致() {
-        let data = std::fs::read(TEST_DATA_PATH).unwrap();
+        let data = std::fs::read(&test_data_path()).unwrap();
         let size = 48;
 
         let 计算 = || {
@@ -760,7 +764,7 @@ mod tests {
         let config = 缠论配置::default();
         let obs_ref = 观察者::new("btcusd".into(), 300, config);
 
-        let data = std::fs::read(TEST_DATA_PATH).unwrap();
+        let data = std::fs::read(&test_data_path()).unwrap();
         let size = 48;
 
         for i in 0..data.len() / size {
@@ -800,8 +804,11 @@ mod tests {
 
     #[test]
     fn test_RefCell借用安全性_连续读取不panic() {
-        let config = 缠论配置::default();
-        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs = 观察者::new("btcusd".into(), 300, Default::default());
+        obs.write()
+            .unwrap()
+            .读取数据文件(&test_data_path(), Default::default())
+            .unwrap();
         let obs_ref = obs.read().unwrap();
 
         // 连续大量读取所有 RefCell 字段，不应 panic
@@ -831,8 +838,11 @@ mod tests {
 
     #[test]
     fn test_RefCell借用安全性_交替读写不panic() {
-        let config = 缠论配置::default();
-        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs = 观察者::new("btcusd".into(), 300, Default::default());
+        obs.write()
+            .unwrap()
+            .读取数据文件(&test_data_path(), Default::default())
+            .unwrap();
         let obs_ref = obs.read().unwrap();
 
         // 交替读写 RefCell 字段 — 先读再写同字段，分离 borrow 作用域
@@ -860,8 +870,11 @@ mod tests {
 
     #[test]
     fn test_缠K到分型的Rc指针一致性() {
-        let config = 缠论配置::default();
-        let obs = 观察者::读取数据文件(TEST_DATA_PATH, Some(config)).unwrap();
+        let obs = 观察者::new("btcusd".into(), 300, Default::default());
+        obs.write()
+            .unwrap()
+            .读取数据文件(&test_data_path(), Default::default())
+            .unwrap();
         let obs_ref = obs.read().unwrap();
 
         // 每个分型的左/中/右 缠K 指针必须在 缠论K线序列 中

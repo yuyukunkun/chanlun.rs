@@ -1214,10 +1214,8 @@ impl 中枢Py {
 
     #[getter]
     /// :return: 中枢方向（首条虚线的方向翻转）
-    fn 方向(&self) -> 相对方向Py {
-        相对方向Py {
-            inner: self.inner.方向(),
-        }
+    fn 方向(&self, py: Python<'_>) -> Py<相对方向Py> {
+        crate::types_py::获取相对方向单例(py, self.inner.方向())
     }
 
     #[getter]
@@ -1328,7 +1326,7 @@ impl 中枢Py {
         dict.set_item("标识", self.标识())?;
         dict.set_item("级别", self.级别())?;
         dict.set_item("图表标题", self.图表标题())?;
-        dict.set_item("方向", self.方向())?;
+        dict.set_item("方向", self.方向(py))?;
         dict.set_item("高", self.高())?;
         dict.set_item("低", self.低())?;
         dict.set_item("高高", self.高高())?;

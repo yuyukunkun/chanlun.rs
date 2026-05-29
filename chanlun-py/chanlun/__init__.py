@@ -27,6 +27,8 @@ __all__ = [
     "转化为时间戳",
     "转化为时间戳_数字",
     "随机指标",
+    "chan",
 ]
 
 from ._chanlun import *
+from . import chan

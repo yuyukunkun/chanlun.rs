@@ -61,6 +61,40 @@ pub fn 获取分型结构单例(
     result
 }
 
+static 相对方向_单例缓存: Mutex<Option<HashMap<u8, Py<相对方向Py>>>> = Mutex::new(None);
+
+pub fn 获取相对方向单例(
+    py: Python<'_>,
+    inner: chanlun::types::相对方向,
+) -> Py<相对方向Py> {
+    let mut guard = 相对方向_单例缓存.lock().unwrap();
+    if let Some(ref map) = *guard {
+        return map[&(inner as u8)].clone_ref(py);
+    }
+
+    // 首次访问时从类属性加载单例
+    let module = py.import("chanlun._chanlun").unwrap();
+    let class = module.getattr("相对方向").unwrap();
+    let mut map = HashMap::new();
+    for (name, variant) in &[
+        ("向上", chanlun::types::相对方向::向上),
+        ("向下", chanlun::types::相对方向::向下),
+        ("向上缺口", chanlun::types::相对方向::向上缺口),
+        ("向下缺口", chanlun::types::相对方向::向下缺口),
+        ("衔接向上", chanlun::types::相对方向::衔接向上),
+        ("衔接向下", chanlun::types::相对方向::衔接向下),
+        ("顺", chanlun::types::相对方向::顺),
+        ("逆", chanlun::types::相对方向::逆),
+        ("同", chanlun::types::相对方向::同),
+    ] {
+        let instance: Py<相对方向Py> = class.getattr(*name).unwrap().extract().unwrap();
+        map.insert(*variant as u8, instance);
+    }
+    let result = map[&(inner as u8)].clone_ref(py);
+    *guard = Some(map);
+    result
+}
+
 // ========== 买卖点类型 ==========
 
 /// 买卖点类型 — 缠论的三类买卖点及扩展类型。
@@ -189,10 +223,8 @@ impl 相对方向Py {
     }
 
     /// 返回方向的对立面（向上↔向下, 缺口↔反向缺口, 衔接↔反向衔接）。
-    fn 翻转(&self) -> Self {
-        Self {
-            inner: self.inner.翻转(),
-        }
+    fn 翻转(&self, py: Python<'_>) -> Py<Self> {
+        获取相对方向单例(py, self.inner.翻转())
     }
 
     /// 判断是否为向上方向（向上/向上缺口/衔接向上）
@@ -245,10 +277,11 @@ impl 相对方向Py {
     #[classmethod]
     fn 分析(
         _cls: &Bound<'_, PyType>, 前高: f64, 前低: f64, 后高: f64, 后低: f64
-    ) -> Self {
-        Self {
-            inner: chanlun::types::相对方向::分析(前高, 前低, 后高, 后低),
-        }
+    ) -> Py<Self> {
+        获取相对方向单例(
+            _cls.py(),
+            chanlun::types::相对方向::分析(前高, 前低, 后高, 后低),
+        )
     }
 }
 

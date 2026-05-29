@@ -139,10 +139,8 @@ impl K线Py {
 
     #[getter]
     /// :return: 相对方向.向上（开盘<收盘）或 相对方向.向下（开盘>收盘）
-    fn 方向(&self) -> 相对方向Py {
-        相对方向Py {
-            inner: self.inner.方向(),
-        }
+    fn 方向(&self, py: Python<'_>) -> Py<相对方向Py> {
+        crate::types_py::获取相对方向单例(py, self.inner.方向())
     }
 
     #[getter]
@@ -182,7 +180,7 @@ impl K线Py {
         dict.set_item("开盘价", self.开盘价())?;
         dict.set_item("收盘价", self.收盘价())?;
         dict.set_item("成交量", self.成交量())?;
-        dict.set_item("方向", self.方向())?;
+        dict.set_item("方向", self.方向(py))?;
         if let Some(v) = self.macd() {
             dict.set_item("macd", v)?;
         }
@@ -443,10 +441,8 @@ impl 缠论K线Py {
     }
 
     #[getter]
-    fn 方向(&self) -> 相对方向Py {
-        相对方向Py {
-            inner: *self.inner.方向.read().unwrap(),
-        }
+    fn 方向(&self, py: Python<'_>) -> Py<相对方向Py> {
+        crate::types_py::获取相对方向单例(py, *self.inner.方向.read().unwrap())
     }
 
     #[getter]
@@ -496,7 +492,7 @@ impl 缠论K线Py {
         dict.set_item("时间戳", self.时间戳())?;
         dict.set_item("高", self.高())?;
         dict.set_item("低", self.低())?;
-        dict.set_item("方向", self.方向())?;
+        dict.set_item("方向", self.方向(py))?;
         dict.set_item("周期", self.周期())?;
         dict.set_item("标识", self.标识())?;
         dict.set_item("分型特征值", self.分型特征值())?;
