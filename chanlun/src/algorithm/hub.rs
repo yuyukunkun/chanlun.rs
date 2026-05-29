@@ -387,7 +387,7 @@ impl 中枢 {
 
     /// 向中枢序列尾部添加
     pub fn 向中枢序列尾部添加(
-        中枢序列: &mut Vec<Arc<中枢>>, mut 待添加中枢: Arc<中枢>
+        中枢序列: &mut Vec<Arc<中枢>>, 待添加中枢: Arc<中枢>
     ) {
         if let Some(前一个) = 中枢序列.last() {
             待添加中枢

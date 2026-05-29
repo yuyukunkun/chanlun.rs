@@ -450,12 +450,12 @@ impl 缠论K线Py {
     }
 
     #[getter]
-    fn 分型(&self) -> Option<crate::types_py::分型结构Py> {
+    fn 分型(&self, py: Python<'_>) -> Option<Py<crate::types_py::分型结构Py>> {
         self.inner
             .分型
             .read()
             .unwrap()
-            .map(|f| crate::types_py::分型结构Py { inner: f })
+            .map(|f| crate::types_py::获取分型结构单例(py, f))
     }
 
     #[getter]
@@ -506,7 +506,7 @@ impl 缠论K线Py {
         dict.set_item("与RSI匹配", self.与RSI匹配())?;
         dict.set_item("与KDJ匹配", self.与KDJ匹配())?;
 
-        if let Some(v) = self.分型() {
+        if let Some(v) = self.分型(py) {
             dict.set_item("分型", v)?;
         }
         Ok(dict.into())

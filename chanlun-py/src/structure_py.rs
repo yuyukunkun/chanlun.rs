@@ -184,22 +184,18 @@ impl 分型Py {
     }
 
     #[getter]
-    fn 结构(&self) -> 分型结构Py {
-        if chanlun::structure::fractal_obj::分型模式.load(Ordering::Relaxed) {
-            分型结构Py {
-                inner: self.inner.结构,
-            }
+    fn 结构(&self, py: Python<'_>) -> Py<分型结构Py> {
+        let inner = if chanlun::structure::fractal_obj::分型模式.load(Ordering::Relaxed) {
+            self.inner.结构
         } else {
-            分型结构Py {
-                inner: self
-                    .inner
-                    .中
-                    .分型
-                    .read()
-                    .unwrap()
-                    .unwrap_or(chanlun::types::分型结构::散),
-            }
-        }
+            self.inner
+                .中
+                .分型
+                .read()
+                .unwrap()
+                .unwrap_or(chanlun::types::分型结构::散)
+        };
+        crate::types_py::获取分型结构单例(py, inner)
     }
 
     #[getter]
@@ -263,7 +259,7 @@ impl 分型Py {
     #[getter]
     fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         let dict = PyDict::new(py);
-        dict.set_item("结构", self.结构())?;
+        dict.set_item("结构", self.结构(py))?;
         dict.set_item("时间戳", self.时间戳())?;
         dict.set_item("分型特征值", self.分型特征值())?;
         dict.set_item("强度", self.强度())?;
@@ -1280,17 +1276,15 @@ impl 特征分型Py {
     }
 
     #[getter]
-    fn 结构(&self) -> 分型结构Py {
-        分型结构Py {
-            inner: self.inner.结构,
-        }
+    fn 结构(&self, py: Python<'_>) -> Py<分型结构Py> {
+        crate::types_py::获取分型结构单例(py, self.inner.结构)
     }
 
     /// pandas 兼容 — 返回关键标量字段构成的字典
     #[getter]
     fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         let dict = PyDict::new(py);
-        dict.set_item("结构", self.结构())?;
+        dict.set_item("结构", self.结构(py))?;
         Ok(dict.into())
     }
 

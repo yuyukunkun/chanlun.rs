@@ -474,7 +474,7 @@ impl 线段 {
     /// 分割序列 — 将线段的基础序列分为前、后、第三买卖线、贯穿伤
     pub fn 分割序列(
         段: &虚线,
-        mut 所属中枢: Option<&mut 中枢>,
+        所属中枢: Option<&中枢>,
     ) -> (
         Vec<Arc<虚线>>,
         Vec<Arc<虚线>>,
@@ -517,7 +517,7 @@ impl 线段 {
 
         let mut 状态 = None;
 
-        if let Some(ref mut 中枢) = 所属中枢 {
+        if let Some(ref 中枢) = 所属中枢 {
             *中枢.本级_第三买卖线.write().unwrap() = None;
             let 尾部 = if let Some(ref 后笔) = 后.last() {
                 后笔.武.read().unwrap().clone()
@@ -548,8 +548,6 @@ impl 线段 {
                     } else {
                         break;
                     }
-                } else {
-                    break;
                 }
             }
         }
@@ -568,15 +566,13 @@ impl 线段 {
                     } else {
                         break;
                     }
-                } else {
-                    break;
                 }
             }
         }
 
         if !第三买卖线.is_empty() {
             第三买卖线.reverse();
-            if let Some(ref mut 中枢) = 所属中枢 {
+            if let Some(ref 中枢) = 所属中枢 {
                 *中枢.本级_第三买卖线.write().unwrap() = Some(Arc::clone(&第三买卖线[0]));
             }
         }

@@ -22,9 +22,44 @@
  * SOFTWARE.
  */
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use pyo3::basic::CompareOp;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
+
+// ========== 单例缓存 ==========
+
+static 分型结构_单例缓存: Mutex<Option<HashMap<u8, Py<分型结构Py>>>> = Mutex::new(None);
+
+pub fn 获取分型结构单例(
+    py: Python<'_>,
+    inner: chanlun::types::分型结构,
+) -> Py<分型结构Py> {
+    let mut guard = 分型结构_单例缓存.lock().unwrap();
+    if let Some(ref map) = *guard {
+        return map[&(inner as u8)].clone_ref(py);
+    }
+
+    // 首次访问时从类属性加载单例
+    let module = py.import("chanlun._chanlun").unwrap();
+    let class = module.getattr("分型结构").unwrap();
+    let mut map = HashMap::new();
+    for (name, variant) in &[
+        ("上", chanlun::types::分型结构::上),
+        ("下", chanlun::types::分型结构::下),
+        ("顶", chanlun::types::分型结构::顶),
+        ("底", chanlun::types::分型结构::底),
+        ("散", chanlun::types::分型结构::散),
+    ] {
+        let instance: Py<分型结构Py> = class.getattr(*name).unwrap().extract().unwrap();
+        map.insert(*variant as u8, instance);
+    }
+    let result = map[&(inner as u8)].clone_ref(py);
+    *guard = Some(map);
+    result
+}
 
 // ========== 买卖点类型 ==========
 
