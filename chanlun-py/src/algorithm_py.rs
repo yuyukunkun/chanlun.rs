@@ -750,9 +750,11 @@ impl 线段Py {
     )> {
         let borrowed = 段.borrow();
         let (a, b, c, d) = if let Some(hub_bound) = 所属中枢 {
-            if let Ok(mut hub_ref) = hub_bound.extract::<PyRefMut<'_, 中枢Py>>() {
-                let inner_mut = Arc::make_mut(&mut hub_ref.inner);
-                chanlun::algorithm::segment::线段::分割序列(&borrowed.inner, Some(inner_mut))
+            if let Ok(hub_ref) = hub_bound.extract::<PyRef<'_, 中枢Py>>() {
+                chanlun::algorithm::segment::线段::分割序列(
+                    &borrowed.inner,
+                    Some(&hub_ref.inner),
+                )
             } else {
                 chanlun::algorithm::segment::线段::分割序列(&borrowed.inner, None)
             }

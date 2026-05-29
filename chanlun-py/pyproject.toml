@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "chanlun"
-version = "2605.91"
+version = "2605.93"
 description = "缠论技术分析库 — Rust 高性能实现"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE", content-type = "text/plain" }

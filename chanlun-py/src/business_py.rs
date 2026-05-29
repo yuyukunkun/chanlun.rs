@@ -48,7 +48,12 @@ use crate::types_py::买卖点类型Py;
 ///   有效性: bool — 买卖点是否仍有效
 ///   与MACD柱子匹配: bool|None — 是否与MACD柱状图方向匹配
 ///   与MACD柱子分型匹配: bool|None — 是否与MACD柱分型匹配
-#[pyclass(name = "基础买卖点", module = "chanlun._chanlun", from_py_object)]
+#[pyclass(
+    name = "基础买卖点",
+    module = "chanlun._chanlun",
+    subclass,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct 基础买卖点Py {
     pub(crate) inner: chanlun::business::bsp::基础买卖点,
@@ -200,19 +205,17 @@ impl 基础买卖点Py {
 
 // ========== 买卖点 ==========
 
-/// 买卖点 — 静态方法容器，提供各类买卖点的构造算法（不存储数据）。
+/// 买卖点 — 继承 基础买卖点，添加工厂类方法。
 ///
-/// 类方法（均返回对应的买卖点对象）:
+/// 类方法（均返回 买卖点 实例）:
 ///   一卖点(...) / 一买点(...) / 二卖点(...) / 二买点(...) / 三卖点(...) / 三买点(...)
-///   生成买卖点(特征, 序号, 级别, 分型, 当前缠K, 备注?) -> 买卖点
-///      — 根据特征字符串自动路由到对应的一/二/三类买卖点构造函数
-#[pyclass(name = "买卖点", module = "chanlun._chanlun")]
+///   生成买卖点(特征, 序号, 级别, 分型, 当前缠K) -> 买卖点
+#[pyclass(name = "买卖点", module = "chanlun._chanlun", extends=基础买卖点Py)]
 pub struct 买卖点Py;
 
 #[pymethods]
 impl 买卖点Py {
     #[classmethod]
-    /// :param 买卖点分型: 买卖点对应的分型
     fn 一卖点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -220,8 +223,9 @@ impl 买卖点Py {
         标识: &str,
         备注: String,
         中枢破位值: f64,
-    ) -> 基础买卖点Py {
-        基础买卖点Py {
+        py: Python<'_>,
+    ) -> PyResult<Py<Self>> {
+        let base = 基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::一卖点(
                 Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
@@ -230,11 +234,12 @@ impl 买卖点Py {
                 中枢破位值,
                 当前K线.borrow().inner.序号,
             ),
-        }
+        };
+        let init = PyClassInitializer::from(base).add_subclass(买卖点Py);
+        Ok(Bound::new(py, init)?.unbind())
     }
 
     #[classmethod]
-    /// :param 买卖点分型: 买卖点对应的分型
     fn 一买点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -242,8 +247,9 @@ impl 买卖点Py {
         标识: &str,
         备注: String,
         中枢破位值: f64,
-    ) -> 基础买卖点Py {
-        基础买卖点Py {
+        py: Python<'_>,
+    ) -> PyResult<Py<Self>> {
+        let base = 基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::一买点(
                 Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
@@ -252,11 +258,12 @@ impl 买卖点Py {
                 中枢破位值,
                 当前K线.borrow().inner.序号,
             ),
-        }
+        };
+        let init = PyClassInitializer::from(base).add_subclass(买卖点Py);
+        Ok(Bound::new(py, init)?.unbind())
     }
 
     #[classmethod]
-    /// :param 买卖点分型: 买卖点对应的分型
     fn 二卖点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -264,8 +271,9 @@ impl 买卖点Py {
         标识: &str,
         备注: String,
         中枢破位值: f64,
-    ) -> 基础买卖点Py {
-        基础买卖点Py {
+        py: Python<'_>,
+    ) -> PyResult<Py<Self>> {
+        let base = 基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::二卖点(
                 Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
@@ -274,11 +282,12 @@ impl 买卖点Py {
                 中枢破位值,
                 当前K线.borrow().inner.序号,
             ),
-        }
+        };
+        let init = PyClassInitializer::from(base).add_subclass(买卖点Py);
+        Ok(Bound::new(py, init)?.unbind())
     }
 
     #[classmethod]
-    /// :param 买卖点分型: 买卖点对应的分型
     fn 二买点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -286,8 +295,9 @@ impl 买卖点Py {
         标识: &str,
         备注: String,
         中枢破位值: f64,
-    ) -> 基础买卖点Py {
-        基础买卖点Py {
+        py: Python<'_>,
+    ) -> PyResult<Py<Self>> {
+        let base = 基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::二买点(
                 Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
@@ -296,11 +306,12 @@ impl 买卖点Py {
                 中枢破位值,
                 当前K线.borrow().inner.序号,
             ),
-        }
+        };
+        let init = PyClassInitializer::from(base).add_subclass(买卖点Py);
+        Ok(Bound::new(py, init)?.unbind())
     }
 
     #[classmethod]
-    /// :param 买卖点分型: 买卖点对应的分型
     fn 三卖点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -308,8 +319,9 @@ impl 买卖点Py {
         标识: &str,
         备注: String,
         中枢破位值: f64,
-    ) -> 基础买卖点Py {
-        基础买卖点Py {
+        py: Python<'_>,
+    ) -> PyResult<Py<Self>> {
+        let base = 基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::三卖点(
                 Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
@@ -318,11 +330,12 @@ impl 买卖点Py {
                 中枢破位值,
                 当前K线.borrow().inner.序号,
             ),
-        }
+        };
+        let init = PyClassInitializer::from(base).add_subclass(买卖点Py);
+        Ok(Bound::new(py, init)?.unbind())
     }
 
     #[classmethod]
-    /// :param 买卖点分型: 买卖点对应的分型
     fn 三买点(
         _cls: &Bound<'_, PyType>,
         买卖点分型: &Bound<'_, 分型Py>,
@@ -330,8 +343,9 @@ impl 买卖点Py {
         标识: &str,
         备注: String,
         中枢破位值: f64,
-    ) -> 基础买卖点Py {
-        基础买卖点Py {
+        py: Python<'_>,
+    ) -> PyResult<Py<Self>> {
+        let base = 基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::三买点(
                 Arc::clone(&买卖点分型.borrow().inner),
                 当前K线.borrow().inner.clone(),
@@ -340,11 +354,13 @@ impl 买卖点Py {
                 中枢破位值,
                 当前K线.borrow().inner.序号,
             ),
-        }
+        };
+        let init = PyClassInitializer::from(base).add_subclass(买卖点Py);
+        Ok(Bound::new(py, init)?.unbind())
     }
 
     #[classmethod]
-    /// :param 特征: 特征字符串
+    #[pyo3(signature = (特征, 序号, 级别, 买卖点分型, 当前缠K))]
     fn 生成买卖点(
         _cls: &Bound<'_, PyType>,
         特征: &str,
@@ -352,8 +368,9 @@ impl 买卖点Py {
         级别: &str,
         买卖点分型: &Bound<'_, 分型Py>,
         当前缠K: &Bound<'_, 缠论K线Py>,
-    ) -> 基础买卖点Py {
-        基础买卖点Py {
+        py: Python<'_>,
+    ) -> PyResult<Py<Self>> {
+        let base = 基础买卖点Py {
             inner: chanlun::business::bsp::买卖点::生成买卖点(
                 特征,
                 序号,
@@ -361,7 +378,9 @@ impl 买卖点Py {
                 Arc::clone(&买卖点分型.borrow().inner),
                 Arc::clone(&当前缠K.borrow().inner),
             ),
-        }
+        };
+        let init = PyClassInitializer::from(base).add_subclass(买卖点Py);
+        Ok(Bound::new(py, init)?.unbind())
     }
 }
 

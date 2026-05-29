@@ -415,7 +415,8 @@ impl 笔 {
             let 之前分型 = Arc::clone(分型序列.last().unwrap());
 
             // Python line 2330-2335: 清理无效数据
-            if 之前分型.中.时间戳.load(Ordering::Relaxed) == 当前分型.中.时间戳.load(Ordering::Relaxed)
+            if 之前分型.中.时间戳.load(Ordering::Relaxed)
+                == 当前分型.中.时间戳.load(Ordering::Relaxed)
                 || matches!(之前分型.结构, 分型结构::上 | 分型结构::下)
             {
                 Self::弹出旧笔(分型序列, 笔序列);
@@ -430,7 +431,8 @@ impl 笔 {
             let 之前分型 = Arc::clone(分型序列.last().unwrap());
 
             // Python line 2338: 时序检查 — skip out-of-order fractals
-            if 之前分型.中.时间戳.load(Ordering::Relaxed) > 当前分型.中.时间戳.load(Ordering::Relaxed)
+            if 之前分型.中.时间戳.load(Ordering::Relaxed)
+                > 当前分型.中.时间戳.load(Ordering::Relaxed)
                 && 之前分型.中.序号.load(Ordering::Relaxed)
                     - 当前分型.中.序号.load(Ordering::Relaxed)
                     > 1
