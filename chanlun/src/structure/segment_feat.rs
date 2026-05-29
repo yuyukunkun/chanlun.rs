@@ -63,7 +63,7 @@ impl 线段特征 {
                         .分型特征值
                         .partial_cmp(&b.文.分型特征值)
                         .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| a.文.时间戳.cmp(&b.文.时间戳))
+                        .then_with(|| a.文.时间戳().cmp(&b.文.时间戳()))
                 })
                 .map(|x| Arc::clone(&x.文))
                 .unwrap_or_else(|| Arc::clone(&self.元素[0].文))
@@ -75,7 +75,7 @@ impl 线段特征 {
                         .分型特征值
                         .partial_cmp(&b.文.分型特征值)
                         .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| b.文.时间戳.cmp(&a.文.时间戳))
+                        .then_with(|| b.文.时间戳().cmp(&a.文.时间戳()))
                 })
                 .map(|x| Arc::clone(&x.文))
                 .unwrap_or_else(|| Arc::clone(&self.元素[0].文))
@@ -99,8 +99,8 @@ impl 线段特征 {
                             a.武
                                 .read()
                                 .unwrap()
-                                .时间戳
-                                .cmp(&b.武.read().unwrap().时间戳)
+                                .时间戳()
+                                .cmp(&b.武.read().unwrap().时间戳())
                         })
                 })
                 .map(|x| x.武.read().unwrap().clone())
@@ -119,8 +119,8 @@ impl 线段特征 {
                             b.武
                                 .read()
                                 .unwrap()
-                                .时间戳
-                                .cmp(&a.武.read().unwrap().时间戳)
+                                .时间戳()
+                                .cmp(&a.武.read().unwrap().时间戳())
                         })
                 })
                 .map(|x| x.武.read().unwrap().clone())
@@ -527,7 +527,7 @@ mod tests {
 
         let 文 = feat.文();
         // 向上取最大特征值：都是100 → tiebreaker取后时间戳 → 笔2.文(300)
-        assert_eq!(文.时间戳, 300);
+        assert_eq!(文.时间戳(), 300);
     }
 
     #[test]
@@ -544,7 +544,7 @@ mod tests {
 
         let 武 = feat.武();
         // 向上取最大特征值：都是80 → tiebreaker取后时间戳 → 笔2.武(400)
-        assert_eq!(武.时间戳, 400);
+        assert_eq!(武.时间戳(), 400);
     }
 
     // ============================================================

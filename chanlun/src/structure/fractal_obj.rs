@@ -25,8 +25,12 @@
 use crate::kline::chan_kline::缠论K线;
 use crate::types::分型结构;
 use crate::types::相对方向;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+
+/// 分型模式 — True 时使用构造时缓存值（默认），False 时从 中 缠K 实时读取
+pub static 分型模式: AtomicBool = AtomicBool::new(true);
 
 /// 分型 — 由三根缠K构成（可能缺左或右）
 #[derive(Debug, Clone)]
@@ -53,6 +57,15 @@ impl 分型 {
             结构,
             时间戳,
             分型特征值,
+        }
+    }
+
+    /// 时间戳 — 根据 分型模式 决定返回缓存值（True）或实时值（False）
+    pub fn 时间戳(&self) -> i64 {
+        if 分型模式.load(Ordering::Relaxed) {
+            self.时间戳
+        } else {
+            self.中.时间戳.load(Ordering::Relaxed)
         }
     }
 
@@ -215,7 +228,7 @@ impl std::fmt::Display for 分型 {
                 .read()
                 .unwrap()
                 .unwrap_or(crate::types::分型结构::散),
-            self.时间戳,
+            self.时间戳(),
             crate::utils::format_f64_g(self.分型特征值),
             if self.左.is_none() { "True" } else { "False" },
             if self.右.is_none() { "True" } else { "False" },

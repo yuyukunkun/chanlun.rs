@@ -2202,6 +2202,9 @@ class 缠论K线(object):
         return 序列[序列.index(始) : 序列.index(终) + 1]
 
 
+分型模式 = True
+
+
 class 分型(object):
     """分型 — 由左中右三根缠论K线构成的顶/底分型结构。
 
@@ -2216,7 +2219,7 @@ class 分型(object):
     :ivar 与MACD柱子分型匹配: 是否与MACD柱子分型匹配
     """
 
-    __slots__ = ["左", "中", "右", "结构", "时间戳", "分型特征值"]
+    __slots__ = ["左", "中", "右", "_结构", "_时间戳", "_分型特征值"]
 
     def __init__(self, 左: Optional[缠论K线], 中: 缠论K线, 右: Optional[缠论K线]):
         """
@@ -2229,15 +2232,33 @@ class 分型(object):
         self.左: Optional[缠论K线] = 左
         self.中: 缠论K线 = 中
         self.右: Optional[缠论K线] = 右
-        self.结构 = 中.分型
-        self.时间戳 = 中.时间戳
-        self.分型特征值 = 中.分型特征值
+        self._结构 = 中.分型
+        self._时间戳 = 中.时间戳
+        self._分型特征值 = 中.分型特征值
 
     def __str__(self):
         return f"{self.中.分型}<{self.时间戳}, {self.分型特征值:g}, None: {self.左 is None}, None: {self.右 is None}>"
 
     def __repr__(self):
         return f"{self.中.分型}<{self.时间戳}, {self.分型特征值:g}, None: {self.左 is None}, None: {self.右 is None}>"
+
+    @property
+    def 时间戳(self):
+        if 分型模式:
+            return self._时间戳
+        return self.中.时间戳
+
+    @property
+    def 分型特征值(self):
+        if 分型模式:
+            return self._分型特征值
+        return self.中.分型特征值
+
+    @property
+    def 结构(self):
+        if 分型模式:
+            return self._结构
+        return self.中.分型
 
     @property
     def 关系组(self) -> Optional[Tuple[相对方向, 相对方向, 相对方向]]:

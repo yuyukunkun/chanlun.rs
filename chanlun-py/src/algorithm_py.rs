@@ -445,6 +445,7 @@ impl 笔Py {
                 &mut bi_seq,
                 &ck_list,
                 &bar_list,
+                递归层次,
                 &config,
             )),
             None => Ok(递归层次),
@@ -480,7 +481,7 @@ impl 笔Py {
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         let config = 配置.borrow().to_rust_config(py)?;
-        Ok(chanlun::algorithm::bi::笔::分析递归(
+        Ok(chanlun::algorithm::bi::笔::分析(
             Arc::clone(&当前分型.borrow().inner),
             &mut fr_seq,
             &mut bi_seq,

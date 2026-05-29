@@ -239,9 +239,9 @@ impl 虚线 {
                 self.标识.read().unwrap(),
                 self.序号.load(Ordering::Relaxed),
                 self.级别.load(Ordering::Relaxed),
-                self.文.时间戳,
+                self.文.时间戳(),
                 format_f64_g(self.文.分型特征值),
-                self.武.read().unwrap().时间戳,
+                self.武.read().unwrap().时间戳(),
                 format_f64_g(self.武.read().unwrap().分型特征值),
                 if self.有效性.load(Ordering::Relaxed) {
                     "True"
@@ -330,9 +330,9 @@ impl 虚线 {
             self.标识.read().unwrap(),
             self.序号.load(Ordering::Relaxed),
             self.级别.load(Ordering::Relaxed),
-            self.文.时间戳,
+            self.文.时间戳(),
             format_f64_g(self.文.分型特征值),
-            self.武.read().unwrap().时间戳,
+            self.武.read().unwrap().时间戳(),
             format_f64_g(self.武.read().unwrap().分型特征值),
             if self.有效性.load(Ordering::Relaxed) { "True" } else { "False" },
             self.基础序列.read().unwrap().len(),
@@ -1232,7 +1232,7 @@ mod tests {
         assert_eq!(Arc::as_ptr(&笔.文), 文_ptr_before);
 
         // 但方向变了（因为武从底1变成底2）
-        let 新武耗时 = 笔.武.read().unwrap().时间戳;
+        let 新武耗时 = 笔.武.read().unwrap().时间戳();
         assert_eq!(新武耗时, 300);
     }
 }

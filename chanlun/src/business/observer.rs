@@ -177,6 +177,7 @@ impl 观察者 {
                 &mut self.笔序列,
                 &self.缠论K线序列,
                 &self.普通K线序列,
+                0,
                 &self.配置,
             );
         }
@@ -289,6 +290,7 @@ impl 观察者 {
                 &mut self.笔序列,
                 &self.缠论K线序列,
                 &self.普通K线序列,
+                0,
                 &self.配置,
             );
         }
@@ -434,7 +436,7 @@ impl 观察者 {
                 format!(
                     "分型, {}, {}, {:?}, {}, {}, {}",
                     i,
-                    fx.时间戳,
+                    fx.时间戳(),
                     fx.结构,
                     fx.分型特征值,
                     fx.中.时间戳.load(Ordering::Relaxed),
@@ -640,7 +642,7 @@ mod tests {
             let 文_ptr = Arc::as_ptr(&bi.文);
             let 文_found = obs_ref.分型序列.iter().any(|f| Arc::as_ptr(f) == 文_ptr);
             if !文_found {
-                println!("笔 {}: 文(时间戳={}) 不在分型序列中!", i, bi.文.时间戳);
+                println!("笔 {}: 文(时间戳={}) 不在分型序列中!", i, bi.文.时间戳());
             }
 
             let 武_ptr = Arc::as_ptr(&*bi.武.read().unwrap());
@@ -649,7 +651,7 @@ mod tests {
                 println!(
                     "笔 {}: 武(时间戳={}) 不在分型序列中!",
                     i,
-                    bi.武.read().unwrap().时间戳
+                    bi.武.read().unwrap().时间戳()
                 );
             }
         }

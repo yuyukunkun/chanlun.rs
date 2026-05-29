@@ -336,7 +336,7 @@ impl 笔 {
     /// 核心笔分析 — 使用显式栈模拟递归
     ///
     /// 返回: 递归层次数
-    pub fn 分析(
+    pub fn 分析_显式栈(
         初始分型: Arc<分型>,
         分型序列: &mut Vec<Arc<分型>>,
         笔序列: &mut Vec<Arc<虚线>>,
@@ -415,7 +415,7 @@ impl 笔 {
             let 之前分型 = Arc::clone(分型序列.last().unwrap());
 
             // Python line 2330-2335: 清理无效数据
-            if 之前分型.时间戳 == 当前分型.时间戳
+            if 之前分型.中.时间戳.load(Ordering::Relaxed) == 当前分型.中.时间戳.load(Ordering::Relaxed)
                 || matches!(之前分型.结构, 分型结构::上 | 分型结构::下)
             {
                 Self::弹出旧笔(分型序列, 笔序列);
@@ -430,7 +430,7 @@ impl 笔 {
             let 之前分型 = Arc::clone(分型序列.last().unwrap());
 
             // Python line 2338: 时序检查 — skip out-of-order fractals
-            if 之前分型.时间戳 > 当前分型.时间戳
+            if 之前分型.中.时间戳.load(Ordering::Relaxed) > 当前分型.中.时间戳.load(Ordering::Relaxed)
                 && 之前分型.中.序号.load(Ordering::Relaxed)
                     - 当前分型.中.序号.load(Ordering::Relaxed)
                     > 1
@@ -608,7 +608,7 @@ impl 笔 {
     /// 核心笔分析 — 递归实现，逐句对照 chan.py 笔.分析 / 笔递归分析
     ///
     /// 返回: 递归层次数
-    pub fn 分析递归(
+    pub fn 分析(
         当前分型: Arc<分型>,
         分型序列: &mut Vec<Arc<分型>>,
         笔序列: &mut Vec<Arc<虚线>>,
@@ -637,7 +637,7 @@ impl 笔 {
 
         // Python line 2329-2335: 清理无效数据
         let 之前分型 = Arc::clone(分型序列.last().unwrap());
-        if 之前分型.时间戳 == 当前分型.时间戳
+        if 之前分型.中.时间戳.load(Ordering::Relaxed) == 当前分型.中.时间戳.load(Ordering::Relaxed)
             || matches!(之前分型.结构, 分型结构::上 | 分型结构::下)
         {
             Self::弹出旧笔(分型序列, 笔序列);
@@ -651,7 +651,7 @@ impl 笔 {
 
         // Python line 2337-2341: 时序检查
         let 之前分型 = Arc::clone(分型序列.last().unwrap());
-        if 之前分型.时间戳 > 当前分型.时间戳
+        if 之前分型.中.时间戳.load(Ordering::Relaxed) > 当前分型.中.时间戳.load(Ordering::Relaxed)
             && 之前分型.中.序号.load(Ordering::Relaxed) - 当前分型.中.序号.load(Ordering::Relaxed)
                 > 1
         {
@@ -674,7 +674,7 @@ impl 笔 {
                         && 当前分型.结构 == 分型结构::顶);
                 if 破位 {
                     Self::弹出旧笔(分型序列, 笔序列);
-                    return Self::分析递归(
+                    return Self::分析(
                         当前分型,
                         分型序列,
                         笔序列,
@@ -712,7 +712,7 @@ impl 笔 {
                             if let Some(临时分型) =
                                 分型::从缠K序列中获取分型(缠K序列, 文官_k)
                             {
-                                let 递归层次 = Self::分析递归(
+                                let 递归层次 = Self::分析(
                                     Arc::new(临时分型),
                                     分型序列,
                                     笔序列,
@@ -721,7 +721,7 @@ impl 笔 {
                                     递归层次 + 1,
                                     配置,
                                 );
-                                return Self::分析递归(
+                                return Self::分析(
                                     当前分型,
                                     分型序列,
                                     笔序列,
@@ -770,7 +770,7 @@ impl 笔 {
                     if let Some(ref 右) = 当前分型.右 {
                         if let Some(临时分型) = 分型::从缠K序列中获取分型(缠K序列, 右)
                         {
-                            return Self::分析递归(
+                            return Self::分析(
                                 Arc::new(临时分型),
                                 分型序列,
                                 笔序列,
@@ -812,7 +812,7 @@ impl 笔 {
                             let 临时分型_rc = Arc::new(临时分型);
 
                             if !分型序列.is_empty() {
-                                let mut 递归层次 = Self::分析递归(
+                                let mut 递归层次 = Self::分析(
                                     Arc::clone(&临时分型_rc),
                                     分型序列,
                                     笔序列,
@@ -841,7 +841,7 @@ impl 笔 {
                                                     )
                                                 {
                                                     let 错过分型_rc = Arc::new(错过分型);
-                                                    递归层次 = Self::分析递归(
+                                                    递归层次 = Self::分析(
                                                         Arc::clone(&错过分型_rc),
                                                         分型序列,
                                                         笔序列,
@@ -856,7 +856,7 @@ impl 笔 {
                                     }
                                 }
 
-                                return Self::分析递归(
+                                return Self::分析(
                                     当前分型,
                                     分型序列,
                                     笔序列,
@@ -873,7 +873,7 @@ impl 笔 {
                 } else if 分型序列.is_empty() {
                     分型::向序列中添加(分型序列, 当前分型);
                 } else {
-                    return Self::分析递归(
+                    return Self::分析(
                         当前分型,
                         分型序列,
                         笔序列,

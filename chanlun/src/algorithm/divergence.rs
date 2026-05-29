@@ -69,14 +69,14 @@ impl 背驰分析 {
 
     /// 斜率背驰 — 价格斜率背驰
     pub fn 斜率背驰(进入段: &虚线, 离开段: &虚线) -> bool {
-        let dx = (进入段.武.read().unwrap().时间戳 - 进入段.文.时间戳) as f64;
+        let dx = (进入段.武.read().unwrap().时间戳() - 进入段.文.时间戳()) as f64;
         if dx == 0.0 {
             return false;
         }
         let dy = 进入段.武.read().unwrap().分型特征值 - 进入段.文.分型特征值;
         let 进入斜率 = dy / dx;
 
-        let dx = (离开段.武.read().unwrap().时间戳 - 离开段.文.时间戳) as f64;
+        let dx = (离开段.武.read().unwrap().时间戳() - 离开段.文.时间戳()) as f64;
         if dx == 0.0 {
             return false;
         }
@@ -92,11 +92,11 @@ impl 背驰分析 {
 
     /// 测度背驰 — 价格时间测度背驰
     pub fn 测度背驰(进入段: &虚线, 离开段: &虚线) -> bool {
-        let dx = (进入段.武.read().unwrap().时间戳 - 进入段.文.时间戳) as f64;
+        let dx = (进入段.武.read().unwrap().时间戳() - 进入段.文.时间戳()) as f64;
         let dy = 进入段.武.read().unwrap().分型特征值 - 进入段.文.分型特征值;
         let 进入测度 = (dx * dx + dy * dy).sqrt();
 
-        let dx = (离开段.武.read().unwrap().时间戳 - 离开段.文.时间戳) as f64;
+        let dx = (离开段.武.read().unwrap().时间戳() - 离开段.文.时间戳()) as f64;
         let dy = 离开段.武.read().unwrap().分型特征值 - 离开段.文.分型特征值;
         let 离开测度 = (dx * dx + dy * dy).sqrt();
 

@@ -185,19 +185,35 @@ impl 分型Py {
 
     #[getter]
     fn 结构(&self) -> 分型结构Py {
-        分型结构Py {
-            inner: self.inner.结构,
+        if chanlun::structure::fractal_obj::分型模式.load(Ordering::Relaxed) {
+            分型结构Py {
+                inner: self.inner.结构,
+            }
+        } else {
+            分型结构Py {
+                inner: self
+                    .inner
+                    .中
+                    .分型
+                    .read()
+                    .unwrap()
+                    .unwrap_or(chanlun::types::分型结构::散),
+            }
         }
     }
 
     #[getter]
     fn 时间戳(&self) -> i64 {
-        self.inner.时间戳
+        self.inner.时间戳()
     }
 
     #[getter]
     fn 分型特征值(&self) -> f64 {
-        self.inner.分型特征值
+        if chanlun::structure::fractal_obj::分型模式.load(Ordering::Relaxed) {
+            self.inner.分型特征值
+        } else {
+            self.inner.中.分型特征值.get()
+        }
     }
 
     fn __str__(&self) -> String {

@@ -23,6 +23,7 @@
  */
 
 use pyo3::prelude::*;
+use std::sync::atomic::Ordering;
 
 mod algorithm_py;
 mod business_py;
@@ -32,10 +33,24 @@ mod kline_py;
 mod structure_py;
 mod types_py;
 
+/// 分型模式 — True 时使用构造时缓存值，False 时从 中 缠K 实时读取
+#[pyfunction]
+fn get_分型模式() -> bool {
+    chanlun::structure::fractal_obj::分型模式.load(Ordering::Relaxed)
+}
+
+/// 设置 分型模式
+#[pyfunction]
+fn set_分型模式(value: bool) {
+    chanlun::structure::fractal_obj::分型模式.store(value, Ordering::Relaxed);
+}
+
 /// 缠论技术分析库 — Rust 高性能实现
 #[pymodule]
 /// 缠论技术分析库 — Rust 高性能实现
 fn _chanlun(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(get_分型模式, m)?)?;
+    m.add_function(wrap_pyfunction!(set_分型模式, m)?)?;
     // 阶段 1: 枚举和基础类型
     types_py::register(m)?;
     // 阶段 2: 配置
