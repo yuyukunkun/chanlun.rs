@@ -657,35 +657,56 @@ class 随机数据(bt.feeds.DataBase):
 class 自定义实时数据源(bt.feed.DataBase):
     """
     一个用于模拟实时数据推送的数据源，继承自Backtrader的DataBase。
-    在实际应用中，你需要将“模拟生成数据”的部分，替换为接收WebSocket等推送数据的代码。
+
+    支持两种数据输入方式：
+      1. 手动投喂：调用 投喂数据(时间戳, 开, 高, 低, 收, 量) 从 WebSocket 回调等外部代码推送
+      2. 后台线程：传入 观察员 和 魔法 参数，start() 时自动启动线程获取历史数据
+         (注意：观察员 需实现 读取任意数据 方法)
+
+    时间戳格式：Unix 时间戳（秒），为 int 类型。
     """
 
-    def __init__(self, 数据队列: queue.Queue, 观察员: "观察者", 魔法, **魔法参数):
-        # 调用父类初始化方法
+    def __init__(self, 数据队列: queue.Queue = None, 观察员: "观察者" = None, 魔法=None, **魔法参数):
         super(自定义实时数据源, self).__init__()
-        # 存储外部传入的数据队列，用于接收实时数据
-        self.数据队列 = 数据队列
-        # 定义一个标志，用于控制数据加载的停止
+        self.数据队列 = 数据队列 or queue.Queue()
         self.正在运行 = False
         self.观察员 = 观察员
         self.魔法 = 魔法
         self.__魔法参数 = 魔法参数
         self.已有数据 = False
 
+    def 投喂数据(self, 时间戳: int, 开盘价: float, 最高价: float, 最低价: float, 收盘价: float, 成交量: float, 持仓量: float = 0):
+        """线程安全的外部数据推送接口，供 WebSocket 回调等外部代码调用。
+
+        :param 时间戳: Unix 时间戳（秒，int 类型）
+        :param 开盘价: 开盘价
+        :param 最高价: 最高价
+        :param 最低价: 最低价
+        :param 收盘价: 收盘价
+        :param 成交量: 成交量
+        :param 持仓量: 持仓量（默认为 0）
+        """
+        self.数据队列.put((时间戳, 开盘价, 最高价, 最低价, 收盘价, 成交量, 持仓量))
+
     def start(self):
-        """
-        数据源开始工作时的初始化操作。
-        这里可以不执行任何操作，或者启动数据接收线程等。
-        """
         print(f"[{datetime.now()}] 自定义数据源已启动...")
         self.正在运行 = True
 
-        def 运行回测():
-            self.观察员.读取任意数据(self.魔法, **self.__魔法参数)
-            self.正在运行 = False
+        if self.观察员 is not None and self.魔法 is not None:
+            if not hasattr(self.观察员, "读取任意数据"):
+                print(f"[{datetime.now()}] 警告: 观察员没有 '读取任意数据' 方法，后台线程不会启动")
+                return
 
-        回测线程 = threading.Thread(target=运行回测, daemon=True)
-        回测线程.start()
+            def 运行回测():
+                try:
+                    self.观察员.读取任意数据(self.魔法, **self.__魔法参数)
+                except Exception as e:
+                    print(f"[{datetime.now()}] 后台数据线程异常: {e}")
+                finally:
+                    self.正在运行 = False
+
+            回测线程 = threading.Thread(target=运行回测, daemon=True)
+            回测线程.start()
 
     def stop(self):
         """
@@ -696,32 +717,25 @@ class 自定义实时数据源(bt.feed.DataBase):
         print(f"[{datetime.now()}] 自定义数据源已停止。")
 
     def _load(self):
-        """
-        (核心方法) Backtrader会循环调用此方法来获取数据。
-        每次被调用时，都应该返回新的数据行（一个K线/一个数据点）。
-        如果没有新数据，返回 False，Backtrader会等待下次调用。
-        """
+        """Backtrader 核心回调 — 阻塞等待数据，有数据时返回 True，数据源停止时返回 False。"""
         if not self.正在运行:
             return False
-        # 当没有新数据且系统仍在运行时，进入等待
-        # 从外部队列获取新数据
 
         while True:
             try:
                 data_point = self.数据队列.get(timeout=0.5)
                 break
             except queue.Empty:
-                if not self.已有数据:
-                    continue
-                else:
-                    if self.正在运行:
-                        continue
+                if not self.正在运行:
                     return False
-        # 解析数据元组
-        dt, o, h, l, c, v, oi = data_point
 
-        # 将数据写入Backtrader的数据线 (lines)
-        self.lines.datetime[0] = bt.date2num(dt)
+        try:
+            dt, o, h, l, c, v, oi = data_point
+        except (ValueError, TypeError) as e:
+            print(f"[{datetime.now()}] 自定义数据源: 数据格式错误，跳过: {e}")
+            return True
+
+        self.lines.datetime[0] = bt.date2num(datetime.utcfromtimestamp(int(dt)))
         self.lines.open[0] = o
         self.lines.high[0] = h
         self.lines.low[0] = l
@@ -729,7 +743,6 @@ class 自定义实时数据源(bt.feed.DataBase):
         self.lines.volume[0] = v
         self.lines.openinterest[0] = oi
         self.已有数据 = True
-        # 返回 True 表示成功加载一行数据
         return True
 
 
@@ -946,6 +959,7 @@ class 回测(高级策略基类):
     def __init__(self):
         super().__init__()
         self.已处理信号 = set()
+        print(f"{self.p.观察员.__class__.__name__}: 加载完成...")
 
     def 获取开仓限价(self, 是否做多):
         # 根据缠论分型计算限价，若无则返回 None 使用基类默认逻辑
@@ -986,15 +1000,21 @@ class 回测(高级策略基类):
     def 检查买信号(self):
         if self.p.观察员.笔序列:
             k线 = self.p.观察员.缠论K线序列[-1]
+            if k线.买卖点信息:
+                print(f"回测-首 {self.p.观察员.__class__.__name__}", k线.买卖点信息)
             首 = True if k线.买卖点信息 and "买" in next(iter(k线.买卖点信息)) else False
             if 首:
+                print(k线)
                 原始差值 = self.p.观察员.当前K线.序号 - k线.标的K线.序号
                 差值 = self.p.观察员.当前缠K.序号 - k线.序号
                 self.日志(f"首_买入信号差值: {原始差值}, {差值}, 观察员.当前K线 时间戳: {self.p.观察员.当前K线.时间戳}")
             k线 = self.p.观察员.缠论K线序列[-2]
+            if k线.买卖点信息:
+                print(f"回测-尾 {self.p.观察员.__class__.__name__}", k线.买卖点信息)
 
             尾 = True if self.p.观察员.缠论K线序列[-2].买卖点信息 and "买" in next(iter(self.p.观察员.缠论K线序列[-2].买卖点信息)) else False
             if 尾:
+                print(k线)
                 原始差值 = self.p.观察员.当前K线.序号 - k线.标的K线.序号
                 差值 = self.p.观察员.当前缠K.序号 - k线.序号
                 self.日志(f"尾_买入信号差值: {原始差值}, {差值}, 观察员.当前K线 时间戳: {self.p.观察员.当前K线.时间戳}")
@@ -1003,15 +1023,21 @@ class 回测(高级策略基类):
     def 检查卖信号(self):
         if self.p.观察员.笔序列:
             k线 = self.p.观察员.缠论K线序列[-1]
+            if k线.买卖点信息:
+                print(f"回测-首 {self.p.观察员.__class__.__name__}", k线.买卖点信息)
             首 = True if k线.买卖点信息 and "卖" in next(iter(k线.买卖点信息)) else False
             if 首:
+                print(k线)
                 原始差值 = self.p.观察员.当前K线.序号 - k线.标的K线.序号
                 差值 = self.p.观察员.当前缠K.序号 - k线.序号
                 self.日志(f"首_买入信号差值: {原始差值}, {差值}, 观察员.当前K线 时间戳: {self.p.观察员.当前K线.时间戳}")
             k线 = self.p.观察员.缠论K线序列[-2]
+            if k线.买卖点信息:
+                print(f"回测-尾 {self.p.观察员.__class__.__name__}", k线.买卖点信息)
 
             尾 = True if self.p.观察员.缠论K线序列[-2].买卖点信息 and "卖" in next(iter(self.p.观察员.缠论K线序列[-2].买卖点信息)) else False
             if 尾:
+                print(k线)
                 原始差值 = self.p.观察员.当前K线.序号 - k线.标的K线.序号
                 差值 = self.p.观察员.当前缠K.序号 - k线.序号
                 self.日志(f"尾_买入信号差值: {原始差值}, {差值}, 观察员.当前K线 时间戳: {self.p.观察员.当前K线.时间戳}")
