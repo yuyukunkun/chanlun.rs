@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/chanlun)](https://pypi.org/project/chanlun/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-基于 [chanlun](./chanlun/) Rust 核心库的 PyO3 高性能 Python 绑定，API 与 `chan.py` 完全兼容。
+基于 [chanlun](./chanlun/) Rust 核心库的 PyO3 高性能 Python 绑定，API 参考 `chan.py` 设计，高度兼容。
 
 ## 安装
 
@@ -19,8 +19,8 @@ import chanlun
 # 创建配置（全部默认值）
 config = chanlun.缠论配置()
 
-# 读取 K 线数据文件，创建观察者
-obs = chanlun.观察者.读取数据文件("path/to/data.nb", config)
+# 读取 K 线数据文件（文件名需遵循 `符号-周期-起始时间戳-结束时间戳.nb` 格式，如 `btcusd-300-1631772074-1632222374.nb`）
+obs = chanlun.观察者.读取数据文件("path/to/btcusd-300-1631772074-1632222374.nb", config)
 
 # 查看各层级序列
 print(f"K线数量: {len(obs.普通K线序列)}")
@@ -29,7 +29,7 @@ print(f"线段数量: {len(obs.线段序列)}")
 print(f"中枢数量: {len(obs.中枢序列)}")
 
 # 或使用立体分析器进行多周期分析
-analyzer = chanlun.立体分析器("BTCUSD", ["1min", "5min", "30min"], config)
+analyzer = chanlun.立体分析器("BTCUSD", [60, 60*5, 60*5*6], config)
 # 逐根投喂 K 线...
 ```
 
@@ -53,7 +53,6 @@ pip install target/wheels/chanlun-*.whl
 ```bash
 ./build.sh develop   # 开发安装
 ./build.sh wheel     # 构建 wheel
-./build.sh test      # 运行集成测试
 ```
 
 ## 导出类
@@ -70,8 +69,8 @@ pip install target/wheels/chanlun-*.whl
 ## 兼容性
 
 - Python 3.9+
-- 类名 / 方法名 / 字段名 / 签名与 `chan.py` 一致
-- 支持 `.nb` / `.dat` 二进制文件格式（大端字节序）
+- 类名 / 方法名 / 字段名与 `chan.py` 保持一致
+- 支持 `.nb` 二进制文件格式（大端字节序）
 
 ## 许可
 
