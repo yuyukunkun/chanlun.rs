@@ -5243,12 +5243,12 @@ class 观察者:
             buffer = f.read()
             size = struct.calcsize(">6d")
             for i in range(len(buffer) // size):
-                时间戳, 开盘价, 最高价, 最低价, 收盘价, 成交量 = struct.unpack(">6d", buffer[i * size: i * size + size])
+                时间戳, 开盘价, 最高价, 最低价, 收盘价, 成交量 = struct.unpack(">6d", buffer[i * size : i * size + size])
                 self.投喂原始数据(转化为时间戳(int(时间戳)), 开盘价, 最高价, 最低价, 收盘价, 成交量)
 
     @classmethod
-    def 读取数据文件(cls,观察员:"观察者", 文件路径: str, 配置=缠论配置()) -> Self:
-        """ 加载数据文件
+    def 读取数据文件(cls, 观察员: "观察者", 文件路径: str, 配置=缠论配置()) -> Self:
+        """加载数据文件
         :param 观察员: 观察者
         :param 文件路径: 数据文件路径 格式如: btcusd-300-1631772074-1632222374.nb
         :param 配置: 缠论配置
@@ -5513,7 +5513,7 @@ class 立体分析器:
         print(f"多级别数据拆分保存完成，目录：{保存路径.resolve()}")
 
 
-def 测试_读取数据(观察员: 观察者, 配置: 缠论配置)-> Callable[()]:
+def 测试_读取数据(观察员: 观察者, 配置: 缠论配置) -> Callable[()]:
     """测试_读取数据
     :param 观察员: 观察者
     :param 配置: 缠论配置

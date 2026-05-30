@@ -560,18 +560,37 @@ impl 观察者Py {
         self.obs_mut().增加原始K线((*普K.borrow().inner).clone());
     }
 
-    /// 投喂原始数据 — 便捷入口，直接从 OHLCV 创建 K线 并投喂
+    /// 投喂原始数据 — 便捷入口，直接从 OHLCV 创建 K线 并通过 Python 分发 增加原始K线，
+    /// 确保子类重写的 增加原始K线 被正确调用。
     fn 投喂原始数据(
-        &mut self, 时间戳: i64, 开: f64, 高: f64, 低: f64, 收: f64, 量: f64
-    ) {
-        self.obs_mut().投喂原始数据(时间戳, 开, 高, 低, 收, 量);
+        slf: &Bound<'_, Self>,
+        时间戳: i64,
+        开: f64,
+        高: f64,
+        低: f64,
+        收: f64,
+        量: f64,
+    ) -> PyResult<()> {
+        let (符号, 周期) = {
+            let me = slf.borrow();
+            let obs = me.obs();
+            (obs.符号.clone(), obs.周期)
+        };
+        let kline = K线Py {
+            inner: Arc::new(chanlun::kline::bar::K线::创建普K(
+                &符号, 时间戳, 开, 高, 低, 收, 量, 0, 周期,
+            )),
+        };
+        let kline_py = Py::new(slf.py(), kline)?;
+        slf.call_method1("增加原始K线", (kline_py,))?;
+        Ok(())
     }
 
     /// 加载本地数据 — 从 .nb 文件加载K线数据（先重置，再通过 Python dispatch 逐根投喂，
     /// 确保子类重写的 增加原始K线 被正确调用）。
     fn 加载本地数据(slf: &Bound<'_, Self>, 文件路径: &str) -> PyResult<()> {
-        // 重置基础序列
-        slf.borrow_mut().obs_mut().重置基础序列();
+        // 重置基础序列（通过 Python 分发，支持子类重写）
+        slf.call_method1("重置基础序列", ())?;
 
         // 读取文件，通过 Python dispatch 逐根投喂（支持子类重写 增加原始K线）
         let data = std::fs::read(文件路径)
