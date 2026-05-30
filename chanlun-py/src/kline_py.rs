@@ -355,17 +355,18 @@ impl 缠论K线Py {
     }
 }
 
-thread_local! {
-    /// 对象标识缓存：Rc 地址 → 规范 Python 对象
-    /// 确保同一底层 Rc 指针在 Python 侧始终映射到同一 PyObject
+/// 对象标识缓存：Arc 地址 → 规范 Python 对象
+/// 确保同一底层 Arc 指针在 Python 侧始终映射到同一 PyObject
+/// 使用全局 static 而非 thread_local!，保证跨线程对象标识和买卖点信息一致性
+static BAR_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<K线Py>>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
-    static BAR_IDENTITY: RwLock<HashMap<usize, Py<K线Py>>> = RwLock::new(HashMap::new());
+static KLINE_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<缠论K线Py>>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
-    static KLINE_IDENTITY: RwLock<HashMap<usize, Py<缠论K线Py>>> = RwLock::new(HashMap::new());
-
-    /// 买卖点信息缓存 — 按 Arc 指针全局共享，确保所有 wrapper 看到同一 PySet
-    static BSP_CACHE: RwLock<HashMap<usize, Py<pyo3::types::PySet>>> = RwLock::new(HashMap::new());
-}
+/// 买卖点信息缓存 — 按 Arc 指针全局共享，确保所有 wrapper 看到同一 PySet
+static BSP_CACHE: std::sync::LazyLock<RwLock<HashMap<usize, Py<pyo3::types::PySet>>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// 将 Rc<K线> 转为 Py<K线Py>，确保同一 Rc 地址总是返回同一 Python 对象
 pub(crate) fn bar_to_py(
@@ -373,15 +374,16 @@ pub(crate) fn bar_to_py(
     inner: std::sync::Arc<chanlun::kline::bar::K线>,
 ) -> Py<K线Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) =
-        BAR_IDENTITY.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)))
+    if let Some(cached) = BAR_IDENTITY
+        .read()
+        .unwrap()
+        .get(&key)
+        .map(|p| p.clone_ref(py))
     {
         return cached;
     }
     let obj = Py::new(py, K线Py { inner }).unwrap();
-    BAR_IDENTITY.with(|c| {
-        c.write().unwrap().insert(key, obj.clone_ref(py));
-    });
+    BAR_IDENTITY.write().unwrap().insert(key, obj.clone_ref(py));
     obj
 }
 
@@ -391,15 +393,19 @@ pub(crate) fn chan_kline_to_py(
     inner: std::sync::Arc<chanlun::kline::chan_kline::缠论K线>,
 ) -> Py<缠论K线Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) =
-        KLINE_IDENTITY.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)))
+    if let Some(cached) = KLINE_IDENTITY
+        .read()
+        .unwrap()
+        .get(&key)
+        .map(|p| p.clone_ref(py))
     {
         return cached;
     }
     let obj = Py::new(py, 缠论K线Py::from_rc(inner)).unwrap();
-    KLINE_IDENTITY.with(|c| {
-        c.write().unwrap().insert(key, obj.clone_ref(py));
-    });
+    KLINE_IDENTITY
+        .write()
+        .unwrap()
+        .insert(key, obj.clone_ref(py));
     obj
 }
 
@@ -534,17 +540,18 @@ impl 缠论K线Py {
         // 复制买卖点信息到镜像
         let src_key = Arc::as_ptr(&self.inner) as usize;
         let dst_key = Arc::as_ptr(&mirror.inner) as usize;
-        let cached_src =
-            BSP_CACHE.with(|c| c.read().unwrap().get(&src_key).map(|p| p.clone_ref(py)));
+        let cached_src = BSP_CACHE
+            .read()
+            .unwrap()
+            .get(&src_key)
+            .map(|p| p.clone_ref(py));
         if let Some(cached_src) = cached_src {
             if let Ok(new_set) = pyo3::types::PySet::empty(py) {
                 for item in cached_src.bind(py).iter() {
                     let _ = new_set.add(item);
                 }
                 let py_set: Py<pyo3::types::PySet> = new_set.into();
-                BSP_CACHE.with(|c| {
-                    c.write().unwrap().insert(dst_key, py_set);
-                });
+                BSP_CACHE.write().unwrap().insert(dst_key, py_set);
             }
         }
         mirror
@@ -572,18 +579,20 @@ impl 缠论K线Py {
     fn 买卖点信息(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let key = Arc::as_ptr(&self.inner) as usize;
         // 检查全局缓存
-        let cached = BSP_CACHE.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)));
+        let cached = BSP_CACHE.read().unwrap().get(&key).map(|p| p.clone_ref(py));
         if let Some(set) = cached {
             return Ok(set.into_any());
         }
         // 创建新的 PySet 并存入全局缓存
         let set = pyo3::types::PySet::empty(py)?;
-        BSP_CACHE.with(|c| {
-            c.write().unwrap().insert(key, set.into());
-        });
+        BSP_CACHE.write().unwrap().insert(key, set.into());
         // 重新读取并返回（无法从 insert 获取 Py 引用，需要重新读）
         Ok(BSP_CACHE
-            .with(|c| c.read().unwrap().get(&key).unwrap().clone_ref(py))
+            .read()
+            .unwrap()
+            .get(&key)
+            .unwrap()
+            .clone_ref(py)
             .into_any())
     }
 
@@ -642,13 +651,13 @@ impl 缠论K线Py {
         配置: &Bound<'_, 缠论配置Py>,
         py: Python<'_>,
     ) -> PyResult<(Option<Py<Self>>, Option<String>)> {
-        let mut ck_inner = (*当前缠K.borrow().inner).clone();
+        let ck_inner = (*当前缠K.borrow().inner).clone();
         let config = 配置.borrow().to_rust_config(py)?;
         let prev_ref = 之前缠K.map(|prev| prev.borrow());
         let prev_inner = prev_ref.as_ref().map(|r| r.inner.as_ref());
         let (result, mode) = chanlun::kline::chan_kline::缠论K线::兼并(
             prev_inner,
-            &mut ck_inner,
+            &ck_inner,
             &当前普K.borrow().inner,
             &config,
         );

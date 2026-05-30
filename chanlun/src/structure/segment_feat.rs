@@ -320,13 +320,14 @@ mod tests {
     use crate::types::分型结构;
 
     fn 辅助_创建K线(时间戳: i64, 高: f64, 低: f64, 开: f64, 收: f64) -> K线 {
-        let mut k = K线::default();
-        k.时间戳 = 时间戳;
-        k.高 = 高;
-        k.低 = 低;
-        k.开盘价 = 开;
-        k.收盘价 = 收;
-        k
+        K线 {
+            时间戳,
+            高,
+            低,
+            开盘价: 开,
+            收盘价: 收,
+            ..Default::default()
+        }
     }
 
     fn 辅助_创建缠K(

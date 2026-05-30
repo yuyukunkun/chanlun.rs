@@ -31,26 +31,28 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-thread_local! {
-    static HUB_IDENTITY: RwLock<HashMap<usize, Py<中枢Py>>> = RwLock::new(HashMap::new());
-}
+// 使用全局 static 而非 thread_local!，保证跨线程对象标识一致性
+static HUB_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<中枢Py>>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub(crate) fn hub_to_py(
     py: Python<'_>, inner: Arc<chanlun::algorithm::hub::中枢>
 ) -> Py<中枢Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) =
-        HUB_IDENTITY.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)))
+    if let Some(cached) = HUB_IDENTITY
+        .read()
+        .unwrap()
+        .get(&key)
+        .map(|p| p.clone_ref(py))
     {
         return cached;
     }
-    HUB_IDENTITY.with(|c| {
-        c.write().unwrap().retain(|_, v| v.get_refcnt(py) > 1);
-    });
+    HUB_IDENTITY
+        .write()
+        .unwrap()
+        .retain(|_, v| v.get_refcnt(py) > 1);
     let obj = Py::new(py, 中枢Py { inner }).unwrap();
-    HUB_IDENTITY.with(|c| {
-        c.write().unwrap().insert(key, obj.clone_ref(py));
-    });
+    HUB_IDENTITY.write().unwrap().insert(key, obj.clone_ref(py));
     obj
 }
 
@@ -362,13 +364,13 @@ impl 笔Py {
         笔序列: Vec<Py<虚线Py>>,
         文: &Bound<'_, 分型Py>,
         py: Python<'_>,
-    ) -> Option<虚线Py> {
+    ) -> Option<Py<虚线Py>> {
         let bi_list: Vec<Arc<chanlun::structure::dash_line::虚线>> = 笔序列
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
             .collect();
         chanlun::algorithm::bi::笔::以文会友(&bi_list, &文.borrow().inner)
-            .map(|inner| 虚线Py { inner })
+            .map(|inner| dashed_to_py(py, inner))
     }
 
     #[classmethod]
@@ -378,13 +380,13 @@ impl 笔Py {
         笔序列: Vec<Py<虚线Py>>,
         武: &Bound<'_, 分型Py>,
         py: Python<'_>,
-    ) -> Option<虚线Py> {
+    ) -> Option<Py<虚线Py>> {
         let bi_list: Vec<Arc<chanlun::structure::dash_line::虚线>> = 笔序列
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
             .collect();
         chanlun::algorithm::bi::笔::以武会友(&bi_list, &武.borrow().inner)
-            .map(|inner| 虚线Py { inner })
+            .map(|inner| dashed_to_py(py, inner))
     }
 
     #[classmethod]
@@ -396,13 +398,13 @@ impl 笔Py {
         缠K: &Bound<'_, crate::kline_py::缠论K线Py>,
         偏移: i64,
         py: Python<'_>,
-    ) -> Option<虚线Py> {
+    ) -> Option<Py<虚线Py>> {
         let bi_list: Vec<Arc<chanlun::structure::dash_line::虚线>> = 笔序列
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
             .collect();
         chanlun::algorithm::bi::笔::根据缠K找笔(&bi_list, &缠K.borrow().inner, 偏移)
-            .map(|inner| 虚线Py { inner })
+            .map(|inner| dashed_to_py(py, inner))
     }
 
     #[classmethod]
@@ -501,7 +503,7 @@ impl 笔Py {
     ) -> bool {
         let obs = 观察员.borrow();
         let obs_ref = obs.obs();
-        chanlun::algorithm::bi::笔::自检(&筆.borrow().inner, &*obs_ref)
+        chanlun::algorithm::bi::笔::自检(&筆.borrow().inner, &obs_ref)
     }
 
     #[classmethod]
@@ -510,12 +512,13 @@ impl 笔Py {
         _cls: &Bound<'_, PyType>,
         筆: &Bound<'_, 虚线Py>,
         观察员: &Bound<'_, 观察者Py>,
-    ) -> Vec<虚线Py> {
+        py: Python<'_>,
+    ) -> Vec<Py<虚线Py>> {
         let obs = 观察员.borrow();
         let obs_ref = obs.obs();
-        chanlun::algorithm::bi::笔::获取所有停顿位置(&筆.borrow().inner, &*obs_ref)
+        chanlun::algorithm::bi::笔::获取所有停顿位置(&筆.borrow().inner, &obs_ref)
             .into_iter()
-            .map(|d| 虚线Py { inner: Arc::new(d) })
+            .map(|d| dashed_to_py(py, Arc::new(d)))
             .collect()
     }
 
@@ -529,7 +532,7 @@ impl 笔Py {
     ) -> Vec<Py<缠论K线Py>> {
         let obs = 观察员.borrow();
         let obs_ref = obs.obs();
-        chanlun::algorithm::bi::笔::是否背驰过(&当前筆.borrow().inner, &*obs_ref)
+        chanlun::algorithm::bi::笔::是否背驰过(&当前筆.borrow().inner, &obs_ref)
             .into_iter()
             .map(|ck| chan_kline_to_py(py, ck))
             .collect()
@@ -569,8 +572,8 @@ impl 线段Py {
         筆: &Bound<'_, 虚线Py>,
     ) -> PyResult<()> {
         let bi_rc = Arc::clone(&筆.borrow().inner);
-        let mut ref_mut = 段.borrow_mut();
-        chanlun::algorithm::segment::线段::添加虚线(&mut ref_mut.inner, bi_rc);
+        let ref_mut = 段.borrow_mut();
+        chanlun::algorithm::segment::线段::添加虚线(&ref_mut.inner, bi_rc);
         Ok(())
     }
 
@@ -582,9 +585,9 @@ impl 线段Py {
         武: &Bound<'_, 分型Py>,
         行号: u32,
     ) -> PyResult<()> {
-        let mut ref_mut = 段.borrow_mut();
+        let ref_mut = 段.borrow_mut();
         chanlun::algorithm::segment::线段::武斗(
-            &mut ref_mut.inner,
+            &ref_mut.inner,
             &Arc::clone(&武.borrow().inner),
             行号,
         );
@@ -594,8 +597,8 @@ impl 线段Py {
     #[classmethod]
     /// 武终
     fn 武终(_cls: &Bound<'_, PyType>, 段: &Bound<'_, 虚线Py>, 行号: u32) -> PyResult<()> {
-        let mut ref_mut = 段.borrow_mut();
-        chanlun::algorithm::segment::线段::武终(&mut ref_mut.inner, 行号);
+        let ref_mut = 段.borrow_mut();
+        chanlun::algorithm::segment::线段::武终(&ref_mut.inner, 行号);
         Ok(())
     }
 
@@ -607,12 +610,12 @@ impl 线段Py {
         序列: Vec<Py<虚线Py>>,
         py: Python<'_>,
     ) -> PyResult<()> {
-        let mut ref_mut = 段.borrow_mut();
+        let ref_mut = 段.borrow_mut();
         let rc_list: Vec<Arc<chanlun::structure::dash_line::虚线>> = 序列
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
             .collect();
-        chanlun::algorithm::segment::线段::验证序列(&mut ref_mut.inner, &rc_list);
+        chanlun::algorithm::segment::线段::验证序列(&ref_mut.inner, &rc_list);
         Ok(())
     }
 
@@ -624,12 +627,12 @@ impl 线段Py {
         序列: Vec<Py<虚线Py>>,
         py: Python<'_>,
     ) -> PyResult<()> {
-        let mut ref_mut = 段.borrow_mut();
+        let ref_mut = 段.borrow_mut();
         let rc_list: Vec<Arc<chanlun::structure::dash_line::虚线>> = 序列
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
             .collect();
-        chanlun::algorithm::segment::线段::序列重置(&mut ref_mut.inner, &rc_list);
+        chanlun::algorithm::segment::线段::序列重置(&ref_mut.inner, &rc_list);
         Ok(())
     }
 
@@ -692,7 +695,7 @@ impl 线段Py {
         let seq: Vec<Option<Arc<chanlun::structure::segment_feat::线段特征>>> = if 序列.is_none()
         {
             vec![]
-        } else if let Ok(list) = 序列.downcast::<pyo3::types::PyList>() {
+        } else if let Ok(list) = 序列.cast::<pyo3::types::PyList>() {
             let mut result = Vec::with_capacity(list.len());
             for item in list.iter() {
                 if item.is_none() {
@@ -708,8 +711,8 @@ impl 线段Py {
                 "序列 必须是 list 或 None",
             ));
         };
-        let mut ref_mut = 段.borrow_mut();
-        chanlun::algorithm::segment::线段::设置特征序列(&mut ref_mut.inner, seq, 行号);
+        let ref_mut = 段.borrow_mut();
+        chanlun::algorithm::segment::线段::设置特征序列(&ref_mut.inner, seq, 行号);
         Ok(())
     }
 
@@ -721,22 +724,26 @@ impl 线段Py {
         配置: &Bound<'_, 缠论配置Py>,
         py: Python<'_>,
     ) -> PyResult<()> {
-        let mut ref_mut = 段.borrow_mut();
+        let ref_mut = 段.borrow_mut();
         let config = 配置.borrow().to_rust_config(py)?;
-        chanlun::algorithm::segment::线段::刷新特征序列(&mut ref_mut.inner, &config);
+        chanlun::algorithm::segment::线段::刷新特征序列(&ref_mut.inner, &config);
         Ok(())
     }
 
     #[classmethod]
     /// 查找贯穿伤
-    fn 查找贯穿伤(_cls: &Bound<'_, PyType>, 段: &Bound<'_, 虚线Py>) -> Option<虚线Py> {
+    fn 查找贯穿伤(
+        _cls: &Bound<'_, PyType>, 段: &Bound<'_, 虚线Py>
+    ) -> Option<Py<虚线Py>> {
+        let py = _cls.py();
         chanlun::algorithm::segment::线段::查找贯穿伤(&段.borrow().inner)
-            .map(|inner| 虚线Py { inner })
+            .map(|inner| dashed_to_py(py, inner))
     }
 
     #[classmethod]
     #[pyo3(signature = (段, 所属中枢 = None))]
     /// 将线段基础序列分割为前/后/第三买卖/贯穿伤四部分
+    #[allow(clippy::type_complexity)]
     fn 分割序列(
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
@@ -761,19 +768,10 @@ impl 线段Py {
         } else {
             chanlun::algorithm::segment::线段::分割序列(&borrowed.inner, None)
         };
-        let wrap = |v: Vec<Arc<chanlun::structure::dash_line::虚线>>| -> PyResult<Vec<Py<虚线Py>>> {
-            let mut result = Vec::new();
-            for x in v {
-                result.push(Py::new(py, 虚线Py { inner: x })?);
-            }
-            Ok(result)
+        let wrap = |v: Vec<Arc<chanlun::structure::dash_line::虚线>>| -> Vec<Py<虚线Py>> {
+            v.into_iter().map(|x| dashed_to_py(py, x)).collect()
         };
-        Ok((
-            wrap(a)?,
-            wrap(b)?,
-            wrap(c)?,
-            d.map(|x| Py::new(py, 虚线Py { inner: x })).transpose()?,
-        ))
+        Ok((wrap(a), wrap(b), wrap(c), d.map(|x| dashed_to_py(py, x))))
     }
 
     #[classmethod]
@@ -784,9 +782,9 @@ impl 线段Py {
         配置: &Bound<'_, 缠论配置Py>,
         py: Python<'_>,
     ) -> PyResult<()> {
-        let mut ref_mut = 段.borrow_mut();
+        let ref_mut = 段.borrow_mut();
         let config = 配置.borrow().to_rust_config(py)?;
-        chanlun::algorithm::segment::线段::刷新(&mut ref_mut.inner, &config);
+        chanlun::algorithm::segment::线段::刷新(&ref_mut.inner, &config);
         Ok(())
     }
 
@@ -798,16 +796,14 @@ impl 线段Py {
         配置: &Bound<'_, 缠论配置Py>,
         py: Python<'_>,
     ) -> PyResult<(Py<PyAny>, Py<PyAny>, Py<PyAny>)> {
-        let mut ref_mut = 段.borrow_mut();
+        let ref_mut = 段.borrow_mut();
         let config = 配置.borrow().to_rust_config(py)?;
-        let (a, b, c) = chanlun::algorithm::segment::线段::获取内部中枢序列(
-            &mut ref_mut.inner,
-            &config,
-        );
+        let (a, b, c) =
+            chanlun::algorithm::segment::线段::获取内部中枢序列(&ref_mut.inner, &config);
         let pk_list = |v: Vec<Arc<chanlun::algorithm::hub::中枢>>| -> PyResult<Py<PyAny>> {
             let list = pyo3::types::PyList::empty(py);
             for h in v {
-                list.append(Py::new(py, 中枢Py { inner: h })?)?;
+                list.append(hub_to_py(py, h))?;
             }
             Ok(list.into())
         };
@@ -818,7 +814,7 @@ impl 线段Py {
     /// 内部方法：向线段序列添加新线段
     fn _添加线段(
         _cls: &Bound<'_, PyType>,
-        线段序列: &Bound<'_, PyAny>,
+        _线段序列: &Bound<'_, PyAny>,
         待添加线段: &Bound<'_, 虚线Py>,
         配置: &Bound<'_, 缠论配置Py>,
         行号: String,
@@ -839,12 +835,12 @@ impl 线段Py {
     /// 内部方法：从线段序列弹出最后一个线段
     fn _弹出线段(
         _cls: &Bound<'_, PyType>,
-        线段序列: &Bound<'_, PyAny>,
+        _线段序列: &Bound<'_, PyAny>,
         待弹出线段: &Bound<'_, 虚线Py>,
         配置: &Bound<'_, 缠论配置Py>,
         行号: String,
         py: Python<'_>,
-    ) -> PyResult<Option<虚线Py>> {
+    ) -> PyResult<Option<Py<虚线Py>>> {
         let config = 配置.borrow().to_rust_config(py)?;
         let mut seg_seq: Vec<Arc<chanlun::structure::dash_line::虚线>> = vec![];
         let result = chanlun::algorithm::segment::线段::_弹出线段(
@@ -853,7 +849,7 @@ impl 线段Py {
             &config,
             行号,
         );
-        Ok(result.map(|inner| 虚线Py { inner }))
+        Ok(result.map(|inner| dashed_to_py(py, inner)))
     }
 
     #[classmethod]
@@ -1007,7 +1003,7 @@ impl 线段Py {
         待弹出线段: &Bound<'_, 虚线Py>,
         行号: u32,
         py: Python<'_>,
-    ) -> PyResult<Option<虚线Py>> {
+    ) -> PyResult<Option<Py<虚线Py>>> {
         let mut seg_seq: Vec<Arc<chanlun::structure::dash_line::虚线>> = 线段序列
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
@@ -1017,7 +1013,7 @@ impl 线段Py {
             &Arc::clone(&待弹出线段.borrow().inner),
             行号,
         );
-        Ok(result.map(|inner| 虚线Py { inner }))
+        Ok(result.map(|inner| dashed_to_py(py, inner)))
     }
 
     #[classmethod]
@@ -1053,7 +1049,7 @@ impl 线段Py {
         let obs_ref = obs.obs();
         chanlun::algorithm::segment::线段::判断线段内部是否背驰(
             &当前段.borrow().inner,
-            &*obs_ref,
+            &obs_ref,
         )
     }
 
@@ -1063,12 +1059,13 @@ impl 线段Py {
         _cls: &Bound<'_, PyType>,
         段: &Bound<'_, 虚线Py>,
         观察员: &Bound<'_, 观察者Py>,
-    ) -> Vec<虚线Py> {
+        py: Python<'_>,
+    ) -> Vec<Py<虚线Py>> {
         let obs = 观察员.borrow();
         let obs_ref = obs.obs();
-        chanlun::algorithm::segment::线段::获取所有停顿位置(&段.borrow().inner, &*obs_ref)
+        chanlun::algorithm::segment::线段::获取所有停顿位置(&段.borrow().inner, &obs_ref)
             .into_iter()
-            .map(|d| 虚线Py { inner: Arc::new(d) })
+            .map(|d| dashed_to_py(py, Arc::new(d)))
             .collect()
     }
 
@@ -1082,7 +1079,7 @@ impl 线段Py {
     ) -> Vec<Py<缠论K线Py>> {
         let obs = 观察员.borrow();
         let obs_ref = obs.obs();
-        chanlun::algorithm::segment::线段::是否背驰过(&当前段.borrow().inner, &*obs_ref)
+        chanlun::algorithm::segment::线段::是否背驰过(&当前段.borrow().inner, &obs_ref)
             .into_iter()
             .map(|ck| chan_kline_to_py(py, ck))
             .collect()
@@ -1264,7 +1261,7 @@ impl 中枢Py {
     fn 获取序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in self.inner.获取序列() {
-            list.append(虚线Py { inner: d })?;
+            list.append(dashed_to_py(py, d))?;
         }
         Ok(list.into())
     }
@@ -1381,16 +1378,15 @@ impl 中枢Py {
         右: &Bound<'_, 虚线Py>,
         级别: i64,
         标识: &str,
-    ) -> Self {
-        Self {
-            inner: Arc::new(chanlun::algorithm::hub::中枢::创建(
-                Arc::clone(&左.borrow().inner),
-                Arc::clone(&中.borrow().inner),
-                Arc::clone(&右.borrow().inner),
-                级别,
-                标识,
-            )),
-        }
+    ) -> Py<中枢Py> {
+        let inner = Arc::new(chanlun::algorithm::hub::中枢::创建(
+            Arc::clone(&左.borrow().inner),
+            Arc::clone(&中.borrow().inner),
+            Arc::clone(&右.borrow().inner),
+            级别,
+            标识,
+        ));
+        hub_to_py(_cls.py(), inner)
     }
 
     #[classmethod]
@@ -1401,7 +1397,7 @@ impl 中枢Py {
         起始方向: &Bound<'_, 相对方向Py>,
         标识: &str,
         py: Python<'_>,
-    ) -> Option<Self> {
+    ) -> Option<Py<中枢Py>> {
         let rc_list: Vec<Arc<chanlun::structure::dash_line::虚线>> = 虚线序列
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
@@ -1411,7 +1407,7 @@ impl 中枢Py {
             起始方向.borrow().inner,
             标识,
         )
-        .map(|inner| Self { inner })
+        .map(|inner| hub_to_py(py, inner))
     }
 
     #[classmethod]
@@ -1421,8 +1417,9 @@ impl 中枢Py {
         中枢序列: &Bound<'_, PyAny>,
         待添加中枢: &Bound<'_, Self>,
     ) -> PyResult<()> {
+        let py = 中枢序列.py();
         let inner = Arc::clone(&待添加中枢.borrow().inner);
-        let wrapper = Py::new(中枢序列.py(), Self { inner })?;
+        let wrapper = hub_to_py(py, inner);
         中枢序列.call_method1("append", (wrapper,))?;
         Ok(())
     }
@@ -1432,7 +1429,7 @@ impl 中枢Py {
     fn 从中枢序列尾部弹出(
         _cls: &Bound<'_, PyType>,
         中枢序列: &Bound<'_, PyAny>,
-        待弹出中枢: &Bound<'_, Self>,
+        _待弹出中枢: &Bound<'_, Self>,
     ) -> PyResult<Option<Self>> {
         let result = 中枢序列.call_method1("pop", ())?;
         if result.is_none() {

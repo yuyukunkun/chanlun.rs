@@ -590,7 +590,7 @@ mod tests {
         let config = 缠论配置::default();
         let obs_ref = 观察者::new("btcusd".into(), 300, config);
 
-        let data = std::fs::read(&test_data_path()).unwrap();
+        let data = std::fs::read(test_data_path()).unwrap();
         let size = 48;
 
         for i in 0..data.len() / size {
@@ -720,7 +720,7 @@ mod tests {
 
     #[test]
     fn test_重复计算后结果一致() {
-        let data = std::fs::read(&test_data_path()).unwrap();
+        let data = std::fs::read(test_data_path()).unwrap();
         let size = 48;
 
         let 计算 = || {
@@ -764,7 +764,7 @@ mod tests {
         let config = 缠论配置::default();
         let obs_ref = 观察者::new("btcusd".into(), 300, config);
 
-        let data = std::fs::read(&test_data_path()).unwrap();
+        let data = std::fs::read(test_data_path()).unwrap();
         let size = 48;
 
         for i in 0..data.len() / size {

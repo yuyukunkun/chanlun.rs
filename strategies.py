@@ -770,7 +770,7 @@ class 高级策略基类(bt.Strategy):
 
     def 日志(self, 文本, 时间=None):
         时间 = 时间 or self.datas[0].datetime.datetime(0)
-        print(f"{时间} {文本}")
+        print(f"{时间} {self.p.观察员.__class__.__name__}: {文本}")
 
     def 计算目标数量(self, 价格):
         """根据资金类型和仓位比例计算目标数量"""
@@ -971,6 +971,7 @@ class 回测(高级策略基类):
         return None
 
     def next(self):
+        # self.日志(f"{self.p.观察员.__class__.__name__} called next ")
         # 1. 更新移动止损（基类方法）
         if self.position:
             self.更新止损订单(self.position.size > 0, self.data.close[0])
@@ -1000,6 +1001,7 @@ class 回测(高级策略基类):
     def 检查买信号(self):
         if self.p.观察员.笔序列:
             k线 = self.p.观察员.缠论K线序列[-1]
+            self.日志(f"检查买信号 当前笔 {self.p.观察员.笔序列[-1]}")
             if k线.买卖点信息:
                 print(f"回测-首 {self.p.观察员.__class__.__name__}", k线.买卖点信息)
             首 = True if k线.买卖点信息 and "买" in next(iter(k线.买卖点信息)) else False
@@ -1022,6 +1024,7 @@ class 回测(高级策略基类):
 
     def 检查卖信号(self):
         if self.p.观察员.笔序列:
+            self.日志(f"检查卖信号 当前笔 {self.p.观察员.笔序列[-1]}")
             k线 = self.p.观察员.缠论K线序列[-1]
             if k线.买卖点信息:
                 print(f"回测-首 {self.p.观察员.__class__.__name__}", k线.买卖点信息)
@@ -1045,7 +1048,7 @@ class 回测(高级策略基类):
 
     def log(self, 文本, dt=None):
         dt = dt or bt.num2date(self.data.datetime[0])
-        print(f"[{dt.strftime('%Y-%m-%d %H:%M')}] {self.p.符号} | {文本}")
+        print(f"[{dt.strftime('%Y-%m-%d %H:%M')}] {self.p.观察员.__class__.__name__}: {self.p.符号} | {文本}")
 
 
 # ==================== 回测运行入口 ====================

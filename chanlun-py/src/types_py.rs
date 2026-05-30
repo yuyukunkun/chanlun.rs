@@ -545,7 +545,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 买卖点类型 class attributes (singleton instances)
     let py = m.py();
     let bsp_class = m.getattr("买卖点类型")?;
-    let bsp_class = bsp_class.downcast_into::<PyType>()?;
+    let bsp_class = bsp_class.cast_into::<PyType>()?;
 
     let variants: &[(&str, chanlun::types::买卖点类型)] = &[
         ("一买", chanlun::types::买卖点类型::一买),
@@ -568,7 +568,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("T3B卖", chanlun::types::买卖点类型::T3B卖),
     ];
 
-    let mut bsp_members = PyDict::new(py);
+    let bsp_members = PyDict::new(py);
     for (name, value) in variants {
         let instance = Py::new(py, 买卖点类型Py { inner: *value })?;
         bsp_class.setattr(*name, instance.clone_ref(py))?;
@@ -577,7 +577,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     bsp_class.setattr("__members__", bsp_members)?;
 
     // 相对方向 class attributes
-    let dir_class = m.getattr("相对方向")?.downcast_into::<PyType>()?.clone();
+    let dir_class = m.getattr("相对方向")?.cast_into::<PyType>()?.clone();
     let dir_variants: &[(&str, chanlun::types::相对方向)] = &[
         ("向上", chanlun::types::相对方向::向上),
         ("向下", chanlun::types::相对方向::向下),
@@ -590,7 +590,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("同", chanlun::types::相对方向::同),
     ];
 
-    let mut dir_members = PyDict::new(py);
+    let dir_members = PyDict::new(py);
     for (name, value) in dir_variants {
         let instance = Py::new(py, 相对方向Py { inner: *value })?;
         dir_class.setattr(*name, instance.clone_ref(py))?;
@@ -599,7 +599,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     dir_class.setattr("__members__", dir_members)?;
 
     // 分型结构 class attributes
-    let frac_class = m.getattr("分型结构")?.downcast_into::<PyType>()?.clone();
+    let frac_class = m.getattr("分型结构")?.cast_into::<PyType>()?.clone();
     let frac_variants: &[(&str, chanlun::types::分型结构)] = &[
         ("上", chanlun::types::分型结构::上),
         ("下", chanlun::types::分型结构::下),
@@ -608,7 +608,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ("散", chanlun::types::分型结构::散),
     ];
 
-    let mut frac_members = PyDict::new(py);
+    let frac_members = PyDict::new(py);
     for (name, value) in frac_variants {
         let instance = Py::new(py, 分型结构Py { inner: *value })?;
         frac_class.setattr(*name, instance.clone_ref(py))?;

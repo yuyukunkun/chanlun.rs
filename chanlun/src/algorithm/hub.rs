@@ -566,6 +566,30 @@ impl 中枢 {
     }
 }
 
+impl std::fmt::Display for 中枢 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let 序列_str = self
+            .基础序列
+            .read()
+            .unwrap()
+            .iter()
+            .map(|d| format!("{}", d))
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(
+            f,
+            "{}({}, {}, 元素数量: {}, [{}], {} ===>>> {})",
+            self.标识.read().unwrap(),
+            crate::utils::format_f64_g(self.高()),
+            crate::utils::format_f64_g(self.低()),
+            self.基础序列.read().unwrap().len(),
+            序列_str,
+            self.文(),
+            self.武(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -575,13 +599,14 @@ mod tests {
     use crate::types::分型结构;
 
     fn 辅助_创建K线(时间戳: i64, 高: f64, 低: f64, 开: f64, 收: f64) -> K线 {
-        let mut k = K线::default();
-        k.时间戳 = 时间戳;
-        k.高 = 高;
-        k.低 = 低;
-        k.开盘价 = 开;
-        k.收盘价 = 收;
-        k
+        K线 {
+            时间戳,
+            高,
+            低,
+            开盘价: 开,
+            收盘价: 收,
+            ..Default::default()
+        }
     }
 
     fn 辅助_创建缠K(
@@ -710,7 +735,7 @@ mod tests {
         中枢.设置第三买卖线(Arc::clone(&笔1));
         assert!(中枢.第三买卖线.read().unwrap().is_some());
         assert_eq!(
-            Arc::as_ptr(&*中枢.第三买卖线.read().unwrap().as_ref().unwrap()),
+            Arc::as_ptr(中枢.第三买卖线.read().unwrap().as_ref().unwrap()),
             Arc::as_ptr(&笔1)
         );
 
@@ -868,29 +893,5 @@ mod tests {
             Arc::as_ptr(&中枢1.基础序列.read().unwrap()[3]),
             Arc::as_ptr(&中枢2.基础序列.read().unwrap()[3])
         );
-    }
-}
-
-impl std::fmt::Display for 中枢 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let 序列_str = self
-            .基础序列
-            .read()
-            .unwrap()
-            .iter()
-            .map(|d| format!("{}", d))
-            .collect::<Vec<_>>()
-            .join(", ");
-        write!(
-            f,
-            "{}({}, {}, 元素数量: {}, [{}], {} ===>>> {})",
-            self.标识.read().unwrap(),
-            crate::utils::format_f64_g(self.高()),
-            crate::utils::format_f64_g(self.低()),
-            self.基础序列.read().unwrap().len(),
-            序列_str,
-            self.文(),
-            self.武(),
-        )
     }
 }

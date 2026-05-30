@@ -22,6 +22,8 @@
  * SOFTWARE.
  */
 
+#![allow(non_snake_case, clippy::too_many_arguments)]
+
 use pyo3::prelude::*;
 use std::sync::atomic::Ordering;
 

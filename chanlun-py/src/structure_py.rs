@@ -29,37 +29,45 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use crate::algorithm_py::{hub_to_py, 中枢Py};
+use crate::algorithm_py::hub_to_py;
 use crate::config_py::缠论配置Py;
-use crate::kline_py::{缠论K线Py, K线Py};
+use crate::kline_py::{bar_to_py, 缠论K线Py, K线Py};
 
 // ---- 身份缓存 (弱引用：通过 refcnt 检测存活，仅缓存持有则视为过期) ----
 
-thread_local! {
-    static FRACTAL_IDENTITY: RwLock<HashMap<usize, Py<分型Py>>> = RwLock::new(HashMap::new());
-    static DASHED_IDENTITY: RwLock<HashMap<usize, Py<虚线Py>>> = RwLock::new(HashMap::new());
-    static SEGFEAT_IDENTITY: RwLock<HashMap<usize, Py<线段特征Py>>> = RwLock::new(HashMap::new());
-    static FEATFRAC_IDENTITY: RwLock<HashMap<usize, Py<特征分型Py>>> = RwLock::new(HashMap::new());
-}
+// 使用全局 static 而非 thread_local!，保证跨线程对象标识一致性
+static FRACTAL_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<分型Py>>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+static DASHED_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<虚线Py>>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+static SEGFEAT_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<线段特征Py>>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+static FEATFRAC_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<特征分型Py>>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub(crate) fn fractal_to_py(
     py: Python<'_>,
     inner: Arc<chanlun::structure::fractal_obj::分型>,
 ) -> Py<分型Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) =
-        FRACTAL_IDENTITY.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)))
+    if let Some(cached) = FRACTAL_IDENTITY
+        .read()
+        .unwrap()
+        .get(&key)
+        .map(|p| p.clone_ref(py))
     {
         return cached;
     }
     // 清理 refcnt==1 的过期条目（仅缓存持有，Python 侧已无引用）
-    FRACTAL_IDENTITY.with(|c| {
-        c.write().unwrap().retain(|_, v| v.get_refcnt(py) > 1);
-    });
+    FRACTAL_IDENTITY
+        .write()
+        .unwrap()
+        .retain(|_, v| v.get_refcnt(py) > 1);
     let obj = Py::new(py, 分型Py { inner }).unwrap();
-    FRACTAL_IDENTITY.with(|c| {
-        c.write().unwrap().insert(key, obj.clone_ref(py));
-    });
+    FRACTAL_IDENTITY
+        .write()
+        .unwrap()
+        .insert(key, obj.clone_ref(py));
     obj
 }
 
@@ -68,18 +76,23 @@ pub(crate) fn dashed_to_py(
     inner: Arc<chanlun::structure::dash_line::虚线>,
 ) -> Py<虚线Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) =
-        DASHED_IDENTITY.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)))
+    if let Some(cached) = DASHED_IDENTITY
+        .read()
+        .unwrap()
+        .get(&key)
+        .map(|p| p.clone_ref(py))
     {
         return cached;
     }
-    DASHED_IDENTITY.with(|c| {
-        c.write().unwrap().retain(|_, v| v.get_refcnt(py) > 1);
-    });
+    DASHED_IDENTITY
+        .write()
+        .unwrap()
+        .retain(|_, v| v.get_refcnt(py) > 1);
     let obj = Py::new(py, 虚线Py { inner }).unwrap();
-    DASHED_IDENTITY.with(|c| {
-        c.write().unwrap().insert(key, obj.clone_ref(py));
-    });
+    DASHED_IDENTITY
+        .write()
+        .unwrap()
+        .insert(key, obj.clone_ref(py));
     obj
 }
 
@@ -88,18 +101,23 @@ pub(crate) fn segfeat_to_py(
     inner: Arc<chanlun::structure::segment_feat::线段特征>,
 ) -> Py<线段特征Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) =
-        SEGFEAT_IDENTITY.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)))
+    if let Some(cached) = SEGFEAT_IDENTITY
+        .read()
+        .unwrap()
+        .get(&key)
+        .map(|p| p.clone_ref(py))
     {
         return cached;
     }
-    SEGFEAT_IDENTITY.with(|c| {
-        c.write().unwrap().retain(|_, v| v.get_refcnt(py) > 1);
-    });
+    SEGFEAT_IDENTITY
+        .write()
+        .unwrap()
+        .retain(|_, v| v.get_refcnt(py) > 1);
     let obj = Py::new(py, 线段特征Py { inner }).unwrap();
-    SEGFEAT_IDENTITY.with(|c| {
-        c.write().unwrap().insert(key, obj.clone_ref(py));
-    });
+    SEGFEAT_IDENTITY
+        .write()
+        .unwrap()
+        .insert(key, obj.clone_ref(py));
     obj
 }
 
@@ -108,18 +126,23 @@ pub(crate) fn featfrac_to_py(
     inner: Arc<chanlun::structure::feat_fractal::特征分型>,
 ) -> Py<特征分型Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) =
-        FEATFRAC_IDENTITY.with(|c| c.read().unwrap().get(&key).map(|p| p.clone_ref(py)))
+    if let Some(cached) = FEATFRAC_IDENTITY
+        .read()
+        .unwrap()
+        .get(&key)
+        .map(|p| p.clone_ref(py))
     {
         return cached;
     }
-    FEATFRAC_IDENTITY.with(|c| {
-        c.write().unwrap().retain(|_, v| v.get_refcnt(py) > 1);
-    });
+    FEATFRAC_IDENTITY
+        .write()
+        .unwrap()
+        .retain(|_, v| v.get_refcnt(py) > 1);
     let obj = Py::new(py, 特征分型Py { inner }).unwrap();
-    FEATFRAC_IDENTITY.with(|c| {
-        c.write().unwrap().insert(key, obj.clone_ref(py));
-    });
+    FEATFRAC_IDENTITY
+        .write()
+        .unwrap()
+        .insert(key, obj.clone_ref(py));
     obj
 }
 use crate::types_py::{分型结构Py, 相对方向Py, 缺口Py};
@@ -469,15 +492,13 @@ impl 虚线Py {
     }
 
     #[getter]
-    fn 前一结束位置(&self) -> Option<Self> {
+    fn 前一结束位置(&self, py: Python<'_>) -> Option<Py<虚线Py>> {
         self.inner
             .前一结束位置
             .read()
             .unwrap()
             .as_ref()
-            .map(|d| Self {
-                inner: Arc::clone(d),
-            })
+            .map(|d| dashed_to_py(py, Arc::clone(d)))
     }
 
     // ---- 序列 getters ----
@@ -486,12 +507,7 @@ impl 虚线Py {
     fn 基础序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in self.inner.基础序列.read().unwrap().iter() {
-            list.append(Py::new(
-                py,
-                Self {
-                    inner: Arc::clone(d),
-                },
-            )?)?;
+            list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
     }
@@ -530,12 +546,7 @@ impl 虚线Py {
     fn 笔序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for d in self.inner.基础序列.read().unwrap().iter() {
-            list.append(Py::new(
-                py,
-                Self {
-                    inner: Arc::clone(d),
-                },
-            )?)?;
+            list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
     }
@@ -582,11 +593,10 @@ impl 虚线Py {
         let obs_ref = 观察员.borrow();
         let observer_inner = obs_ref.obs();
         let result = self.inner.获取普K序列(&observer_inner.普通K线序列);
-        let list = pyo3::types::PyList::empty(观察员.py());
+        let py = 观察员.py();
+        let list = pyo3::types::PyList::empty(py);
         for k in &result {
-            list.append(K线Py {
-                inner: Arc::clone(k),
-            })?;
+            list.append(bar_to_py(py, Arc::clone(k)))?;
         }
         Ok(list.into())
     }
@@ -973,7 +983,7 @@ impl 虚线Py {
     ) -> (bool, String) {
         let obs = 观察员.borrow();
         let obs_ref = obs.obs();
-        chanlun::structure::dash_line::虚线::买卖意义(&实线.borrow().inner, &*obs_ref)
+        chanlun::structure::dash_line::虚线::买卖意义(&实线.borrow().inner, &obs_ref)
     }
 }
 
@@ -1148,7 +1158,7 @@ impl 线段特征Py {
         let inner = Arc::make_mut(&mut self.inner);
         inner
             .添加(Arc::clone(&待添加虚线.borrow().inner))
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// :param 待删除虚线: 待删除的虚线
@@ -1156,7 +1166,7 @@ impl 线段特征Py {
         let inner = Arc::make_mut(&mut self.inner);
         inner
             .删除(&Arc::clone(&待删除虚线.borrow().inner))
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     // ---- classmethods ----

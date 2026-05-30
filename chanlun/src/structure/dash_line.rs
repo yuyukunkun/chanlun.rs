@@ -960,6 +960,49 @@ impl 虚线 {
     }
 }
 
+impl std::fmt::Display for 虚线 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if *self.标识.read().unwrap() == "笔" {
+            write!(
+                f,
+                "笔({}, {}, {}, {}, 周期: {}, 数量: {})",
+                self.序号.load(Ordering::Relaxed),
+                self.方向(),
+                self.文,
+                self.武.read().unwrap(),
+                self.文.中.周期,
+                self.武.read().unwrap().中.序号.load(Ordering::Relaxed)
+                    - self.文.中.序号.load(Ordering::Relaxed)
+                    + 1
+            )
+        } else {
+            let 四象 = crate::algorithm::segment::线段::四象(self);
+            let 缺口 = crate::algorithm::segment::线段::获取缺口(self);
+            let 缺口_str = match 缺口 {
+                Some(g) => format!("{}", g),
+                None => "None".to_string(),
+            };
+            let 确认K线_str = match &*self.确认K线.read().unwrap() {
+                Some(k) => format!("{}", k),
+                None => "None".to_string(),
+            };
+            write!(
+                f,
+                "{}<{}, {}, {}, {}, {}, 数量: {}, 缺口: {}, {}>",
+                self.标识.read().unwrap(),
+                self.序号.load(Ordering::Relaxed),
+                四象,
+                self.方向(),
+                self.文,
+                self.武.read().unwrap(),
+                self.基础序列.read().unwrap().len(),
+                缺口_str,
+                确认K线_str,
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -969,13 +1012,14 @@ mod tests {
 
     /// 辅助：创建一根最小化的原始K线
     fn 辅助_创建K线(时间戳: i64, 高: f64, 低: f64, 开: f64, 收: f64) -> K线 {
-        let mut k = K线::default();
-        k.时间戳 = 时间戳;
-        k.高 = 高;
-        k.低 = 低;
-        k.开盘价 = 开;
-        k.收盘价 = 收;
-        k
+        K线 {
+            时间戳,
+            高,
+            低,
+            开盘价: 开,
+            收盘价: 收,
+            ..Default::default()
+        }
     }
 
     /// 辅助：创建一根缠论K线
@@ -1237,48 +1281,5 @@ mod tests {
         // 但方向变了（因为武从底1变成底2）
         let 新武耗时 = 笔.武.read().unwrap().时间戳();
         assert_eq!(新武耗时, 300);
-    }
-}
-
-impl std::fmt::Display for 虚线 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if *self.标识.read().unwrap() == "笔" {
-            write!(
-                f,
-                "笔({}, {}, {}, {}, 周期: {}, 数量: {})",
-                self.序号.load(Ordering::Relaxed),
-                self.方向(),
-                self.文,
-                self.武.read().unwrap(),
-                self.文.中.周期,
-                self.武.read().unwrap().中.序号.load(Ordering::Relaxed)
-                    - self.文.中.序号.load(Ordering::Relaxed)
-                    + 1
-            )
-        } else {
-            let 四象 = crate::algorithm::segment::线段::四象(self);
-            let 缺口 = crate::algorithm::segment::线段::获取缺口(self);
-            let 缺口_str = match 缺口 {
-                Some(g) => format!("{}", g),
-                None => "None".to_string(),
-            };
-            let 确认K线_str = match &*self.确认K线.read().unwrap() {
-                Some(k) => format!("{}", k),
-                None => "None".to_string(),
-            };
-            write!(
-                f,
-                "{}<{}, {}, {}, {}, {}, 数量: {}, 缺口: {}, {}>",
-                self.标识.read().unwrap(),
-                self.序号.load(Ordering::Relaxed),
-                四象,
-                self.方向(),
-                self.文,
-                self.武.read().unwrap(),
-                self.基础序列.read().unwrap().len(),
-                缺口_str,
-                确认K线_str,
-            )
-        }
     }
 }

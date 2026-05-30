@@ -239,7 +239,7 @@ impl 缠论配置Py {
     ) -> PyResult<Py<PyDict>> {
         let py = 原始字典.py();
         let result = PyDict::new(py);
-        if let Ok(default_dict) = 默认配置.downcast::<PyDict>() {
+        if let Ok(default_dict) = 默认配置.cast::<PyDict>() {
             for (key, value) in default_dict.iter() {
                 if 原始字典.contains(&key)? {
                     result.set_item(key.clone(), 原始字典.get_item(&key)?)?;
@@ -252,6 +252,7 @@ impl 缠论配置Py {
     }
 
     /// 比较当前配置与另一个配置的差异
+    #[allow(clippy::type_complexity)]
     fn 对比(
         &self,
         py: Python<'_>,
@@ -290,7 +291,10 @@ impl 缠论配置Py {
         Ok(Self { fields })
     }
 
-    pub(crate) fn to_rust_config(&self, py: Python<'_>) -> PyResult<chanlun::config::缠论配置> {
+    pub(crate) fn to_rust_config(
+        &self,
+        _py: Python<'_>,
+    ) -> PyResult<chanlun::config::缠论配置> {
         dict_to_rust_config(&self.fields)
     }
 

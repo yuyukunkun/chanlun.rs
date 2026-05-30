@@ -28,14 +28,12 @@ use std::sync::RwLock;
 
 use crate::algorithm_py::hub_to_py;
 use crate::kline_py::bar_to_py;
-use crate::structure_py::{dashed_to_py, fractal_to_py};
+use crate::structure_py::{dashed_to_py, fractal_to_py, 分型Py};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::algorithm_py::中枢Py;
 use crate::config_py::缠论配置Py;
 use crate::kline_py::{缠论K线Py, K线Py};
-use crate::structure_py::{分型Py, 虚线Py};
 use crate::types_py::买卖点类型Py;
 
 // ========== 基础买卖点 ==========
@@ -100,10 +98,8 @@ impl 基础买卖点Py {
     }
 
     #[getter]
-    fn 买卖点分型(&self) -> 分型Py {
-        分型Py {
-            inner: Arc::clone(&self.inner.买卖点分型),
-        }
+    fn 买卖点分型(&self, py: Python<'_>) -> Py<分型Py> {
+        fractal_to_py(py, Arc::clone(&self.inner.买卖点分型))
     }
 
     #[getter]
@@ -576,13 +572,13 @@ impl 观察者Py {
             let obs = me.obs();
             (obs.符号.clone(), obs.周期)
         };
-        let kline = K线Py {
-            inner: Arc::new(chanlun::kline::bar::K线::创建普K(
+        let kline = bar_to_py(
+            slf.py(),
+            Arc::new(chanlun::kline::bar::K线::创建普K(
                 &符号, 时间戳, 开, 高, 低, 收, 量, 0, 周期,
             )),
-        };
-        let kline_py = Py::new(slf.py(), kline)?;
-        slf.call_method1("增加原始K线", (kline_py,))?;
+        );
+        slf.call_method1("增加原始K线", (kline,))?;
         Ok(())
     }
 
@@ -860,11 +856,11 @@ impl K线合成器Py {
         &mut self,
         普K: &Bound<'_, K线Py>,
         py: Python<'_>,
-    ) -> PyResult<Vec<(i64, K线Py)>> {
+    ) -> PyResult<Vec<(i64, Py<K线Py>)>> {
         let results = self.inner.投喂K线((*普K.borrow().inner).clone());
         Ok(results
             .into_iter()
-            .map(|(周期, k)| (周期, K线Py { inner: Arc::new(k) }))
+            .map(|(周期, k)| (周期, bar_to_py(py, Arc::new(k))))
             .collect())
     }
 
@@ -877,7 +873,8 @@ impl K线合成器Py {
         低: f64,
         收: f64,
         量: f64,
-    ) -> Vec<(i64, K线Py)> {
+        py: Python<'_>,
+    ) -> Vec<(i64, Py<K线Py>)> {
         let min_cycle = self.inner.周期组.iter().copied().min().unwrap_or(1);
         let k = chanlun::kline::bar::K线::创建普K(
             &self.inner.标识,
@@ -893,22 +890,15 @@ impl K线合成器Py {
         let results = self.inner.投喂K线(k);
         results
             .into_iter()
-            .map(|(周期, k2)| {
-                (
-                    周期,
-                    K线Py {
-                        inner: Arc::new(k2),
-                    },
-                )
-            })
+            .map(|(周期, k2)| (周期, bar_to_py(py, Arc::new(k2))))
             .collect()
     }
 
     /// 获取指定周期当前正在合成的K线
-    fn 获取当前K线(&self, 周期: i64) -> Option<K线Py> {
-        self.inner.获取当前K线(周期).map(|k| K线Py {
-            inner: Arc::new(k.clone()),
-        })
+    fn 获取当前K线(&self, 周期: i64, py: Python<'_>) -> Option<Py<K线Py>> {
+        self.inner
+            .获取当前K线(周期)
+            .map(|k| bar_to_py(py, Arc::new(k.clone())))
     }
 
     #[getter]
@@ -957,7 +947,7 @@ impl 立体分析器Py {
         };
         let cfg_map: Option<HashMap<i64, chanlun::config::缠论配置>> = match 配置组 {
             Some(dict_any) => {
-                let dict = dict_any.downcast::<pyo3::types::PyDict>()?;
+                let dict = dict_any.cast::<pyo3::types::PyDict>()?;
                 let mut map = HashMap::new();
                 for (key, value) in dict.iter() {
                     let period: i64 = key.extract()?;
