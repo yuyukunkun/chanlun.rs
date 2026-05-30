@@ -92,6 +92,7 @@ impl 分型结构 {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn 分析_内部(
         左高: f64,
         左低: f64,

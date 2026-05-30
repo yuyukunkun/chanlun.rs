@@ -78,16 +78,18 @@ impl 笔 {
                                 - 高_k.标的K线.read().unwrap().序号)
                                 .unsigned_abs() as usize;
                         // 向上笔
-                        if 筆.方向().是否向上() && 低_k.低.get() < 筆.低() {
-                            if 原始数量 >= 配置.笔弱化_原始数量 as usize {
-                                return 配置.笔内元素数量 as usize;
-                            }
+                        if 筆.方向().是否向上()
+                            && 低_k.低.get() < 筆.低()
+                            && 原始数量 >= 配置.笔弱化_原始数量 as usize
+                        {
+                            return 配置.笔内元素数量 as usize;
                         }
                         // 向下笔
-                        if 筆.方向().是否向下() && 低_k.低.get() > 筆.高() {
-                            if 原始数量 >= 配置.笔弱化_原始数量 as usize {
-                                return 配置.笔内元素数量 as usize;
-                            }
+                        if 筆.方向().是否向下()
+                            && 低_k.低.get() > 筆.高()
+                            && 原始数量 >= 配置.笔弱化_原始数量 as usize
+                        {
+                            return 配置.笔内元素数量 as usize;
                         }
                     }
                 }
@@ -960,22 +962,11 @@ impl 笔 {
         for i in 3..基础序列.len() - 1 {
             let k = &基础序列[i];
 
-            if *k.分型.read().unwrap() == Some(分型结构::顶) && 筆.方向() == 相对方向::向上
-            {
-                let 左 = Arc::clone(&基础序列[i - 1]);
-                let 中 = Arc::clone(k);
-                let 右 = Arc::clone(&基础序列[i + 1]);
-                let 武 = 分型::new(Some(左), 中, Some(右));
-                let 当前笔 = 虚线::创建笔(Arc::clone(&文), Arc::new(武), true);
-                当前笔
-                    .序号
-                    .store(筆.序号.load(Ordering::Relaxed), Ordering::Relaxed);
-                if Self::自检(&当前笔, 观察员) {
-                    笔序列.push(当前笔);
-                }
-            } else if *k.分型.read().unwrap() == Some(分型结构::底)
-                && 筆.方向() == 相对方向::向下
-            {
+            let 匹配顶 =
+                *k.分型.read().unwrap() == Some(分型结构::顶) && 筆.方向() == 相对方向::向上;
+            let 匹配底 =
+                *k.分型.read().unwrap() == Some(分型结构::底) && 筆.方向() == 相对方向::向下;
+            if 匹配顶 || 匹配底 {
                 let 左 = Arc::clone(&基础序列[i - 1]);
                 let 中 = Arc::clone(k);
                 let 右 = Arc::clone(&基础序列[i + 1]);

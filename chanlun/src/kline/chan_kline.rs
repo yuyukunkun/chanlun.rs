@@ -199,19 +199,16 @@ impl 缠论K线 {
                     if k线.时间戳.load(Ordering::Relaxed) <= k.时间戳.load(Ordering::Relaxed)
                         && k.时间戳.load(Ordering::Relaxed)
                             <= k线.时间戳.load(Ordering::Relaxed) + k线.周期
+                        && (k线.分型特征值.get() - k.分型特征值.get()).abs() < f64::EPSILON
                     {
-                        if (k线.分型特征值.get() - k.分型特征值.get()).abs() < f64::EPSILON
-                        {
-                            return k.时间戳.load(Ordering::Relaxed);
-                        }
+                        return k.时间戳.load(Ordering::Relaxed);
                     }
                 } else if k.时间戳.load(Ordering::Relaxed) <= k线.时间戳.load(Ordering::Relaxed)
                     && k线.时间戳.load(Ordering::Relaxed)
                         <= k.时间戳.load(Ordering::Relaxed) + k.周期
+                    && (k线.分型特征值.get() - k.分型特征值.get()).abs() < f64::EPSILON
                 {
-                    if (k线.分型特征值.get() - k.分型特征值.get()).abs() < f64::EPSILON {
-                        return k.时间戳.load(Ordering::Relaxed);
-                    }
+                    return k.时间戳.load(Ordering::Relaxed);
                 }
             }
         }
@@ -219,6 +216,7 @@ impl 缠论K线 {
     }
 
     /// 创建缠K
+    #[allow(clippy::too_many_arguments)]
     pub fn 创建缠K(
         时间戳: i64,
         高: f64,
@@ -420,43 +418,41 @@ impl 缠论K线 {
             if 之前普K.时间戳 == 当前K线.时间戳 {
                 // 同时间戳更新
                 当前K线.序号 = 之前普K.序号;
-                if 配置.计算指标 {
-                    if 普K序列.len() >= 2 {
-                        if let Some(ref prev_macd) = 普K序列[普K序列.len() - 2].macd {
-                            当前K线.macd = Some(平滑异同移动平均线::增量计算(
-                                prev_macd,
-                                K线取值(
-                                    当前K线.开盘价,
-                                    当前K线.高,
-                                    当前K线.低,
-                                    当前K线.收盘价,
-                                    &配置.指标计算方式,
-                                ),
-                                当前K线.时间戳,
-                            ));
-                        }
-                        if let Some(ref prev_rsi) = 普K序列[普K序列.len() - 2].rsi {
-                            当前K线.rsi = Some(相对强弱指数::增量计算(
-                                prev_rsi,
-                                K线取值(
-                                    当前K线.开盘价,
-                                    当前K线.高,
-                                    当前K线.低,
-                                    当前K线.收盘价,
-                                    &配置.指标计算方式,
-                                ),
-                                当前K线.时间戳,
-                            ));
-                        }
-                        if let Some(ref prev_kdj) = 普K序列[普K序列.len() - 2].kdj {
-                            当前K线.kdj = Some(随机指标::增量计算(
-                                prev_kdj,
+                if 配置.计算指标 && 普K序列.len() >= 2 {
+                    if let Some(ref prev_macd) = 普K序列[普K序列.len() - 2].macd {
+                        当前K线.macd = Some(平滑异同移动平均线::增量计算(
+                            prev_macd,
+                            K线取值(
+                                当前K线.开盘价,
                                 当前K线.高,
                                 当前K线.低,
                                 当前K线.收盘价,
-                                当前K线.时间戳,
-                            ));
-                        }
+                                &配置.指标计算方式,
+                            ),
+                            当前K线.时间戳,
+                        ));
+                    }
+                    if let Some(ref prev_rsi) = 普K序列[普K序列.len() - 2].rsi {
+                        当前K线.rsi = Some(相对强弱指数::增量计算(
+                            prev_rsi,
+                            K线取值(
+                                当前K线.开盘价,
+                                当前K线.高,
+                                当前K线.低,
+                                当前K线.收盘价,
+                                &配置.指标计算方式,
+                            ),
+                            当前K线.时间戳,
+                        ));
+                    }
+                    if let Some(ref prev_kdj) = 普K序列[普K序列.len() - 2].kdj {
+                        当前K线.kdj = Some(随机指标::增量计算(
+                            prev_kdj,
+                            当前K线.高,
+                            当前K线.低,
+                            当前K线.收盘价,
+                            当前K线.时间戳,
+                        ));
                     }
                 }
                 普K序列.pop();
@@ -514,7 +510,7 @@ impl 缠论K线 {
         if !缠K序列.is_empty() {
             let len = 缠K序列.len();
             let (左边, 右边) = 缠K序列.split_at_mut(len - 1);
-            let 之前缠K: Option<&缠论K线> = 左边.last().map(|rc| Arc::as_ref(rc));
+            let 之前缠K: Option<&缠论K线> = 左边.last().map(Arc::as_ref);
             let 最后一个缠K = &*右边[0];
             let (新缠K, 模式) = Self::兼并(之前缠K, 最后一个缠K, 当前K线_ref, 配置);
 
@@ -614,7 +610,7 @@ impl 缠论K线 {
             Arc::clone(&缠K序列[idx - 2]),
             Some(Arc::clone(&缠K序列[idx - 1])),
         ));
-        return (状态, Some(形态));
+        (状态, Some(形态))
     }
 
     /// 截取缠K序列从始到终
@@ -623,12 +619,8 @@ impl 缠论K线 {
         始: &缠论K线,
         终: &缠论K线,
     ) -> Option<Vec<Arc<缠论K线>>> {
-        let 始_idx = 序列
-            .iter()
-            .position(|k| Arc::as_ptr(k) == (始 as *const _))?;
-        let 终_idx = 序列
-            .iter()
-            .position(|k| Arc::as_ptr(k) == (终 as *const _))?;
+        let 始_idx = 序列.iter().position(|k| std::ptr::eq(Arc::as_ptr(k), 始))?;
+        let 终_idx = 序列.iter().position(|k| std::ptr::eq(Arc::as_ptr(k), 终))?;
         Some(序列[始_idx..=终_idx].to_vec())
     }
 }

@@ -141,6 +141,7 @@ impl K线 {
     }
 
     /// 创建普通K线
+    #[allow(clippy::too_many_arguments)]
     pub fn 创建普K(
         标识: &str,
         时间戳: i64,

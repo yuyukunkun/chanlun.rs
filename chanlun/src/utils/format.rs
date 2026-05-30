@@ -42,7 +42,7 @@ pub fn format_f64_g(value: f64) -> String {
     let exp = abs.log10().floor() as i32;
 
     // Python :g 科学计数法边界: exp < -4 或 exp >= p (=6)
-    if exp < -4 || exp >= 6 {
+    if !(-4..6).contains(&exp) {
         let significand = value / 10_f64.powi(exp);
         let s = format!("{:.5}", significand);
         let s = s.trim_end_matches('0').trim_end_matches('.');
@@ -57,12 +57,12 @@ pub fn format_f64_g(value: f64) -> String {
         }
         let s = format!("{:.prec$}", value, prec = 6 - int_digits);
         let s = s.trim_end_matches('0');
-        return s.trim_end_matches('.').to_string();
+        s.trim_end_matches('.').to_string()
     } else {
         let leading_zeros = (-exp) as usize;
         let s = format!("{:.prec$}", value, prec = leading_zeros + 5);
         let s = s.trim_end_matches('0');
-        return s.trim_end_matches('.').to_string();
+        s.trim_end_matches('.').to_string()
     }
 }
 

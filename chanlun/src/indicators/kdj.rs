@@ -77,6 +77,7 @@ impl Default for 随机指标 {
 
 impl 随机指标 {
     /// 首次计算 KDJ（无历史数据时）
+    #[allow(clippy::too_many_arguments)]
     pub fn 首次计算(
         初始最高价: f64,
         初始最低价: f64,

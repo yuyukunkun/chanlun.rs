@@ -39,13 +39,13 @@ impl 背驰分析 {
     ) -> bool {
         let 进入MACD = Self::_获取MACD面积(
             K线序列,
-            &*进入段.文.中.标的K线.read().unwrap(),
-            &*进入段.武.read().unwrap().中.标的K线.read().unwrap(),
+            &进入段.文.中.标的K线.read().unwrap(),
+            &进入段.武.read().unwrap().中.标的K线.read().unwrap(),
         );
         let 离开MACD = Self::_获取MACD面积(
             K线序列,
-            &*离开段.文.中.标的K线.read().unwrap(),
-            &*离开段.武.read().unwrap().中.标的K线.read().unwrap(),
+            &离开段.文.中.标的K线.read().unwrap(),
+            &离开段.武.read().unwrap().中.标的K线.read().unwrap(),
         );
 
         // 计算面积（绝对值求和）

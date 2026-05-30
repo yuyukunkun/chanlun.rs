@@ -415,7 +415,7 @@ impl 中枢 {
         中枢序列: &mut Vec<Arc<中枢>>,
         待弹出: &Arc<中枢>,
     ) -> Option<Arc<中枢>> {
-        if 中枢序列.last().map(|x| Arc::as_ptr(x)) == Some(Arc::as_ptr(待弹出)) {
+        if 中枢序列.last().map(Arc::as_ptr) == Some(Arc::as_ptr(待弹出)) {
             中枢序列.pop()
         } else {
             None
@@ -430,7 +430,7 @@ impl 中枢 {
         中枢序列: &mut Vec<Arc<中枢>>,
         跳过首部: bool,
         标识: &str,
-        层级: i64,
+        _层级: i64,
     ) {
         if 虚线序列.len() < 3 {
             return;
@@ -472,7 +472,7 @@ impl 中枢 {
                     ));
                     Self::向中枢序列尾部添加(中枢序列, 新中枢);
                     // Python: return 中枢递归分析(虚线序列, 中枢序列, ...)
-                    Self::分析(虚线序列, 中枢序列, 跳过首部, 标识, 层级);
+                    Self::分析(虚线序列, 中枢序列, 跳过首部, 标识, _层级);
                     return;
                 }
             }
@@ -487,7 +487,7 @@ impl 中枢 {
         if needs_pop {
             let 当前中枢 = Arc::clone(&中枢序列[当前中枢_idx]);
             Self::从中枢序列尾部弹出(中枢序列, &当前中枢);
-            Self::分析(虚线序列, 中枢序列, 跳过首部, 标识, 层级);
+            Self::分析(虚线序列, 中枢序列, 跳过首部, 标识, _层级);
             return;
         }
 
@@ -508,8 +508,8 @@ impl 中枢 {
         let mut 中枢低 = 中枢序列[当前中枢_idx].低();
         let mut 候选序列: Vec<Arc<虚线>> = Vec::new();
 
-        for i in 起始索引..虚线序列.len() {
-            let 当前虚线 = Arc::clone(&虚线序列[i]);
+        for 当前虚线_ref in &虚线序列[起始索引..] {
+            let 当前虚线 = Arc::clone(当前虚线_ref);
 
             // 检查是否超出中枢范围（缺口）
             if crate::types::相对方向::分析(中枢高, 中枢低, 当前虚线.高(), 当前虚线.低()).是否缺口()

@@ -435,8 +435,8 @@ impl 虚线 {
     pub fn 计算MACD柱子均值(普K序列: &[Arc<K线>], 实线: &虚线) -> f64 {
         let K线序列 = K线::截取rc(
             普K序列,
-            &*实线.文.中.标的K线.read().unwrap(),
-            &*实线.武.read().unwrap().中.标的K线.read().unwrap(),
+            &实线.文.中.标的K线.read().unwrap(),
+            &实线.武.read().unwrap().中.标的K线.read().unwrap(),
         );
         if K线序列.is_empty() {
             return 0.0;
@@ -453,8 +453,8 @@ impl 虚线 {
     pub fn 计算MACD柱子均值_阴(普K序列: &[Arc<K线>], 实线: &虚线) -> Option<f64> {
         let K线序列 = K线::截取rc(
             普K序列,
-            &*实线.文.中.标的K线.read().unwrap(),
-            &*实线.武.read().unwrap().中.标的K线.read().unwrap(),
+            &实线.文.中.标的K线.read().unwrap(),
+            &实线.武.read().unwrap().中.标的K线.read().unwrap(),
         );
         let 总: Vec<f64> = K线序列
             .iter()
@@ -473,8 +473,8 @@ impl 虚线 {
     pub fn 计算MACD柱子均值_阳(普K序列: &[Arc<K线>], 实线: &虚线) -> Option<f64> {
         let K线序列 = K线::截取rc(
             普K序列,
-            &*实线.文.中.标的K线.read().unwrap(),
-            &*实线.武.read().unwrap().中.标的K线.read().unwrap(),
+            &实线.文.中.标的K线.read().unwrap(),
+            &实线.武.read().unwrap().中.标的K线.read().unwrap(),
         );
         let 总: Vec<f64> = K线序列
             .iter()
@@ -549,8 +549,8 @@ impl 虚线 {
         };
         let K线序列 = K线::截取rc(
             普K序列,
-            &*实线.文.中.标的K线.read().unwrap(),
-            &*实线.武.read().unwrap().中.标的K线.read().unwrap(),
+            &实线.文.中.标的K线.read().unwrap(),
+            &实线.武.read().unwrap().中.标的K线.read().unwrap(),
         );
         let 所有柱子: Vec<f64> = K线序列
             .iter()
@@ -583,7 +583,7 @@ impl 虚线 {
         if 方向 == 相对方向::向上 {
             let 柱子序列: Vec<&Arc<K线>> = 普K序列
                 .iter()
-                .filter(|k| k.macd.as_ref().map_or(false, |m| m.MACD柱 > 0.0))
+                .filter(|k| k.macd.as_ref().is_some_and(|m| m.MACD柱 > 0.0))
                 .collect();
             if 柱子序列.is_empty() {
                 return [false, false, false];
@@ -603,7 +603,7 @@ impl 虚线 {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
-            let mut 柱对 = vec![Arc::clone(*最高柱子), Arc::clone(最后)];
+            let mut 柱对 = [Arc::clone(*最高柱子), Arc::clone(最后)];
             柱对.sort_by_key(|k| k.时间戳);
             if let (Some(m0), Some(m1)) = (柱对[0].macd.as_ref(), 柱对[1].macd.as_ref()) {
                 if m0.MACD柱 > m1.MACD柱 && 柱对[0].高 < 柱对[1].高 {
@@ -649,7 +649,7 @@ impl 虚线 {
         } else {
             let 柱子序列: Vec<&Arc<K线>> = 普K序列
                 .iter()
-                .filter(|k| k.macd.as_ref().map_or(false, |m| m.MACD柱 < 0.0))
+                .filter(|k| k.macd.as_ref().is_some_and(|m| m.MACD柱 < 0.0))
                 .collect();
             if 柱子序列.is_empty() {
                 return [false, false, false];
@@ -670,7 +670,7 @@ impl 虚线 {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
-            let mut 柱对 = vec![Arc::clone(*最高柱子), Arc::clone(最后)];
+            let mut 柱对 = [Arc::clone(*最高柱子), Arc::clone(最后)];
             柱对.sort_by_key(|k| k.时间戳);
             if let (Some(m0), Some(m1)) = (柱对[0].macd.as_ref(), 柱对[1].macd.as_ref()) {
                 if m0.MACD柱 < m1.MACD柱 && 柱对[0].低 > 柱对[1].低 {
@@ -947,10 +947,13 @@ impl 虚线 {
             }
         }
 
-        if !结果 && 意义 && 实线.武.read().unwrap().中.与MACD柱子匹配() {
-            if Self::武之MACD极值(普K序列, 实线) && 背驰过.len() > 2 {
-                return (true, "没结果, 极值, 柱子分型匹配, 背驰过大于2次".into());
-            }
+        if !结果
+            && 意义
+            && 实线.武.read().unwrap().中.与MACD柱子匹配()
+            && Self::武之MACD极值(普K序列, 实线)
+            && 背驰过.len() > 2
+        {
+            return (true, "没结果, 极值, 柱子分型匹配, 背驰过大于2次".into());
         }
 
         (结果, "".into())
