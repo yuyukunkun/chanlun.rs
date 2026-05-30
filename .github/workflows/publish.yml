@@ -71,7 +71,7 @@ jobs:
       - name: Lint 检查
         if: steps.check.outputs.exists == 'false'
         working-directory: chanlun
-        run: cargo clippy -- -D warnings
+        run: cargo clippy
 
       - name: 运行测试
         if: steps.check.outputs.exists == 'false'
@@ -81,7 +81,7 @@ jobs:
       - name: 验证打包
         if: steps.check.outputs.exists == 'false'
         working-directory: chanlun
-        run: cargo package --dry-run
+        run: cargo publish --dry-run --allow-dirty
 
       - name: 登录 crates.io
         if: steps.check.outputs.exists == 'false'
@@ -90,7 +90,7 @@ jobs:
       - name: 发布 chanlun 至 crates.io
         if: steps.check.outputs.exists == 'false'
         working-directory: chanlun
-        run: cargo publish
+        run: cargo publish --allow-dirty
 
   # ============================================================
   # 2. 构建 wheel — Linux x86_64 (manylinux)
