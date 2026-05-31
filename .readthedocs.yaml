@@ -1,0 +1,22 @@
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.12"
+  jobs:
+    pre_install:
+      # 安装 Rust 工具链以编译 PyO3 扩展
+      - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      - source $HOME/.cargo/env
+      - pip install maturin
+
+sphinx:
+  configuration: docs/conf.py
+
+python:
+  install:
+    - requirements: docs/requirements.txt
+    # 从源码安装 chanlun-py（maturin develop）
+    - method: pip
+      path: chanlun-py
