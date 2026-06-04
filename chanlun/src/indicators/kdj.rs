@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 
+use crate::kline::bar::K线;
 use serde::{Deserialize, Serialize};
 
 /// 随机指标 (KDJ)
@@ -30,23 +31,41 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct 随机指标 {
+    /// 数据时间戳
     pub 时间戳: i64,
+    /// 最高价
     pub 最高价: f64,
+    /// 最低价
     pub 最低价: f64,
+    /// 收盘价
     pub 收盘价: f64,
+    /// RSV 周期
     pub N: i64,
+    /// K 值平滑周期
     pub M1: i64,
+    /// D 值平滑周期
     pub M2: i64,
+    /// 超买阈值
     pub 超买阈值: f64,
+    /// 超卖阈值
     pub 超卖阈值: f64,
+    /// RSV 值（未成熟随机值）
     pub RSV: Option<f64>,
+    /// K 值
     pub K: Option<f64>,
+    /// D 值
     pub D: Option<f64>,
+    /// J 值 (3K - 2D)
     pub J: Option<f64>,
+    /// 历史最高价队列（滑动窗口）
     pub 历史最高价队列: Vec<f64>,
+    /// 历史最低价队列（滑动窗口）
     pub 历史最低价队列: Vec<f64>,
+    /// 前一个 RSV（用于平滑递推）
     pub 前一个RSV: Option<f64>,
+    /// 前一个 K（用于平滑递推）
     pub 前一个K: Option<f64>,
+    /// 前一个 D（用于平滑递推）
     pub 前一个D: Option<f64>,
 }
 
@@ -77,6 +96,8 @@ impl Default for 随机指标 {
 
 impl 随机指标 {
     /// 首次计算 KDJ（无历史数据时）
+    #[allow(clippy::too_many_arguments)]
+    /// 首次计算 KDJ — 无历史数据时的初始计算
     #[allow(clippy::too_many_arguments)]
     pub fn 首次计算(
         初始最高价: f64,
@@ -109,6 +130,39 @@ impl 随机指标 {
             前一个K: None,
             前一个D: None,
         }
+    }
+
+    /// 首次计算 KDJ 指标 — 从 K线 取值后计算（KDJ 始终使用 高/低/收）
+    pub fn 首次计算_K线(
+        k线: &K线,
+        RSV周期: i64,
+        K值平滑周期: i64,
+        D值平滑周期: i64,
+        超买阈值: f64,
+        超卖阈值: f64,
+    ) -> Self {
+        Self::首次计算(
+            k线.高,
+            k线.低,
+            k线.收盘价,
+            k线.时间戳,
+            RSV周期,
+            K值平滑周期,
+            D值平滑周期,
+            超买阈值,
+            超卖阈值,
+        )
+    }
+
+    /// 增量计算 KDJ 指标 — 从 K线 取值后递推
+    pub fn 增量计算_K线(前一个KDJ: &Self, 当前K线: &K线) -> Self {
+        Self::增量计算(
+            前一个KDJ,
+            当前K线.高,
+            当前K线.低,
+            当前K线.收盘价,
+            当前K线.时间戳,
+        )
     }
 
     /// 基于前一个 KDJ 增量计算当前 KDJ

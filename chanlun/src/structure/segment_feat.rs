@@ -27,36 +27,68 @@ use crate::structure::feat_fractal::特征分型;
 use crate::structure::fractal_obj::分型;
 use crate::types::{分型结构, 相对方向};
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-/// 线段特征 — 特征序列元素（内部是虚线的集合）
-#[derive(Debug, Clone)]
+/// 线段特征 — 特征序列元素，内部是虚线的集合。
+///
+/// 在线段划分算法中，将同方向的笔归入一个特征序列元素，
+/// 然后通过特征序列元素之间的分型关系判定线段终结。
+///
+/// 字段:
+///   序号: 特征序列元素编号
+///   标识: 标识字符串（如 "特征<虚线>"）
+///   线段方向: 所属线段的方向（与元素包含的虚线方向相反）
+///   基础序列: 构成该特征序列元素的虚线序列
+///
+/// 计算属性:
+///   文 — 起点分型（取特征序列中分型特征值极值）
+///   武 — 终点分型（取特征序列中分型特征值极值）
+///   方向 — 线段方向的翻转
+///   高 / 低 — 文/武 中分型特征值的较大/较小者
+#[derive(Debug)]
 pub struct 线段特征 {
+    /// 特征序列元素编号
     pub 序号: i64,
-    pub 标识: String,
+    /// 标识字符串（如 "特征<虚线>"）
+    pub 标识: RwLock<String>,
+    /// 所属线段的方向
     pub 线段方向: 相对方向,
-    pub 元素: Vec<Arc<虚线>>,
+    /// 构成该元素的虚线序列
+    pub 基础序列: Vec<Arc<虚线>>,
+}
+
+impl Clone for 线段特征 {
+    fn clone(&self) -> Self {
+        Self {
+            序号: self.序号,
+            标识: RwLock::new(self.标识.read().unwrap().clone()),
+            线段方向: self.线段方向,
+            基础序列: self.基础序列.clone(),
+        }
+    }
 }
 
 impl 线段特征 {
+    /// 新建线段特征（给定标识、基础序列和线段方向）
     pub fn new(标识: String, 基础序列: Vec<Arc<虚线>>, 线段方向: 相对方向) -> Self {
         Self {
             序号: 0,
-            标识,
+            标识: RwLock::new(标识),
             线段方向,
-            元素: 基础序列,
+            基础序列,
         }
     }
 
+    /// 图表标题 — 返回标识字符串
     pub fn 图表标题(&self) -> String {
-        self.标识.clone()
+        self.标识.read().unwrap().clone()
     }
 
     /// 文 — 取特征序列元素中分型特征值最大/最小的文分型
     /// tiebreaker: later时间戳 wins when特征值 equal (matches Python)
     pub fn 文(&self) -> Arc<分型> {
         if self.线段方向.是否向上() {
-            self.元素
+            self.基础序列
                 .iter()
                 .max_by(|a, b| {
                     a.文
@@ -66,19 +98,19 @@ impl 线段特征 {
                         .then_with(|| a.文.时间戳().cmp(&b.文.时间戳()))
                 })
                 .map(|x| Arc::clone(&x.文))
-                .unwrap_or_else(|| Arc::clone(&self.元素[0].文))
+                .unwrap_or_else(|| Arc::clone(&self.基础序列[0].文))
         } else {
-            self.元素
+            self.基础序列
                 .iter()
-                .min_by(|a, b| {
-                    a.文
+                .max_by(|a, b| {
+                    b.文
                         .分型特征值
-                        .partial_cmp(&b.文.分型特征值)
+                        .partial_cmp(&a.文.分型特征值)
                         .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| b.文.时间戳().cmp(&a.文.时间戳()))
+                        .then_with(|| a.文.时间戳().cmp(&b.文.时间戳()))
                 })
                 .map(|x| Arc::clone(&x.文))
-                .unwrap_or_else(|| Arc::clone(&self.元素[0].文))
+                .unwrap_or_else(|| Arc::clone(&self.基础序列[0].文))
         }
     }
 
@@ -86,7 +118,7 @@ impl 线段特征 {
     /// tiebreaker: later时间戳 wins when特征值 equal (matches Python)
     pub fn 武(&self) -> Arc<分型> {
         if self.线段方向.是否向上() {
-            self.元素
+            self.基础序列
                 .iter()
                 .max_by(|a, b| {
                     a.武
@@ -104,36 +136,38 @@ impl 线段特征 {
                         })
                 })
                 .map(|x| x.武.read().unwrap().clone())
-                .unwrap_or_else(|| self.元素[0].武.read().unwrap().clone())
+                .unwrap_or_else(|| self.基础序列[0].武.read().unwrap().clone())
         } else {
-            self.元素
+            self.基础序列
                 .iter()
-                .min_by(|a, b| {
-                    a.武
+                .max_by(|a, b| {
+                    b.武
                         .read()
                         .unwrap()
                         .分型特征值
-                        .partial_cmp(&b.武.read().unwrap().分型特征值)
+                        .partial_cmp(&a.武.read().unwrap().分型特征值)
                         .unwrap_or(std::cmp::Ordering::Equal)
                         .then_with(|| {
-                            b.武
+                            a.武
                                 .read()
                                 .unwrap()
                                 .时间戳()
-                                .cmp(&a.武.read().unwrap().时间戳())
+                                .cmp(&b.武.read().unwrap().时间戳())
                         })
                 })
                 .map(|x| x.武.read().unwrap().clone())
-                .unwrap_or_else(|| self.元素[0].武.read().unwrap().clone())
+                .unwrap_or_else(|| self.基础序列[0].武.read().unwrap().clone())
         }
     }
 
+    /// 高 — 文和武中分型特征值的较大者
     pub fn 高(&self) -> f64 {
         let 文 = self.文();
         let 武 = self.武();
         文.分型特征值.max(武.分型特征值)
     }
 
+    /// 低 — 文和武中分型特征值的较小者
     pub fn 低(&self) -> f64 {
         let 文 = self.文();
         let 武 = self.武();
@@ -146,25 +180,25 @@ impl 线段特征 {
     }
 
     /// 向特征序列元素中添加虚线
-    pub fn 添加(&mut self, 待添加虚线: Arc<虚线>) -> Result<(), String> {
+    pub fn _添加(&mut self, 待添加虚线: Arc<虚线>) -> Result<(), String> {
         if 待添加虚线.方向() == self.线段方向 {
             return Err("添加方向与线段方向相同".into());
         }
-        self.元素.push(待添加虚线);
+        self.基础序列.push(待添加虚线);
         Ok(())
     }
 
     /// 从特征序列元素中删除虚线
-    pub fn 删除(&mut self, 待删除虚线: &Arc<虚线>) -> Result<(), String> {
+    pub fn _删除(&mut self, 待删除虚线: &Arc<虚线>) -> Result<(), String> {
         if 待删除虚线.方向() == self.方向() {
             return Err("删除方向与特征序列方向相同".into());
         }
         if let Some(pos) = self
-            .元素
+            .基础序列
             .iter()
             .position(|x| Arc::as_ptr(x) == Arc::as_ptr(待删除虚线))
         {
-            self.元素.remove(pos);
+            self.基础序列.remove(pos);
             Ok(())
         } else {
             Err("待删除虚线不在特征序列中".into())
@@ -210,12 +244,12 @@ impl 线段特征 {
 
                         if 应替换 {
                             let 小号虚线 = 中
-                                .元素
+                                .基础序列
                                 .iter()
                                 .min_by_key(|o| o.序号.load(Ordering::Relaxed))
                                 .unwrap();
                             let 大号虚线 = 右
-                                .元素
+                                .基础序列
                                 .iter()
                                 .max_by_key(|o| o.序号.load(Ordering::Relaxed))
                                 .unwrap();
@@ -250,7 +284,7 @@ impl 线段特征 {
             )) {
                 // Clone-modify-replace
                 let mut 新特征 = (*结果[最后_idx]).clone();
-                let _ = 新特征.添加(Arc::clone(虚线));
+                let _ = 新特征._添加(Arc::clone(虚线));
                 结果[最后_idx] = Arc::new(新特征);
             } else {
                 结果.push(Arc::new(Self::新建(vec![Arc::clone(虚线)], 线段方向)));
@@ -260,7 +294,7 @@ impl 线段特征 {
         结果
     }
 
-    /// 获取分型序列
+    /// 获取分型序列 — 从连续的特征序列元素中提取特征分型
     pub fn 获取分型序列(特征序列: &[Arc<线段特征>]) -> Vec<特征分型> {
         let mut 结果 = Vec::new();
         if 特征序列.len() < 3 {
@@ -295,17 +329,17 @@ impl crate::types::fractal::有高低 for 线段特征 {
 
 impl std::fmt::Display for 线段特征 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.元素.is_empty() {
-            write!(f, "{}<{}, 空>", self.标识, self.线段方向)
+        if self.基础序列.is_empty() {
+            write!(f, "{}<{}, 空>", self.标识.read().unwrap(), self.线段方向)
         } else {
             write!(
                 f,
                 "{}<{}, {}, {}, {}>",
-                self.标识,
+                self.标识.read().unwrap(),
                 self.线段方向,
                 self.文(),
                 self.武(),
-                self.元素.len()
+                self.基础序列.len()
             )
         }
     }
@@ -558,7 +592,7 @@ mod tests {
         let 笔1 = 辅助_创建笔(100, 100.0, 90.0, 200, 90.0, 80.0);
         let mut feat = 线段特征::new("测试".into(), vec![], 相对方向::向上);
 
-        let result = feat.添加(Arc::clone(&笔1));
+        let result = feat._添加(Arc::clone(&笔1));
         assert!(result.is_ok());
     }
 
@@ -568,7 +602,7 @@ mod tests {
         let 笔1 = 辅助_创建笔(100, 100.0, 90.0, 200, 90.0, 80.0);
         let mut feat = 线段特征::new("测试".into(), vec![], 相对方向::向下);
 
-        let result = feat.添加(Arc::clone(&笔1));
+        let result = feat._添加(Arc::clone(&笔1));
         assert!(result.is_err());
     }
 

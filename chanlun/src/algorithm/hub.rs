@@ -29,14 +29,29 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, RwLock};
 
 /// 中枢 — 三段虚线重叠区间构成的价格中枢
-/// 可变字段使用 Cell/RefCell 实现内部可变性，确保 Rc 指针身份一致
+///
+/// 可变字段使用 AtomicI64 / RwLock 实现内部可变性，确保多 Arc 共享时可修改。
+///
+/// 字段:
+/// - 序号: 中枢序号，同一级别内递增
+/// - 标识: 中枢标识，格式如 "笔中枢<0>" 或 "线段中枢<1>"
+/// - 级别: 中枢级别（笔中枢=1，线段中枢=2 等）
+/// - 基础序列: 构成中枢的虚线序列（至少 3 根，延伸后可多至 9 根甚至更多）
+/// - 第三买卖线: 第三类买卖点对应的虚线（离开中枢后不回中枢的虚线）
+/// - 本级_第三买卖线: 本级第三类买卖点对应的虚线
 #[derive(Debug)]
 pub struct 中枢 {
+    /// 中枢序号，同一级别内递增
     pub 序号: AtomicI64,
+    /// 中枢标识，格式如 "笔中枢<0>" 或 "线段中枢<1>"
     pub 标识: RwLock<String>,
+    /// 中枢级别（笔中枢=1，线段中枢=2 等）
     pub 级别: AtomicI64,
+    /// 构成中枢的虚线序列（至少 3 根，延伸后可多至 9+ 根）
     pub 基础序列: RwLock<Vec<Arc<虚线>>>,
+    /// 第三类买卖点对应的虚线（离开中枢后不回中枢的虚线）
     pub 第三买卖线: RwLock<Option<Arc<虚线>>>,
+    /// 本级第三类买卖点对应的虚线
     pub 本级_第三买卖线: RwLock<Option<Arc<虚线>>>,
 }
 
@@ -54,6 +69,7 @@ impl Clone for 中枢 {
 }
 
 impl 中枢 {
+    /// 创建新中枢（最多取前 3 根虚线作为基础序列）
     pub fn new(序号: i64, 标识: String, 级别: i64, 基础序列: Vec<Arc<虚线>>) -> Self {
         Self {
             序号: AtomicI64::new(序号),
@@ -65,12 +81,14 @@ impl 中枢 {
         }
     }
 
-    pub fn 添加虚线(&self, 实线: Arc<虚线>) {
+    /// 向基础序列尾部添加虚线（中枢延伸），并清除第三买卖线
+    pub fn _添加虚线(&self, 实线: Arc<虚线>) {
         self.基础序列.write().unwrap().push(实线);
         *self.本级_第三买卖线.write().unwrap() = None;
         *self.第三买卖线.write().unwrap() = None;
     }
 
+    /// 返回图表标题字符串，格式为 "文.标识:文.周期:中枢标识:序号"
     pub fn 图表标题(&self) -> String {
         format!(
             "{}:{}:{}:{}",
@@ -81,14 +99,17 @@ impl 中枢 {
         )
     }
 
+    /// 返回基础序列的最后一根虚线（当前离开段）
     pub fn 离开段(&self) -> Arc<虚线> {
         Arc::clone(&self.基础序列.read().unwrap()[self.基础序列.read().unwrap().len() - 1])
     }
 
+    /// 返回中枢方向（与基础序列第一段方向相反）
     pub fn 方向(&self) -> 相对方向 {
         self.基础序列.read().unwrap()[0].方向().翻转()
     }
 
+    /// 中枢上沿 = min(前三段的高)
     pub fn 高(&self) -> f64 {
         self.基础序列.read().unwrap()[..3]
             .iter()
@@ -97,6 +118,7 @@ impl 中枢 {
             .unwrap_or(0.0)
     }
 
+    /// 中枢下沿 = max(前三段的低)
     pub fn 低(&self) -> f64 {
         self.基础序列.read().unwrap()[..3]
             .iter()
@@ -105,6 +127,7 @@ impl 中枢 {
             .unwrap_or(0.0)
     }
 
+    /// 中枢最高点 = max(所有段的高)
     pub fn 高高(&self) -> f64 {
         self.基础序列
             .read()
@@ -115,6 +138,7 @@ impl 中枢 {
             .unwrap_or(0.0)
     }
 
+    /// 中枢最低点 = min(所有段的低)
     pub fn 低低(&self) -> f64 {
         self.基础序列
             .read()
@@ -125,10 +149,12 @@ impl 中枢 {
             .unwrap_or(0.0)
     }
 
+    /// 返回基础序列第一段的起点分型
     pub fn 文(&self) -> Arc<分型> {
         Arc::clone(&self.基础序列.read().unwrap()[0].文)
     }
 
+    /// 返回基础序列最后一段的终点分型
     pub fn 武(&self) -> Arc<分型> {
         Arc::clone(
             &*self.基础序列.read().unwrap()[self.基础序列.read().unwrap().len() - 1]
@@ -138,8 +164,9 @@ impl 中枢 {
         )
     }
 
-    pub fn 设置第三买卖线(&self, 线: Arc<虚线>) {
-        *self.第三买卖线.write().unwrap() = Some(线);
+    /// 设置第三类买卖点对应的虚线
+    pub fn 设置第三买卖线(&self, 线: Option<Arc<虚线>>) {
+        *self.第三买卖线.write().unwrap() = 线;
     }
 
     /// 获取序列 — 基础序列 + 第三买卖线（若有）
@@ -151,6 +178,7 @@ impl 中枢 {
         序列
     }
 
+    /// 返回序列化数据文本，用于调试和存储
     pub fn 获取数据文本(&self) -> String {
         let 第三买卖线_str = match &*self.第三买卖线.read().unwrap() {
             Some(x) => format!("{}", x),
@@ -175,7 +203,7 @@ impl 中枢 {
     }
 
     /// 校验中枢合法性
-    pub fn 校验合法性(&self, 序列: &[Arc<虚线>]) -> bool {
+    pub fn _校验合法性(&self, 序列: &[Arc<虚线>]) -> bool {
         let mut 有效序列 = self.基础序列.read().unwrap().clone();
         let mut 无效序列: Vec<Arc<虚线>> = Vec::new();
         for 元素 in self.基础序列.read().unwrap().iter() {
@@ -198,7 +226,7 @@ impl 中枢 {
         }
 
         if 有效序列.len() < 3 {
-            *self.第三买卖线.write().unwrap() = None;
+            self.设置第三买卖线(None);
             *self.本级_第三买卖线.write().unwrap() = None;
             return false;
         }
@@ -248,7 +276,7 @@ impl 中枢 {
         if let Some(ref 三买线) = 三买线_opt {
             if 序列.iter().any(|x| Arc::as_ptr(x) == Arc::as_ptr(三买线)) {
                 if !self.基础序列.read().unwrap().last().unwrap().之后是(三买线) {
-                    *self.第三买卖线.write().unwrap() = None;
+                    self.设置第三买卖线(None);
                 } else if !crate::types::相对方向::分析(
                     self.高(),
                     self.低(),
@@ -257,11 +285,11 @@ impl 中枢 {
                 )
                 .是否缺口()
                 {
-                    self.添加虚线(Arc::clone(三买线));
-                    *self.第三买卖线.write().unwrap() = None;
+                    self._添加虚线(Arc::clone(三买线));
+                    self.设置第三买卖线(None);
                 }
             } else {
-                *self.第三买卖线.write().unwrap() = None;
+                self.设置第三买卖线(None);
             }
         }
         true
@@ -359,6 +387,7 @@ impl 中枢 {
     pub fn 创建(
         左: Arc<虚线>, 中: Arc<虚线>, 右: Arc<虚线>, 级别: i64, 标识: &str
     ) -> Self {
+        debug_assert!(Self::基础检查(&左, &中, &右), "中枢.创建 基础检查失败");
         Self::new(
             0,
             format!("{}中枢<{}>", 标识, 中.标识.read().unwrap()),
@@ -367,8 +396,8 @@ impl 中枢 {
         )
     }
 
-    /// 从序列中获取中枢
-    pub fn 从序列中获取中枢(
+    /// _从序列中获取中枢
+    pub fn _从序列中获取中枢(
         虚线序列: &[Arc<虚线>],
         起始方向: 相对方向,
         标识: &str,
@@ -385,33 +414,38 @@ impl 中枢 {
         None
     }
 
-    /// 向中枢序列尾部添加
-    pub fn 向中枢序列尾部添加(
+    /// _向中枢序列尾部添加
+    pub fn _向中枢序列尾部添加(
         中枢序列: &mut Vec<Arc<中枢>>, 待添加中枢: Arc<中枢>
     ) {
         if let Some(前一个) = 中枢序列.last() {
             待添加中枢
                 .序号
                 .store(前一个.序号.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
-            // Python: assert seq[-1].获取序列()[-1].序号 <= new.获取序列()[-1].序号
-            let 前_seq = 前一个.获取序列();
-            let new_seq = 待添加中枢.获取序列();
-            if let (Some(前_last), Some(new_last)) = (前_seq.last(), new_seq.last()) {
-                if 前_last.序号.load(Ordering::Relaxed) > new_last.序号.load(Ordering::Relaxed)
-                {
-                    panic!(
-                        "向中枢序列尾部添加 序号错误 前last={} > new_last={}",
-                        前_last.序号.load(Ordering::Relaxed),
-                        new_last.序号.load(Ordering::Relaxed)
-                    );
-                }
+            let 前_last_序号 = 前一个
+                .获取序列()
+                .last()
+                .unwrap()
+                .序号
+                .load(Ordering::Relaxed);
+            let new_last_序号 = 待添加中枢
+                .获取序列()
+                .last()
+                .unwrap()
+                .序号
+                .load(Ordering::Relaxed);
+            if 前_last_序号 > new_last_序号 {
+                panic!(
+                    "向中枢序列尾部添加 序号错误 前last={} > new_last={}",
+                    前_last_序号, new_last_序号
+                );
             }
         }
         中枢序列.push(待添加中枢);
     }
 
     /// 从中枢序列尾部弹出
-    pub fn 从中枢序列尾部弹出(
+    pub fn _从中枢序列尾部弹出(
         中枢序列: &mut Vec<Arc<中枢>>,
         待弹出: &Arc<中枢>,
     ) -> Option<Arc<中枢>> {
@@ -448,7 +482,7 @@ impl 中枢 {
                     let 序号 = 虚线序列
                         .iter()
                         .position(|x| Arc::as_ptr(x) == Arc::as_ptr(左))
-                        .unwrap_or(i - 1);
+                        .expect("中枢.分析: 左元素不在虚线序列中");
                     if 跳过首部 && (左.序号.load(Ordering::Relaxed) == 0 || 序号 == 0) {
                         continue;
                     }
@@ -470,7 +504,7 @@ impl 中枢 {
                         中.级别.load(Ordering::Relaxed),
                         标识,
                     ));
-                    Self::向中枢序列尾部添加(中枢序列, 新中枢);
+                    Self::_向中枢序列尾部添加(中枢序列, 新中枢);
                     // Python: return 中枢递归分析(虚线序列, 中枢序列, ...)
                     Self::分析(虚线序列, 中枢序列, 跳过首部, 标识, _层级);
                     return;
@@ -483,10 +517,10 @@ impl 中枢 {
         let mut 当前中枢_idx = 中枢序列.len() - 1;
 
         // Validate via shared reference (中枢 uses RwLock internally)
-        let needs_pop = !中枢序列[当前中枢_idx].校验合法性(虚线序列);
+        let needs_pop = !中枢序列[当前中枢_idx]._校验合法性(虚线序列);
         if needs_pop {
             let 当前中枢 = Arc::clone(&中枢序列[当前中枢_idx]);
-            Self::从中枢序列尾部弹出(中枢序列, &当前中枢);
+            Self::_从中枢序列尾部弹出(中枢序列, &当前中枢);
             Self::分析(虚线序列, 中枢序列, 跳过首部, 标识, _层级);
             return;
         }
@@ -527,12 +561,29 @@ impl 中枢 {
                         .之后是(&当前虚线)
                 };
                 if needs_三买 {
-                    中枢序列[当前中枢_idx].设置第三买卖线(当前虚线.clone());
+                    中枢序列[当前中枢_idx].设置第三买卖线(Some(当前虚线.clone()));
                 }
             } else {
                 if 候选序列.is_empty() {
                     // 仍在范围内：延伸中枢
-                    中枢序列[当前中枢_idx].添加虚线(当前虚线);
+                    debug_assert!(
+                        中枢序列[当前中枢_idx]
+                            .基础序列
+                            .read()
+                            .unwrap()
+                            .last()
+                            .unwrap()
+                            .之后是(&当前虚线),
+                        "中枢延伸: 不连续 {}, {}",
+                        中枢序列[当前中枢_idx]
+                            .基础序列
+                            .read()
+                            .unwrap()
+                            .last()
+                            .unwrap(),
+                        当前虚线
+                    );
+                    中枢序列[当前中枢_idx]._添加虚线(当前虚线);
                 } else {
                     候选序列.push(当前虚线);
                 }
@@ -548,9 +599,9 @@ impl 中枢 {
                     .unwrap()
                     .方向()
                     .翻转();
-                match Self::从序列中获取中枢(&候选序列, 起始方向, 标识) {
+                match Self::_从序列中获取中枢(&候选序列, 起始方向, 标识) {
                     Some(新中枢) => {
-                        Self::向中枢序列尾部添加(中枢序列, 新中枢);
+                        Self::_向中枢序列尾部添加(中枢序列, 新中枢);
                         // Python: 当前中枢 = 新中枢
                         当前中枢_idx = 中枢序列.len() - 1;
                         中枢高 = 中枢序列[当前中枢_idx].高();
@@ -732,7 +783,7 @@ mod tests {
         assert_eq!(中枢.序号.load(Ordering::Relaxed), 99);
 
         // RefCell 第三买卖线读写
-        中枢.设置第三买卖线(Arc::clone(&笔1));
+        中枢.设置第三买卖线(Some(Arc::clone(&笔1)));
         assert!(中枢.第三买卖线.read().unwrap().is_some());
         assert_eq!(
             Arc::as_ptr(中枢.第三买卖线.read().unwrap().as_ref().unwrap()),
@@ -764,7 +815,7 @@ mod tests {
         );
         assert_eq!(中枢.基础序列.read().unwrap().len(), 3);
 
-        中枢.添加虚线(Arc::clone(&笔4));
+        中枢._添加虚线(Arc::clone(&笔4));
         assert_eq!(中枢.基础序列.read().unwrap().len(), 4);
         assert_eq!(
             Arc::as_ptr(&中枢.基础序列.read().unwrap()[3]),
@@ -785,12 +836,12 @@ mod tests {
             1,
             vec![Arc::clone(&笔1), Arc::clone(&笔2), Arc::clone(&笔3)],
         );
-        中枢.设置第三买卖线(Arc::clone(&笔1));
+        中枢.设置第三买卖线(Some(Arc::clone(&笔1)));
         *中枢.本级_第三买卖线.write().unwrap() = Some(Arc::clone(&笔2));
         assert!(中枢.第三买卖线.read().unwrap().is_some());
         assert!(中枢.本级_第三买卖线.read().unwrap().is_some());
 
-        中枢.添加虚线(Arc::clone(&笔4));
+        中枢._添加虚线(Arc::clone(&笔4));
         // 添加虚线后第三买卖线被清除
         assert!(中枢.第三买卖线.read().unwrap().is_none());
         assert!(中枢.本级_第三买卖线.read().unwrap().is_none());
@@ -812,7 +863,7 @@ mod tests {
             1,
             vec![Arc::clone(&笔1), Arc::clone(&笔2), Arc::clone(&笔3)],
         );
-        中枢.设置第三买卖线(Arc::clone(&笔1));
+        中枢.设置第三买卖线(Some(Arc::clone(&笔1)));
 
         let 克隆 = 中枢.clone();
 
@@ -885,7 +936,7 @@ mod tests {
         assert_eq!(中枢2.序号.load(Ordering::Relaxed), 88);
 
         // 通过 rc1 添加虚线
-        中枢1.添加虚线(Arc::clone(&笔4));
+        中枢1._添加虚线(Arc::clone(&笔4));
         assert_eq!(中枢2.基础序列.read().unwrap().len(), 4);
 
         // 验证共享的 Arc<虚线> 指针一致

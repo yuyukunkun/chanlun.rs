@@ -34,6 +34,7 @@ use crate::types::相对方向;
 use crate::utils::datetime;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
+use tracing::{error, info};
 
 /// 观察者 — 单周期分析器，持有所有层级序列，接收K线流式输入后逐层计算
 pub struct 观察者 {
@@ -76,9 +77,9 @@ pub struct 观察者 {
 }
 
 impl 观察者 {
+    /// 创建观察者，初始化所有序列为空，若配置了手动终止则解析时间戳
     pub fn new(符号: String, 周期: i64, 配置: 缠论配置) -> Arc<RwLock<Self>> {
-        let 终止时间戳 = if 配置.手动终止 != "1970-01-01 00:00:00" && !配置.手动终止.is_empty()
-        {
+        let 终止时间戳 = if !配置.手动终止.is_empty() {
             datetime::转化为时间戳(&配置.手动终止)
         } else {
             None
@@ -147,10 +148,10 @@ impl 观察者 {
 
     /// 增加原始K线 — 单根K线投喂入口
     pub fn 增加原始K线(&mut self, 普K: K线) {
-        if let Some(终止) = self.终止时间戳 {
-            if 普K.时间戳 > 终止 {
-                return;
-            }
+        if let Some(终止) = self.终止时间戳
+            && 普K.时间戳 > 终止
+        {
+            return;
         }
         self.__处理数据(普K);
     }
@@ -270,6 +271,9 @@ impl 观察者 {
         }
     }
 
+    /// 识别买卖点（占位方法，具体逻辑在子类或Rust核心中实现）
+    pub fn 识别买卖点(&self) {}
+
     /// 静态重新分析 — 遍历所有缠K重新生成分型/笔/线段
     pub fn 静态重新分析(&mut self) {
         self.分型序列.clear();
@@ -355,7 +359,7 @@ impl 观察者 {
     }
 
     /// 测试_保存数据 — 输出各序列数据文本到文件
-    pub fn 测试_保存数据(&self, root: Option<&str>) {
+    pub fn 测试_保存数据(&self, root: Option<&str>) -> String {
         let 笔序列_文本数据: Vec<String> = self.笔序列.iter().map(|b| b.获取数据文本()).collect();
         let 线段序列_文本数据: Vec<String> =
             self.线段序列.iter().map(|s| s.获取数据文本()).collect();
@@ -402,9 +406,7 @@ impl 观察者 {
         // 确定根目录
         let 根目录 = match root {
             Some(r) => std::path::PathBuf::from(r),
-            None => std::env::var("CHANLUN_DATA_DIR")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|_| std::env::temp_dir()),
+            None => std::env::temp_dir(),
         };
 
         // 生成子目录名称
@@ -414,8 +416,8 @@ impl 观察者 {
 
         let 保存路径 = 根目录.join(&目录标识);
         if let Err(e) = std::fs::create_dir_all(&保存路径) {
-            eprintln!("创建目录失败: {} -> {}", 保存路径.display(), e);
-            return;
+            error!("创建目录失败: {} -> {}", 保存路径.display(), e);
+            return String::new();
         }
 
         // 缠K data for debugging
@@ -480,11 +482,12 @@ impl 观察者 {
             let 文件路径 = 保存路径.join(format!("{}.txt", 文件名));
             let 内容 = 数据列表.join("\n") + "\n";
             if let Err(e) = std::fs::write(&文件路径, &内容) {
-                eprintln!("写入文件失败: {} -> {}", 文件路径.display(), e);
+                error!("写入文件失败: {} -> {}", 文件路径.display(), e);
             }
         }
 
-        println!("全部数据拆分保存完成，目录：{}", 保存路径.display());
+        info!("全部数据拆分保存完成，目录：{}", 保存路径.display());
+        保存路径.display().to_string()
     }
 
     /// 加载本地数据 — 从 .nb 文件加载数据到当前观察者（先重置再投喂）
@@ -552,9 +555,9 @@ mod tests {
         for (i, bi) in obs_ref.笔序列.iter().enumerate() {
             let pu_seq = bi.获取普K序列(&obs_ref.普通K线序列);
             if pu_seq.is_empty() {
-                println!("笔 {}: 获取普K序列 返回空 (fallback failed)", i);
-                println!("  文.中.标的K线 原始起始序号: {}", bi.文.中.原始起始序号);
-                println!(
+                info!("笔 {}: 获取普K序列 返回空 (fallback failed)", i);
+                info!("  文.中.标的K线 原始起始序号: {}", bi.文.中.原始起始序号);
+                info!(
                     "  武.中.标的K线 原始结束序号: {}",
                     bi.武
                         .read()
@@ -563,7 +566,7 @@ mod tests {
                         .原始结束序号
                         .load(Ordering::Relaxed)
                 );
-                println!("  普通K线序列.len: {}", obs_ref.普通K线序列.len());
+                info!("  普通K线序列.len: {}", obs_ref.普通K线序列.len());
             } else {
                 let first_ptr = Arc::as_ptr(&pu_seq[0]);
                 let found = obs_ref
@@ -571,15 +574,15 @@ mod tests {
                     .iter()
                     .any(|k| Arc::as_ptr(k) == first_ptr);
                 if !found {
-                    println!("笔 {}: 获取普K序列[0] 的 Rc 指针不在 普通K线序列 中!", i);
+                    info!("笔 {}: 获取普K序列[0] 的 Rc 指针不在 普通K线序列 中!", i);
                     let wen_ptr = Arc::as_ptr(&*bi.文.中.标的K线.read().unwrap());
                     let wen_found = obs_ref
                         .普通K线序列
                         .iter()
                         .any(|k| Arc::as_ptr(k) == wen_ptr);
-                    println!("  文.中.标的K线 在序列中: {}", wen_found);
+                    info!("  文.中.标的K线 在序列中: {}", wen_found);
                 } else {
-                    println!("笔 {}: OK, 获取普K序列[0] 在序列中找到", i);
+                    info!("笔 {}: OK, 获取普K序列[0] 在序列中找到", i);
                 }
             }
         }
@@ -602,21 +605,21 @@ mod tests {
         }
 
         let obs = obs_ref.read().unwrap();
-        println!("普通K线序列.len: {}", obs.普通K线序列.len());
-        println!("笔序列.len: {}", obs.笔序列.len());
+        info!("普通K线序列.len: {}", obs.普通K线序列.len());
+        info!("笔序列.len: {}", obs.笔序列.len());
 
         for (i, bi) in obs.笔序列.iter().enumerate() {
             let pu_seq = bi.获取普K序列(&obs.普通K线序列);
             if pu_seq.is_empty() {
-                println!("笔 {}: 获取普K序列 返回空!", i);
+                info!("笔 {}: 获取普K序列 返回空!", i);
             } else {
                 let first_ptr = Arc::as_ptr(&pu_seq[0]);
                 let found = obs.普通K线序列.iter().any(|k| Arc::as_ptr(k) == first_ptr);
                 if !found {
-                    println!("笔 {}: 获取普K序列[0] 指针不在序列中!", i);
+                    info!("笔 {}: 获取普K序列[0] 指针不在序列中!", i);
                 }
                 if i < 5 {
-                    println!("笔 {}: OK, len={}", i, pu_seq.len());
+                    info!("笔 {}: OK, len={}", i, pu_seq.len());
                 }
             }
         }
@@ -640,13 +643,13 @@ mod tests {
             let 文_ptr = Arc::as_ptr(&bi.文);
             let 文_found = obs_ref.分型序列.iter().any(|f| Arc::as_ptr(f) == 文_ptr);
             if !文_found {
-                println!("笔 {}: 文(时间戳={}) 不在分型序列中!", i, bi.文.时间戳());
+                info!("笔 {}: 文(时间戳={}) 不在分型序列中!", i, bi.文.时间戳());
             }
 
             let 武_ptr = Arc::as_ptr(&*bi.武.read().unwrap());
             let 武_found = obs_ref.分型序列.iter().any(|f| Arc::as_ptr(f) == 武_ptr);
             if !武_found {
-                println!(
+                info!(
                     "笔 {}: 武(时间戳={}) 不在分型序列中!",
                     i,
                     bi.武.read().unwrap().时间戳()
@@ -674,7 +677,7 @@ mod tests {
                 let bi_ptr = Arc::as_ptr(bi_in_seg);
                 let found = obs_ref.笔序列.iter().any(|b| Arc::as_ptr(b) == bi_ptr);
                 if !found {
-                    println!("线段 {} 的基础序列[{}] 不在笔序列中!", i, j);
+                    info!("线段 {} 的基础序列[{}] 不在笔序列中!", i, j);
                 }
             }
         }
@@ -698,7 +701,7 @@ mod tests {
                 let bi_ptr = Arc::as_ptr(bi_in_hub);
                 let found = obs_ref.笔序列.iter().any(|b| Arc::as_ptr(b) == bi_ptr);
                 if !found {
-                    println!("笔中枢 {} 的基础序列[{}] 不在笔序列中!", i, j);
+                    info!("笔中枢 {} 的基础序列[{}] 不在笔序列中!", i, j);
                 }
             }
         }
@@ -708,7 +711,7 @@ mod tests {
                 let seg_ptr = Arc::as_ptr(seg_in_hub);
                 let found = obs_ref.线段序列.iter().any(|s| Arc::as_ptr(s) == seg_ptr);
                 if !found {
-                    println!("线段中枢 {} 的基础序列[{}] 不在线段序列中!", i, j);
+                    info!("线段中枢 {} 的基础序列[{}] 不在线段序列中!", i, j);
                 }
             }
         }
@@ -749,7 +752,7 @@ mod tests {
         assert_eq!(中枢1, 中枢2, "重复计算中枢数不一致");
         assert_eq!(笔中枢1, 笔中枢2, "重复计算笔中枢数不一致");
 
-        println!(
+        info!(
             "两次计算结果一致: 笔={}, 线段={}, 中枢={}, 笔中枢={}",
             笔数1, 段数1, 中枢1, 笔中枢1
         );
@@ -795,7 +798,7 @@ mod tests {
 
         assert_eq!(第一次笔数, 第二次笔数, "重置后重新投喂笔数不一致");
         assert_eq!(第一次段数, 第二次段数, "重置后重新投喂线段数不一致");
-        println!("重置后重投一致: 笔={}, 线段={}", 第一次笔数, 第一次段数);
+        info!("重置后重投一致: 笔={}, 线段={}", 第一次笔数, 第一次段数);
     }
 
     // ============================================================
@@ -882,14 +885,14 @@ mod tests {
             let 中_ptr = Arc::as_ptr(&f.中);
             let 中_found = obs_ref.缠论K线序列.iter().any(|k| Arc::as_ptr(k) == 中_ptr);
             if !中_found {
-                println!("分型 {} 的 中(时间戳={}) 不在缠论K线序列中!", i, f.时间戳);
+                info!("分型 {} 的 中(时间戳={}) 不在缠论K线序列中!", i, f.时间戳);
             }
 
             if let Some(ref 左) = f.左 {
                 let 左_ptr = Arc::as_ptr(左);
                 let 左_found = obs_ref.缠论K线序列.iter().any(|k| Arc::as_ptr(k) == 左_ptr);
                 if !左_found {
-                    println!("分型 {} 的 左 不在缠论K线序列中!", i);
+                    info!("分型 {} 的 左 不在缠论K线序列中!", i);
                 }
             }
 
@@ -897,7 +900,7 @@ mod tests {
                 let 右_ptr = Arc::as_ptr(右);
                 let 右_found = obs_ref.缠论K线序列.iter().any(|k| Arc::as_ptr(k) == 右_ptr);
                 if !右_found {
-                    println!("分型 {} 的 右 不在缠论K线序列中!", i);
+                    info!("分型 {} 的 右 不在缠论K线序列中!", i);
                 }
             }
         }

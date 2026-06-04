@@ -25,13 +25,13 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::sync::atomic::Ordering;
 
 use crate::algorithm_py::hub_to_py;
 use crate::config_py::缠论配置Py;
-use crate::kline_py::{bar_to_py, 缠论K线Py, K线Py};
+use crate::kline_py::{K线Py, bar_to_py, 缠论K线Py};
 
 // ---- 身份缓存 (弱引用：通过 refcnt 检测存活，仅缓存持有则视为过期) ----
 
@@ -41,8 +41,6 @@ static FRACTAL_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<分型Py>>
 static DASHED_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<虚线Py>>>> =
     std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 static SEGFEAT_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<线段特征Py>>>> =
-    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
-static FEATFRAC_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<特征分型Py>>>> =
     std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub(crate) fn fractal_to_py(
@@ -121,30 +119,6 @@ pub(crate) fn segfeat_to_py(
     obj
 }
 
-pub(crate) fn featfrac_to_py(
-    py: Python<'_>,
-    inner: Arc<chanlun::structure::feat_fractal::特征分型>,
-) -> Py<特征分型Py> {
-    let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) = FEATFRAC_IDENTITY
-        .read()
-        .unwrap()
-        .get(&key)
-        .map(|p| p.clone_ref(py))
-    {
-        return cached;
-    }
-    FEATFRAC_IDENTITY
-        .write()
-        .unwrap()
-        .retain(|_, v| v.get_refcnt(py) > 1);
-    let obj = Py::new(py, 特征分型Py { inner }).unwrap();
-    FEATFRAC_IDENTITY
-        .write()
-        .unwrap()
-        .insert(key, obj.clone_ref(py));
-    obj
-}
 use crate::types_py::{分型结构Py, 相对方向Py, 缺口Py};
 
 // ========== 分型 ==========
@@ -208,17 +182,7 @@ impl 分型Py {
 
     #[getter]
     fn 结构(&self, py: Python<'_>) -> Py<分型结构Py> {
-        let inner = if chanlun::structure::fractal_obj::分型模式.load(Ordering::Relaxed) {
-            self.inner.结构
-        } else {
-            self.inner
-                .中
-                .分型
-                .read()
-                .unwrap()
-                .unwrap_or(chanlun::types::分型结构::散)
-        };
-        crate::types_py::获取分型结构单例(py, inner)
+        crate::types_py::获取分型结构单例(py, self.inner.结构())
     }
 
     #[getter]
@@ -228,11 +192,25 @@ impl 分型Py {
 
     #[getter]
     fn 分型特征值(&self) -> f64 {
-        if chanlun::structure::fractal_obj::分型模式.load(Ordering::Relaxed) {
-            self.inner.分型特征值
-        } else {
-            self.inner.中.分型特征值.get()
-        }
+        self.inner.分型特征值()
+    }
+
+    #[getter]
+    /// 构造时缓存的 _结构（不受 分型模式 影响）
+    fn _结构(&self, py: Python<'_>) -> Py<分型结构Py> {
+        crate::types_py::获取分型结构单例(py, self.inner.结构)
+    }
+
+    #[getter]
+    /// 构造时缓存的 _时间戳（不受 分型模式 影响）
+    fn _时间戳(&self) -> i64 {
+        self.inner.时间戳
+    }
+
+    #[getter]
+    /// 构造时缓存的 _分型特征值（不受 分型模式 影响）
+    fn _分型特征值(&self) -> f64 {
+        self.inner.分型特征值
     }
 
     fn __str__(&self) -> String {
@@ -448,9 +426,14 @@ impl 虚线Py {
         self.inner.模式.read().unwrap().clone()
     }
 
-    #[getter]
-    fn _特征序列_显示(&self) -> bool {
+    #[getter(_特征序列_显示)]
+    fn get_特征序列_显示(&self) -> bool {
         self.inner._特征序列_显示.load(Ordering::Relaxed)
+    }
+
+    #[setter(_特征序列_显示)]
+    fn set_特征序列_显示(&mut self, value: bool) {
+        self.inner._特征序列_显示.store(value, Ordering::Relaxed);
     }
 
     #[getter]
@@ -997,15 +980,10 @@ impl 虚线Py {
 ///   文: 分型 — 特征序列的起点分型
 ///   武: 分型 — 特征序列的终点分型
 ///   方向: 相对方向 / 高: float / 低: float
-///
-/// 方法:
-///   添加(虚线) — 向特征序列追加虚线元素
-///   删除(虚线) — 从特征序列移除虚线元素
+///   基本序列: list[虚线] (基础序列)
 ///
 /// 类方法:
-///   新建(序号, 文, 武, 基础序列?) -> 线段特征
-///   静态分析(虚线序列, 配置) -> 线段特征|None
-///   获取分型序列(虚线序列, 配置) -> list[线段特征]
+///   :meth:`静态分析` — 对虚线序列进行静态特征分析，返回 线段特征 列表
 #[pyclass(name = "线段特征", module = "chanlun._chanlun", from_py_object)]
 #[derive(Clone)]
 pub struct 线段特征Py {
@@ -1014,28 +992,6 @@ pub struct 线段特征Py {
 
 #[pymethods]
 impl 线段特征Py {
-    #[new]
-    fn new(
-        标识: String,
-        基础序列: Vec<Py<虚线Py>>,
-        线段方向: &Bound<'_, 相对方向Py>,
-        py: Python<'_>,
-    ) -> Self {
-        let rc_list: Vec<Arc<chanlun::structure::dash_line::虚线>> = 基础序列
-            .iter()
-            .map(|d| Arc::clone(&d.bind(py).borrow().inner))
-            .collect();
-        Self {
-            inner: Arc::new(chanlun::structure::segment_feat::线段特征::new(
-                标识,
-                rc_list,
-                线段方向.borrow().inner,
-            )),
-        }
-    }
-
-    // ---- getters ----
-
     #[getter]
     fn 序号(&self) -> i64 {
         self.inner.序号
@@ -1043,7 +999,12 @@ impl 线段特征Py {
 
     #[getter]
     fn 标识(&self) -> String {
-        self.inner.标识.clone()
+        self.inner.标识.read().unwrap().clone()
+    }
+
+    #[setter]
+    fn set_标识(&self, value: String) {
+        *self.inner.标识.write().unwrap() = value;
     }
 
     #[getter]
@@ -1052,9 +1013,9 @@ impl 线段特征Py {
     }
 
     #[getter]
-    fn 元素(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn 基础序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for d in &self.inner.元素 {
+        for d in &self.inner.基础序列 {
             list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
@@ -1067,55 +1028,6 @@ impl 线段特征Py {
     fn __repr__(&self) -> String {
         self.__str__()
     }
-
-    fn __len__(&self) -> usize {
-        self.inner.元素.len()
-    }
-
-    fn __getitem__(&self, index: isize, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let len = self.inner.元素.len() as isize;
-        let idx = if index < 0 { index + len } else { index };
-        if idx < 0 || idx >= len {
-            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
-                "线段特征 index {index} out of range (len={len})"
-            )));
-        }
-        let dash = &self.inner.元素[idx as usize];
-        let obj: Py<PyAny> = dashed_to_py(py, Arc::clone(dash)).into();
-        Ok(obj)
-    }
-
-    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let list = pyo3::types::PyList::empty(py);
-        for d in &self.inner.元素 {
-            list.append(dashed_to_py(py, Arc::clone(d)))?;
-        }
-        list.call_method0("__iter__").map(|iter| iter.into())
-    }
-
-    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
-            return Arc::as_ptr(&self.inner) == Arc::as_ptr(&other.inner);
-        }
-        false
-    }
-
-    fn __hash__(&self) -> u64 {
-        Arc::as_ptr(&self.inner) as u64
-    }
-
-    /// pandas 兼容 — 返回关键标量字段构成的字典
-    #[getter]
-    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let dict = PyDict::new(py);
-        dict.set_item("序号", self.序号())?;
-        dict.set_item("标识", self.标识())?;
-        dict.set_item("线段方向", self.线段方向(py))?;
-        dict.set_item("图表标题", self.图表标题())?;
-        Ok(dict.into())
-    }
-
-    // ---- instance methods ----
 
     #[getter]
     /// :return: 图表标题
@@ -1153,47 +1065,8 @@ impl 线段特征Py {
         self.inner.低()
     }
 
-    /// :param 待添加虚线: 待添加的虚线
-    fn 添加(&mut self, 待添加虚线: &Bound<'_, 虚线Py>) -> PyResult<()> {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner
-            .添加(Arc::clone(&待添加虚线.borrow().inner))
-            .map_err(pyo3::exceptions::PyValueError::new_err)
-    }
-
-    /// :param 待删除虚线: 待删除的虚线
-    fn 删除(&mut self, 待删除虚线: &Bound<'_, 虚线Py>) -> PyResult<()> {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner
-            .删除(&Arc::clone(&待删除虚线.borrow().inner))
-            .map_err(pyo3::exceptions::PyValueError::new_err)
-    }
-
-    // ---- classmethods ----
-
-    #[classmethod]
-    /// :param 虚线序列: 基础虚线列表
-    fn 新建(
-        _cls: &Bound<'_, PyType>,
-        虚线序列: Vec<Py<虚线Py>>,
-        线段方向: &Bound<'_, 相对方向Py>,
-        py: Python<'_>,
-    ) -> Self {
-        let rc_list: Vec<Arc<chanlun::structure::dash_line::虚线>> = 虚线序列
-            .iter()
-            .map(|d| Arc::clone(&d.bind(py).borrow().inner))
-            .collect();
-        Self {
-            inner: Arc::new(chanlun::structure::segment_feat::线段特征::新建(
-                rc_list,
-                线段方向.borrow().inner,
-            )),
-        }
-    }
-
     #[classmethod]
     #[pyo3(signature = (虚线序列, 线段方向, 四象, 是否忽视 = false))]
-    /// 静态分析虚线序列，生成特征序列
     fn 静态分析(
         _cls: &Bound<'_, PyType>,
         虚线序列: Vec<Py<虚线Py>>,
@@ -1201,117 +1074,22 @@ impl 线段特征Py {
         四象: &str,
         是否忽视: bool,
         py: Python<'_>,
-    ) -> Vec<Self> {
+    ) -> PyResult<Py<PyAny>> {
         let rc_list: Vec<Arc<chanlun::structure::dash_line::虚线>> = 虚线序列
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
             .collect();
-        chanlun::structure::segment_feat::线段特征::静态分析(
+        let result = chanlun::structure::segment_feat::线段特征::静态分析(
             &rc_list,
             线段方向.borrow().inner,
             四象,
             是否忽视,
-        )
-        .into_iter()
-        .map(|inner| Self { inner })
-        .collect()
-    }
-
-    #[classmethod]
-    /// 从特征序列提取特征分型序列
-    fn 获取分型序列(
-        _cls: &Bound<'_, PyType>,
-        特征序列: Vec<Py<Self>>,
-        py: Python<'_>,
-    ) -> Vec<Py<特征分型Py>> {
-        let rc_list: Vec<Arc<chanlun::structure::segment_feat::线段特征>> = 特征序列
-            .iter()
-            .map(|s| Arc::clone(&s.bind(py).borrow().inner))
-            .collect();
-        chanlun::structure::segment_feat::线段特征::获取分型序列(&rc_list)
-            .into_iter()
-            .map(|inner| featfrac_to_py(py, Arc::new(inner)))
-            .collect()
-    }
-}
-
-// ========== 特征分型 ==========
-
-/// 特征分型 — 线段特征序列中的分型节点。
-///
-/// 属性 (只读):
-///   左: 线段特征|None / 中: 线段特征 / 右: 线段特征|None
-///   结构: 分型结构 — 顶/底分型判定结果
-#[pyclass(name = "特征分型", module = "chanlun._chanlun", from_py_object)]
-#[derive(Clone)]
-pub struct 特征分型Py {
-    pub(crate) inner: Arc<chanlun::structure::feat_fractal::特征分型>,
-}
-
-#[pymethods]
-impl 特征分型Py {
-    #[new]
-    fn new(
-        左: &Bound<'_, 线段特征Py>,
-        中: &Bound<'_, 线段特征Py>,
-        右: &Bound<'_, 线段特征Py>,
-        结构: &Bound<'_, 分型结构Py>,
-    ) -> Self {
-        Self {
-            inner: Arc::new(chanlun::structure::feat_fractal::特征分型::new(
-                Arc::clone(&左.borrow().inner),
-                Arc::clone(&中.borrow().inner),
-                Arc::clone(&右.borrow().inner),
-                结构.borrow().inner,
-            )),
+        );
+        let list = pyo3::types::PyList::empty(py);
+        for sf in result {
+            list.append(segfeat_to_py(py, sf))?;
         }
-    }
-
-    #[getter]
-    fn 左(&self, py: Python<'_>) -> Py<线段特征Py> {
-        segfeat_to_py(py, Arc::clone(&self.inner.左))
-    }
-
-    #[getter]
-    fn 中(&self, py: Python<'_>) -> Py<线段特征Py> {
-        segfeat_to_py(py, Arc::clone(&self.inner.中))
-    }
-
-    #[getter]
-    fn 右(&self, py: Python<'_>) -> Py<线段特征Py> {
-        segfeat_to_py(py, Arc::clone(&self.inner.右))
-    }
-
-    #[getter]
-    fn 结构(&self, py: Python<'_>) -> Py<分型结构Py> {
-        crate::types_py::获取分型结构单例(py, self.inner.结构)
-    }
-
-    /// pandas 兼容 — 返回关键标量字段构成的字典
-    #[getter]
-    fn __dict__(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let dict = PyDict::new(py);
-        dict.set_item("结构", self.结构(py))?;
-        Ok(dict.into())
-    }
-
-    fn __str__(&self) -> String {
-        format!("{}", self.inner)
-    }
-
-    fn __repr__(&self) -> String {
-        self.__str__()
-    }
-
-    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
-            return Arc::as_ptr(&self.inner) == Arc::as_ptr(&other.inner);
-        }
-        false
-    }
-
-    fn __hash__(&self) -> u64 {
-        Arc::as_ptr(&self.inner) as u64
+        Ok(list.into())
     }
 }
 
@@ -1319,6 +1097,5 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<分型Py>()?;
     m.add_class::<虚线Py>()?;
     m.add_class::<线段特征Py>()?;
-    m.add_class::<特征分型Py>()?;
     Ok(())
 }

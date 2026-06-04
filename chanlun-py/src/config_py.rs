@@ -25,6 +25,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
 use std::collections::HashMap;
+use tracing::warn;
 
 /// 缠论配置 — 控制所有分析阶段行为的参数集（共 60+ 字段，均有默认值）。
 ///
@@ -344,17 +345,17 @@ fn dict_to_rust_config(
 
         // 用默认值做基准，只合并类型匹配的字段
         let mut merged = default_json.clone();
-        if let serde_json::Value::Object(ref input_map) = value {
-            if let serde_json::Value::Object(ref default_map) = default_json {
-                for (key, input_val) in input_map {
-                    if let Some(default_val) = default_map.get(key) {
-                        match validate_field(key, input_val, default_val) {
-                            Ok(()) => {
-                                merged[key] = input_val.clone();
-                            }
-                            Err(msg) => {
-                                eprintln!("\x1b[33m[配置警告]\x1b[m {key}: {msg}，已使用默认值 {default_val}");
-                            }
+        if let serde_json::Value::Object(ref input_map) = value
+            && let serde_json::Value::Object(ref default_map) = default_json
+        {
+            for (key, input_val) in input_map {
+                if let Some(default_val) = default_map.get(key) {
+                    match validate_field(key, input_val, default_val) {
+                        Ok(()) => {
+                            merged[key] = input_val.clone();
+                        }
+                        Err(msg) => {
+                            warn!("[配置警告] {key}: {msg}，已使用默认值 {default_val}");
                         }
                     }
                 }
@@ -453,10 +454,10 @@ fn coerce_strings_to_numbers(value: &mut serde_json::Value) {
             if let Ok(n) = cloned.parse::<i64>() {
                 *value = serde_json::Value::Number(serde_json::Number::from(n));
             } else if let Ok(n) = cloned.parse::<f64>() {
-                if n.is_finite() {
-                    if let Some(num) = serde_json::Number::from_f64(n) {
-                        *value = serde_json::Value::Number(num);
-                    }
+                if n.is_finite()
+                    && let Some(num) = serde_json::Number::from_f64(n)
+                {
+                    *value = serde_json::Value::Number(num);
                 }
             } else if cloned.eq_ignore_ascii_case("true") {
                 *value = serde_json::Value::Bool(true);
@@ -495,10 +496,10 @@ fn coerce_py_value(value: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     if let Ok(n) = lower.parse::<i64>() {
         return Ok(n.into_pyobject(py)?.into_any().unbind());
     }
-    if let Ok(n) = lower.parse::<f64>() {
-        if n.is_finite() {
-            return Ok(n.into_pyobject(py)?.into_any().unbind());
-        }
+    if let Ok(n) = lower.parse::<f64>()
+        && n.is_finite()
+    {
+        return Ok(n.into_pyobject(py)?.into_any().unbind());
     }
 
     Ok(value.clone().unbind())

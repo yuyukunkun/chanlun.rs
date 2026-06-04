@@ -1,7 +1,7 @@
 [package]
 name = "chanlun-py"
-version = "26.5.103"
-edition = "2021"
+version = "26.6.17"
+edition = "2024"
 description = "缠论技术分析库 — Rust 高性能 Python 绑定"
 authors = ["YuYuKunKun"]
 license = "MIT"
@@ -12,7 +12,10 @@ crate-type = ["cdylib"]
 name = "chanlun"
 
 [dependencies]
-chanlun = "26.5.6" # { path = "../chanlun" }
+chanlun = "26.6.1" # { path = "../chanlun" }
 pyo3 = { version = "0.28", features = ["experimental-inspect"] }
 serde_json = "1"
 chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "ansi", "std", "registry"] }
+tracing-core = "0.1"

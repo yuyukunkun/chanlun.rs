@@ -27,7 +27,7 @@ use std::sync::Mutex;
 
 use pyo3::basic::CompareOp;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyType};
+use pyo3::types::{PyBool, PyDict, PyType};
 
 // ========== 单例缓存 ==========
 
@@ -123,18 +123,22 @@ impl 买卖点类型Py {
         self.inner.to_string()
     }
 
-    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
+    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<Py<PyAny>> {
+        let py = other.py();
+        // 比较：先尝试字符串（Python Enum(str)），再同类型，再 name 属性
         let eq = if let Ok(s) = other.extract::<String>() {
             self.inner.to_string() == s
         } else if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
             self.inner == other.inner
+        } else if let Ok(py_name) = other.getattr("name").and_then(|n| n.extract::<String>()) {
+            self.inner.to_string() == py_name
         } else {
-            return Err(pyo3::exceptions::PyNotImplementedError::new_err(""));
+            return Ok(py.NotImplemented());
         };
         match op {
-            CompareOp::Eq => Ok(eq),
-            CompareOp::Ne => Ok(!eq),
-            _ => Err(pyo3::exceptions::PyNotImplementedError::new_err("")),
+            CompareOp::Eq => Ok(PyBool::new(py, eq).as_any().to_owned().unbind()),
+            CompareOp::Ne => Ok(PyBool::new(py, !eq).as_any().to_owned().unbind()),
+            _ => Ok(py.NotImplemented()),
         }
     }
 
@@ -203,19 +207,44 @@ impl 相对方向Py {
         format!("{}", self.inner)
     }
 
-    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
-        let Ok(other) = other.extract::<PyRef<'_, Self>>() else {
-            return Err(pyo3::exceptions::PyNotImplementedError::new_err(""));
-        };
-        let eq = self.inner == other.inner;
-        match op {
-            CompareOp::Eq => Ok(eq),
-            CompareOp::Ne => Ok(!eq),
-            CompareOp::Lt => Ok((self.inner as u8) < (other.inner as u8)),
-            CompareOp::Le => Ok((self.inner as u8) <= (other.inner as u8)),
-            CompareOp::Gt => Ok((self.inner as u8) > (other.inner as u8)),
-            CompareOp::Ge => Ok((self.inner as u8) >= (other.inner as u8)),
+    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<Py<PyAny>> {
+        let py = other.py();
+        // 同类型比较
+        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
+            let eq = self.inner == other.inner;
+            return Ok(match op {
+                CompareOp::Eq => PyBool::new(py, eq).as_any().to_owned().unbind(),
+                CompareOp::Ne => PyBool::new(py, !eq).as_any().to_owned().unbind(),
+                CompareOp::Lt => PyBool::new(py, (self.inner as u8) < (other.inner as u8))
+                    .as_any()
+                    .to_owned()
+                    .unbind(),
+                CompareOp::Le => PyBool::new(py, (self.inner as u8) <= (other.inner as u8))
+                    .as_any()
+                    .to_owned()
+                    .unbind(),
+                CompareOp::Gt => PyBool::new(py, (self.inner as u8) > (other.inner as u8))
+                    .as_any()
+                    .to_owned()
+                    .unbind(),
+                CompareOp::Ge => PyBool::new(py, (self.inner as u8) >= (other.inner as u8))
+                    .as_any()
+                    .to_owned()
+                    .unbind(),
+            });
         }
+        // 跨模块比较：通过 name 属性匹配 Python Enum（如 chan.chan.相对方向）
+        if let Ok(py_name) = other.getattr("name").and_then(|n| n.extract::<String>()) {
+            let self_name = format!("{:?}", self.inner);
+            let eq = self_name == py_name;
+            return Ok(match op {
+                CompareOp::Eq => PyBool::new(py, eq).as_any().to_owned().unbind(),
+                CompareOp::Ne => PyBool::new(py, !eq).as_any().to_owned().unbind(),
+                _ => py.NotImplemented(),
+            });
+        }
+        // 回退：返回 Python NotImplemented
+        Ok(py.NotImplemented())
     }
 
     fn __hash__(&self) -> u64 {
@@ -315,19 +344,43 @@ impl 分型结构Py {
         self.inner.to_string()
     }
 
-    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
-        let Ok(other) = other.extract::<PyRef<'_, Self>>() else {
-            return Err(pyo3::exceptions::PyNotImplementedError::new_err(""));
-        };
-        let eq = self.inner == other.inner;
-        match op {
-            CompareOp::Eq => Ok(eq),
-            CompareOp::Ne => Ok(!eq),
-            CompareOp::Lt => Ok((self.inner as u8) < (other.inner as u8)),
-            CompareOp::Le => Ok((self.inner as u8) <= (other.inner as u8)),
-            CompareOp::Gt => Ok((self.inner as u8) > (other.inner as u8)),
-            CompareOp::Ge => Ok((self.inner as u8) >= (other.inner as u8)),
+    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<Py<PyAny>> {
+        let py = other.py();
+        // 同类型比较
+        if let Ok(other) = other.extract::<PyRef<'_, Self>>() {
+            let eq = self.inner == other.inner;
+            return Ok(match op {
+                CompareOp::Eq => PyBool::new(py, eq).as_any().to_owned().unbind(),
+                CompareOp::Ne => PyBool::new(py, !eq).as_any().to_owned().unbind(),
+                CompareOp::Lt => PyBool::new(py, (self.inner as u8) < (other.inner as u8))
+                    .as_any()
+                    .to_owned()
+                    .unbind(),
+                CompareOp::Le => PyBool::new(py, (self.inner as u8) <= (other.inner as u8))
+                    .as_any()
+                    .to_owned()
+                    .unbind(),
+                CompareOp::Gt => PyBool::new(py, (self.inner as u8) > (other.inner as u8))
+                    .as_any()
+                    .to_owned()
+                    .unbind(),
+                CompareOp::Ge => PyBool::new(py, (self.inner as u8) >= (other.inner as u8))
+                    .as_any()
+                    .to_owned()
+                    .unbind(),
+            });
         }
+        // 跨模块比较：通过 name 属性匹配 Python Enum（如 chan.chan.分型结构）
+        if let Ok(py_name) = other.getattr("name").and_then(|n| n.extract::<String>()) {
+            let self_name = self.inner.to_string();
+            let eq = self_name == py_name;
+            return Ok(match op {
+                CompareOp::Eq => PyBool::new(py, eq).as_any().to_owned().unbind(),
+                CompareOp::Ne => PyBool::new(py, !eq).as_any().to_owned().unbind(),
+                _ => py.NotImplemented(),
+            });
+        }
+        Ok(py.NotImplemented())
     }
 
     fn __hash__(&self) -> u64 {
@@ -374,41 +427,17 @@ impl 分型结构Py {
         let (中高, 中低) = get_hl(中)?;
         let (右高, 右低) = get_hl(右)?;
 
-        let 左中关系 = chanlun::types::相对方向::分析(左高, 左低, 中高, 中低);
-        let 中右关系 = chanlun::types::相对方向::分析(中高, 中低, 右高, 右低);
-
-        let 向上类 = |d: chanlun::types::相对方向| d.是否向上();
-        let 向下类 = |d: chanlun::types::相对方向| d.是否向下();
-
-        let result = match (左中关系, 中右关系) {
-            (d1, d2) if matches!(d1, chanlun::types::相对方向::顺) && !忽视顺序包含 => {
-                panic!("顺序包含: {:?} {:?}", d1, d2);
-            }
-            (d1, d2) if matches!(d2, chanlun::types::相对方向::顺) && !忽视顺序包含 => {
-                panic!("顺序包含: {:?} {:?}", d1, d2);
-            }
-            (a, b) if 向上类(a) && 向上类(b) => chanlun::types::分型结构::上,
-            (a, b) if 向上类(a) && 向下类(b) => chanlun::types::分型结构::顶,
-            (a, chanlun::types::相对方向::逆) if 向上类(a) && 可以逆序包含 => {
-                chanlun::types::分型结构::上
-            }
-            (a, b) if 向下类(a) && 向上类(b) => chanlun::types::分型结构::底,
-            (a, b) if 向下类(a) && 向下类(b) => chanlun::types::分型结构::下,
-            (a, chanlun::types::相对方向::逆) if 向下类(a) && 可以逆序包含 => {
-                chanlun::types::分型结构::下
-            }
-            (chanlun::types::相对方向::逆, a) if 向上类(a) && 可以逆序包含 => {
-                chanlun::types::分型结构::底
-            }
-            (chanlun::types::相对方向::逆, a) if 向下类(a) && 可以逆序包含 => {
-                chanlun::types::分型结构::顶
-            }
-            (chanlun::types::相对方向::逆, chanlun::types::相对方向::逆) if 可以逆序包含 => {
-                chanlun::types::分型结构::散
-            }
-            _ => return Ok(None),
-        };
-        Ok(Some(Self { inner: result }))
+        Ok(chanlun::types::分型结构::分析_内部(
+            左高,
+            左低,
+            中高,
+            中低,
+            右高,
+            右低,
+            可以逆序包含,
+            忽视顺序包含,
+        )
+        .map(|inner| Self { inner }))
     }
 }
 
@@ -451,23 +480,35 @@ impl 缺口Py {
         format!("{}", self.inner)
     }
 
-    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
+    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<Py<PyAny>> {
+        let py = other.py();
         let Ok(other) = other.extract::<PyRef<'_, Self>>() else {
-            return Err(pyo3::exceptions::PyNotImplementedError::new_err(""));
+            return Ok(py.NotImplemented());
         };
+        let to_bool = |b: bool| PyBool::new(py, b).as_any().to_owned().unbind();
         match op {
-            CompareOp::Eq => Ok(self.inner.高 == other.inner.高 && self.inner.低 == other.inner.低),
-            CompareOp::Ne => {
-                Ok(!(self.inner.高 == other.inner.高 && self.inner.低 == other.inner.低))
-            }
-            CompareOp::Lt => Ok(self.inner.高 < other.inner.高
-                || (self.inner.高 == other.inner.高 && self.inner.低 < other.inner.低)),
-            CompareOp::Le => Ok(self.inner.高 < other.inner.高
-                || (self.inner.高 == other.inner.高 && self.inner.低 <= other.inner.低)),
-            CompareOp::Gt => Ok(self.inner.高 > other.inner.高
-                || (self.inner.高 == other.inner.高 && self.inner.低 > other.inner.低)),
-            CompareOp::Ge => Ok(self.inner.高 > other.inner.高
-                || (self.inner.高 == other.inner.高 && self.inner.低 >= other.inner.低)),
+            CompareOp::Eq => Ok(to_bool(
+                self.inner.高 == other.inner.高 && self.inner.低 == other.inner.低,
+            )),
+            CompareOp::Ne => Ok(to_bool(
+                !(self.inner.高 == other.inner.高 && self.inner.低 == other.inner.低),
+            )),
+            CompareOp::Lt => Ok(to_bool(
+                self.inner.高 < other.inner.高
+                    || (self.inner.高 == other.inner.高 && self.inner.低 < other.inner.低),
+            )),
+            CompareOp::Le => Ok(to_bool(
+                self.inner.高 < other.inner.高
+                    || (self.inner.高 == other.inner.高 && self.inner.低 <= other.inner.低),
+            )),
+            CompareOp::Gt => Ok(to_bool(
+                self.inner.高 > other.inner.高
+                    || (self.inner.高 == other.inner.高 && self.inner.低 > other.inner.低),
+            )),
+            CompareOp::Ge => Ok(to_bool(
+                self.inner.高 > other.inner.高
+                    || (self.inner.高 == other.inner.高 && self.inner.低 >= other.inner.低),
+            )),
         }
     }
 

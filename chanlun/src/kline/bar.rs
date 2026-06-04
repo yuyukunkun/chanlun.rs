@@ -22,30 +22,68 @@
  * SOFTWARE.
  */
 
-use crate::indicators::{平滑异同移动平均线, 相对强弱指数, 随机指标};
+use crate::indicators::指标容器;
 use crate::types::相对方向;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-/// 原始K线 (OHLCV + 指标)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+mod rwlock_container_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::sync::RwLock;
+
+    /// Serde 序列化辅助（RwLock<指标容器> → 序列化器）
+    pub fn serialize<S>(
+        val: &RwLock<crate::indicators::指标容器>,
+        ser: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        val.read().unwrap().serialize(ser)
+    }
+
+    /// Serde 反序列化辅助（反序列化器 → RwLock<指标容器>）
+    pub fn deserialize<'de, D>(de: D) -> Result<RwLock<crate::indicators::指标容器>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(RwLock::new(crate::indicators::指标容器::deserialize(
+            de,
+        )?))
+    }
+}
+
+/// 原始K线 (OHLCV + 指标容器)
+///
+/// 所有指标统一通过 `指标容器` 访问。指标容器使用 RwLock 实现内部可变性，
+/// 使 `计算并挂载` 能以 `&K线` 共享引用写入指标值。
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct K线 {
+    /// 品种标识（如 "btcusd"）
     pub 标识: String,
+    /// K线序号（在序列中的位置）
     pub 序号: i64,
+    /// 周期（秒），如 300=5分钟, 86400=日线
     pub 周期: i64,
+    /// Unix 时间戳（秒）
     pub 时间戳: i64,
+    /// 最高价
     pub 高: f64,
+    /// 最低价
     pub 低: f64,
+    /// 开盘价
     pub 开盘价: f64,
+    /// 收盘价
     pub 收盘价: f64,
+    /// 成交量
     pub 成交量: f64,
-    pub macd: Option<平滑异同移动平均线>,
-    pub rsi: Option<相对强弱指数>,
-    pub kdj: Option<随机指标>,
+    /// 指标容器（MACD/RSI/KDJ/BOLL/均线等）
+    #[serde(with = "rwlock_container_serde")]
+    pub 指标: RwLock<指标容器>,
 }
 
 impl Default for K线 {
@@ -60,9 +98,24 @@ impl Default for K线 {
             开盘价: 0.0,
             收盘价: 0.0,
             成交量: 0.0,
-            macd: None,
-            rsi: None,
-            kdj: None,
+            指标: RwLock::new(指标容器::new()),
+        }
+    }
+}
+
+impl Clone for K线 {
+    fn clone(&self) -> Self {
+        Self {
+            标识: self.标识.clone(),
+            序号: self.序号,
+            周期: self.周期,
+            时间戳: self.时间戳,
+            高: self.高,
+            低: self.低,
+            开盘价: self.开盘价,
+            收盘价: self.收盘价,
+            成交量: self.成交量,
+            指标: RwLock::new(self.指标.read().unwrap().clone()),
         }
     }
 }
@@ -79,6 +132,7 @@ impl K线 {
 
     /// 序列化为大端字节序 48 字节
     /// 格式: >6d (时间戳, 开盘价, 高, 低, 收盘价, 成交量)
+    /// TODO: 对齐 Python round(x, 8) 再序列化
     pub fn to_bytes(&self) -> [u8; 48] {
         let mut buf = [0u8; 48];
         {
@@ -163,9 +217,7 @@ impl K线 {
             开盘价,
             收盘价,
             成交量,
-            macd: None,
-            rsi: None,
-            kdj: None,
+            指标: RwLock::new(指标容器::new()),
         }
     }
 
@@ -193,7 +245,7 @@ impl K线 {
         let mut 阳 = 0.0f64;
         let mut 阴 = 0.0f64;
         for k in 基序 {
-            if let Some(ref macd) = k.macd {
+            if let Some(macd) = k.指标.read().unwrap().macd() {
                 let hist = macd.MACD柱;
                 if hist >= 0.0 {
                     阳 += hist;

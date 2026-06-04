@@ -24,6 +24,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::PyType;
+use std::sync::Arc;
 
 // ========== 平滑异同移动平均线 ==========
 
@@ -603,14 +604,257 @@ impl 随机指标Py {
     }
 }
 
+// ========== 布林带 ==========
+
+/// 布林带（BOLL）— 基于移动平均和标准差的波动率通道。
+///
+/// 属性:
+///   时间戳: int / 周期: int / 标准差倍数: float
+///   上轨: float — 中轨 + 标准差倍数 * 标准差
+///   中轨: float — 移动平均线
+///   下轨: float — 中轨 - 标准差倍数 * 标准差
+///
+/// 方法（均为 classmethod，直接构造实例）:
+///   首次计算(时间戳, 价格, 周期=20, 标准差倍数=2.0) -> 布林带
+///   增量计算(前一个布林带, 时间戳, 价格) -> 布林带
+#[pyclass(name = "布林带", module = "chanlun._chanlun", from_py_object)]
+#[derive(Clone)]
+pub struct 布林带Py {
+    pub(crate) inner: chanlun::indicators::布林带,
+}
+
+#[pymethods]
+impl 布林带Py {
+    #[new]
+    fn new() -> Self {
+        unimplemented!("使用 首次计算 或 增量计算 创建")
+    }
+
+    #[getter]
+    fn 时间戳(&self) -> i64 {
+        self.inner.时间戳
+    }
+
+    #[getter]
+    fn 周期(&self) -> usize {
+        self.inner.周期
+    }
+
+    #[getter]
+    fn 标准差倍数(&self) -> f64 {
+        self.inner.标准差倍数
+    }
+
+    #[getter]
+    fn 上轨(&self) -> f64 {
+        self.inner.上轨
+    }
+
+    #[getter]
+    fn 中轨(&self) -> f64 {
+        self.inner.中轨
+    }
+
+    #[getter]
+    fn 下轨(&self) -> f64 {
+        self.inner.下轨
+    }
+
+    fn __str__(&self) -> String {
+        format!(
+            "布林带(上={:.2}, 中={:.2}, 下={:.2})",
+            self.inner.上轨, self.inner.中轨, self.inner.下轨
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+
+    #[classmethod]
+    #[pyo3(signature = (k线, 计算方式, 周期 = 20, 标准差倍数 = 2.0))]
+    fn 首次计算(
+        _cls: &Bound<'_, PyType>,
+        k线: &Bound<'_, PyAny>,
+        计算方式: &str,
+        周期: usize,
+        标准差倍数: f64,
+    ) -> PyResult<Self> {
+        let 价格 = K线取值(k线, 计算方式)?;
+        let 时间戳 = 获取时间戳(k线)?;
+        Ok(Self {
+            inner: chanlun::indicators::布林带::首次计算(时间戳, 价格, 周期, 标准差倍数),
+        })
+    }
+
+    #[classmethod]
+    fn 增量计算(
+        _cls: &Bound<'_, PyType>,
+        前一个布林带: &Bound<'_, 布林带Py>,
+        当前K线: &Bound<'_, PyAny>,
+        计算方式: &str,
+    ) -> PyResult<Self> {
+        let 价格 = K线取值(当前K线, 计算方式)?;
+        let 时间戳 = 获取时间戳(当前K线)?;
+        Ok(Self {
+            inner: chanlun::indicators::布林带::增量计算(
+                &前一个布林带.borrow().inner,
+                时间戳,
+                价格,
+            ),
+        })
+    }
+}
+
+// ========== 指标容器 ==========
+
+/// 指标容器 — 挂载在每根 K线上，基于注册表模式持有该时刻所有指标快照。
+///
+/// 与 Python `指标容器` 保持一致：
+///   - 默认名称："macd"/"rsi"/"kdj"/"boll" → 对应指标对象
+///   - 多参数变体：key 格式 "MACD_{快}_{慢}_{信号}" / "RSI_{周期}" 等
+///   - 均线组：通过 "均线" 获取 dict[str, float]
+///   - 单值指标：通过 "单值" 获取 dict[str, float]
+#[pyclass(name = "指标容器", module = "chanlun._chanlun", skip_from_py_object)]
+#[derive(Clone)]
+pub struct 指标容器Py {
+    pub(crate) inner: chanlun::indicators::指标容器,
+}
+
+/// 将 Rust 指标值 转换为 Python 对象
+fn 指标值_to_py(value: &chanlun::indicators::指标值, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    use chanlun::indicators::指标值;
+    match value {
+        指标值::MACD(m) => {
+            Ok(Py::new(py, 平滑异同移动平均线Py { inner: m.clone() })?.into_any())
+        }
+        指标值::RSI(r) => Ok(Py::new(py, 相对强弱指数Py { inner: r.clone() })?.into_any()),
+        指标值::KDJ(k) => Ok(Py::new(py, 随机指标Py { inner: k.clone() })?.into_any()),
+        指标值::BOLL(b) => Ok(Py::new(py, 布林带Py { inner: b.clone() })?.into_any()),
+        指标值::均线(map) | 指标值::单值(map) => {
+            let dict = pyo3::types::PyDict::new(py);
+            for (k, v) in map {
+                dict.set_item(k, *v)?;
+            }
+            Ok(dict.into())
+        }
+    }
+}
+
+#[pymethods]
+impl 指标容器Py {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: chanlun::indicators::指标容器::new(),
+        }
+    }
+
+    /// 按名称获取指标值
+    fn 获取(&self, 名称: &str, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        match self.inner.获取(名称) {
+            Some(v) => 指标值_to_py(v, py).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// 按名称设置指标值（仅支持 MACD/RSI/KDJ/BOLL 四种类型）
+    #[pyo3(signature = (名称, 值))]
+    fn 设置(&mut self, 名称: &str, 值: &Bound<'_, PyAny>) -> PyResult<()> {
+        use chanlun::indicators::指标值;
+        if let Ok(m) = 值.cast::<平滑异同移动平均线Py>() {
+            self.inner
+                .设置(名称, 指标值::MACD(m.borrow().inner.clone()));
+            return Ok(());
+        }
+        if let Ok(r) = 值.cast::<相对强弱指数Py>() {
+            self.inner.设置(名称, 指标值::RSI(r.borrow().inner.clone()));
+            return Ok(());
+        }
+        if let Ok(k) = 值.cast::<随机指标Py>() {
+            self.inner.设置(名称, 指标值::KDJ(k.borrow().inner.clone()));
+            return Ok(());
+        }
+        if let Ok(b) = 值.cast::<布林带Py>() {
+            self.inner
+                .设置(名称, 指标值::BOLL(b.borrow().inner.clone()));
+            return Ok(());
+        }
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "不支持的类型，仅支持 MACD/RSI/KDJ/BOLL 指标",
+        ))
+    }
+
+    /// 检查是否包含指定名称的指标
+    fn 包含(&self, 名称: &str) -> bool {
+        self.inner.包含(名称)
+    }
+
+    /// 返回所有已注册的指标名称
+    fn keys(&self) -> Vec<String> {
+        self.inner._数据.keys().cloned().collect()
+    }
+
+    fn __getitem__(&self, 名称: &str, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if self.包含(名称) {
+            match self.inner.获取(名称) {
+                Some(v) => 指标值_to_py(v, py),
+                None => Ok(py.None()),
+            }
+        } else {
+            Err(pyo3::exceptions::PyKeyError::new_err(format!(
+                "指标 '{}' 不存在",
+                名称
+            )))
+        }
+    }
+
+    fn __getattr__(&self, 名称: &str, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if 名称 == "_数据" {
+            // 返回内部数据字典的 Python 表示
+            let dict = pyo3::types::PyDict::new(py);
+            for key in self.inner._数据.keys() {
+                if let Some(v) = self.inner.获取(key) {
+                    dict.set_item(key, 指标值_to_py(v, py)?)?;
+                } else {
+                    dict.set_item(key, py.None())?;
+                }
+            }
+            return Ok(dict.into());
+        }
+        if self.包含(名称) {
+            match self.inner.获取(名称) {
+                Some(v) => 指标值_to_py(v, py),
+                None => Ok(py.None()),
+            }
+        } else {
+            Err(pyo3::exceptions::PyAttributeError::new_err(format!(
+                "指标 '{}' 不存在于 指标容器 中",
+                名称
+            )))
+        }
+    }
+
+    fn __contains__(&self, 名称: &str) -> bool {
+        self.包含(名称)
+    }
+
+    fn __str__(&self) -> String {
+        self.inner.to_string()
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
 // ========== 指标 (static namespace) ==========
 
 /// 指标 — 静态工具类，提供指标计算的辅助方法。
 ///
 /// 方法:
-///   K线取值(k线, 指标计算方式) -> float (classmethod)
-///     根据计算方式从K线提取数值。
-///     计算方式: "收盘价" / "开盘价" / "高" / "低" / "均值" 等
+///   :meth:`K线取值` — 根据计算方式从K线提取数值
+///     (计算方式: "开"/"高"/"低"/"收"/"高低均值"/"高低收均值"/"开高低收均值")
 #[pyclass(name = "指标", module = "chanlun._chanlun")]
 pub struct 指标Py;
 
@@ -624,6 +868,144 @@ impl 指标Py {
         指标计算方式: &str,
     ) -> PyResult<f64> {
         K线取值(k线, 指标计算方式)
+    }
+}
+
+// ========== 均线工具 ==========
+
+/// 均线工具 — 增量 SMA/EMA 计算的静态方法容器。
+///
+/// 方法:
+///   :meth:`增量SMA` — 基于前一根K线的 SMA 值，增量计算当前 SMA
+///   :meth:`增量EMA` — 用前一根K线的 EMA 值递推计算当前 EMA
+#[pyclass(name = "均线工具", module = "chanlun._chanlun")]
+pub struct 均线工具Py;
+
+#[pymethods]
+impl 均线工具Py {
+    /// 基于前一根K线的 SMA 值，增量计算当前 SMA
+    #[staticmethod]
+    #[pyo3(signature = (普K序列, period, 计算方式))]
+    fn 增量SMA(
+        普K序列: Vec<Py<crate::kline_py::K线Py>>,
+        period: i64,
+        计算方式: &str,
+        py: Python<'_>,
+    ) -> PyResult<f64> {
+        if 普K序列.is_empty() {
+            return Err(pyo3::exceptions::PyValueError::new_err("普K序列 不能为空"));
+        }
+        let n = 普K序列.len();
+        // 提取所有K线值（一次性 borrow）
+        let values: Vec<f64> = 普K序列
+            .iter()
+            .map(|k| {
+                let inner = &k.bind(py).borrow().inner;
+                chanlun::indicators::K线取值(
+                    inner.开盘价,
+                    inner.高,
+                    inner.低,
+                    inner.收盘价,
+                    计算方式,
+                )
+            })
+            .collect();
+
+        if n <= period as usize {
+            let start = n.saturating_sub(period as usize);
+            let sum: f64 = values[start..].iter().sum();
+            return Ok(sum / (n.max(1)) as f64);
+        }
+
+        let prev_key = format!("SMA_{}", period);
+        // 尝试从前一根K线的均线缓存中读取
+        let prev_cached = 普K序列[n - 2]
+            .bind(py)
+            .borrow()
+            .inner
+            .指标
+            .read()
+            .unwrap()
+            .均线()
+            .and_then(|m| m.get(&prev_key))
+            .copied();
+        if let Some(prev) = prev_cached {
+            let 当前价 = values[n - 1];
+            let oldest = values[n - period as usize - 1];
+            return Ok(prev + (当前价 - oldest) / period as f64);
+        }
+
+        // 回退：完整计算最近 period 根K线
+        let sum: f64 = values[n - period as usize..].iter().sum();
+        Ok(sum / period as f64)
+    }
+
+    /// 用前一根K线的 EMA 值递推
+    #[staticmethod]
+    #[pyo3(signature = (普K序列, period, 计算方式, 前值 = None))]
+    fn 增量EMA(
+        普K序列: Vec<Py<crate::kline_py::K线Py>>,
+        period: i64,
+        计算方式: &str,
+        前值: Option<f64>,
+        py: Python<'_>,
+    ) -> PyResult<f64> {
+        if 普K序列.is_empty() {
+            return Err(pyo3::exceptions::PyValueError::new_err("普K序列 不能为空"));
+        }
+        let last = 普K序列.last().unwrap().bind(py).borrow();
+        let 当前价 = chanlun::indicators::K线取值(
+            last.inner.开盘价,
+            last.inner.高,
+            last.inner.低,
+            last.inner.收盘价,
+            计算方式,
+        );
+        match 前值 {
+            None => Ok(当前价),
+            Some(prev) => {
+                let k = 2.0 / (period as f64 + 1.0);
+                Ok(当前价 * k + prev * (1.0 - k))
+            }
+        }
+    }
+}
+
+// ========== 指标计算器 ==========
+
+/// 指标计算器 — 在缠K合并之前，增量计算所有开启的指标并挂载到K线上。
+///
+/// 方法:
+///   :meth:`计算并挂载` — 增量计算所有开启的指标，将结果写入 ``当前K线.指标``
+#[pyclass(name = "指标计算器", module = "chanlun._chanlun")]
+pub struct 指标计算器Py;
+
+#[pymethods]
+impl 指标计算器Py {
+    /// 增量计算所有开启的指标，将结果写入 当前K线.指标
+    #[staticmethod]
+    fn 计算并挂载(
+        当前K线: &Bound<'_, crate::kline_py::K线Py>,
+        全序列: Vec<Py<crate::kline_py::K线Py>>,
+        配置: &Bound<'_, crate::config_py::缠论配置Py>,
+        py: Python<'_>,
+    ) -> PyResult<()> {
+        let config = 配置.borrow().to_rust_config(py)?;
+        // 全序列包含 当前K线 在末尾；Rust 计算并挂载 的 现有序列 不含当前K线
+        let 现有序列: Vec<Arc<chanlun::kline::bar::K线>> = if 全序列.len() > 1 {
+            全序列[..全序列.len() - 1]
+                .iter()
+                .map(|k| k.bind(py).borrow().inner.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        chanlun::indicators::指标计算器::计算并挂载(
+            &当前K线.borrow().inner,
+            &现有序列,
+            &config,
+        );
+        Ok(())
     }
 }
 
@@ -664,6 +1046,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<平滑异同移动平均线Py>()?;
     m.add_class::<相对强弱指数Py>()?;
     m.add_class::<随机指标Py>()?;
+    m.add_class::<布林带Py>()?;
+    m.add_class::<指标容器Py>()?;
     m.add_class::<指标Py>()?;
+    m.add_class::<均线工具Py>()?;
+    m.add_class::<指标计算器Py>()?;
     Ok(())
 }

@@ -29,6 +29,7 @@ use crate::kline::bar::K线;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use tracing::{error, info};
 
 /// 立体分析器 — 多周期协调器
 ///
@@ -42,6 +43,7 @@ pub struct 立体分析器 {
 }
 
 impl 立体分析器 {
+    /// 创建立体分析器，自动创建K线合成器 + 每周期一个观察者
     pub fn new(
         符号: String,
         周期组: Vec<i64>,
@@ -51,6 +53,7 @@ impl 立体分析器 {
         let mut 周期组 = 周期组;
         周期组.sort();
         let 输入周期 = 周期组[0];
+        let 显示周期 = 周期组[1];
 
         let 默认配置 = 配置.unwrap_or_default();
         let 配置组 = 配置组.unwrap_or_default();
@@ -71,6 +74,33 @@ impl 立体分析器 {
             单体分析器.insert(周期, 观察员);
         }
 
+        // 显示周期特殊配置
+        {
+            let 显示观察员 = 单体分析器.get(&显示周期).expect("显示周期观察者不存在");
+            let mut guard = 显示观察员.write().unwrap();
+            guard.配置.推送K线 = true;
+            guard.配置.推送笔 = true;
+            guard.配置.推送线段 = true;
+            guard.配置.图表展示 = true;
+            guard.重置基础序列();
+        }
+
+        // 非显示周期的基础缠K序列对齐至显示周期
+        {
+            let 显示缠K序列 = 单体分析器
+                .get(&显示周期)
+                .map(|o| o.read().unwrap().缠论K线序列.clone())
+                .unwrap_or_default();
+
+            for &周期 in &周期组 {
+                if 周期 != 显示周期
+                    && let Some(观察员) = 单体分析器.get(&周期)
+                {
+                    观察员.write().unwrap().基础缠K序列 = 显示缠K序列.clone();
+                }
+            }
+        }
+
         Self {
             周期组,
             输入周期,
@@ -83,11 +113,10 @@ impl 立体分析器 {
     /// 匹配 Python __K线回调：合成器完成K线时喂给观察者
     pub fn 投喂K线(&mut self, 普K: K线) {
         if 普K.周期 != self.输入周期 {
-            eprintln!(
+            panic!(
                 "立体分析器.投喂K线 周期不匹配 {} != {}",
                 普K.周期, self.输入周期
             );
-            return;
         }
 
         // Feed to synthesizer, get completion events
@@ -97,6 +126,9 @@ impl 立体分析器 {
         for (周期, 完成K线) in 完成事件 {
             if let Some(观察员) = self.单体分析器.get(&周期) {
                 观察员.write().unwrap().增加原始K线(完成K线);
+                if let Some(当前K线) = self.K线合成器.获取当前K线(周期) {
+                    观察员.write().unwrap().增加原始K线(当前K线.clone());
+                }
             }
         }
     }
@@ -108,10 +140,13 @@ impl 立体分析器 {
 
     /// 测试_保存数据 — 多级别数据拆分保存
     /// 创建父目录 PyM_{标识}_{起始时间}_{结束时间}，各周期观察者保存到子目录
-    pub fn 测试_保存数据(&self) {
-        let 根目录 = std::env::var("CHANLUN_DATA_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::env::temp_dir());
+    pub fn 测试_保存数据(&self, root: Option<&str>) {
+        let 根目录 = match root {
+            Some(r) => std::path::PathBuf::from(r),
+            None => std::env::var("CHANLUN_DATA_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| std::env::temp_dir()),
+        };
 
         let 起始时间 = self
             .单体分析器
@@ -139,7 +174,7 @@ impl 立体分析器 {
         let 保存路径 = 根目录.join(&目录标识);
 
         if let Err(e) = std::fs::create_dir_all(&保存路径) {
-            eprintln!("创建目录失败: {} -> {}", 保存路径.display(), e);
+            error!("创建目录失败: {} -> {}", 保存路径.display(), e);
             return;
         }
 
@@ -152,6 +187,6 @@ impl 立体分析器 {
             }
         }
 
-        println!("多级别数据拆分保存完成，目录：{}", 保存路径.display());
+        info!("多级别数据拆分保存完成，目录：{}", 保存路径.display());
     }
 }

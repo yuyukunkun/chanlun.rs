@@ -74,4 +74,6 @@ pip install target/wheels/chanlun-*.whl
 
 ## 许可
 
-MIT
+本项目主体采用 MIT 许可。包含以下第三方开源代码：czsc（Apache 2.0）、parse（MIT）、termcolor（MIT）。
+
+详见 [NOTICE](../NOTICE) 和 [LICENSES/](../LICENSES/) 目录。

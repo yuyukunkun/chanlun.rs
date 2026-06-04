@@ -27,11 +27,14 @@ use serde::{Deserialize, Serialize};
 /// 缺口 —— 两个价格区间之间的空隙
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct 缺口 {
+    /// 缺口上沿
     pub 高: f64,
+    /// 缺口下沿
     pub 低: f64,
 }
 
 impl 缺口 {
+    /// 创建缺口，高必须大于低
     pub fn new(高: f64, 低: f64) -> Self {
         assert!(高 > 低, "缺口高必须大于低: 高={高}, 低={低}");
         Self { 高, 低 }

@@ -48,6 +48,7 @@ pub enum 相对方向 {
 }
 
 impl 相对方向 {
+    /// 翻转方向（向上→向下，缺口向上→缺口向下，顺→逆 等）
     pub fn 翻转(&self) -> Self {
         match self {
             Self::向上 => Self::向下,
@@ -62,32 +63,33 @@ impl 相对方向 {
         }
     }
 
+    /// 是否向上方向（向上/向上缺口/衔接向上）
     pub fn 是否向上(&self) -> bool {
         matches!(self, Self::向上 | Self::向上缺口 | Self::衔接向上)
     }
 
+    /// 是否向下方向（向下/向下缺口/衔接向下）
     pub fn 是否向下(&self) -> bool {
         matches!(self, Self::向下 | Self::向下缺口 | Self::衔接向下)
     }
 
+    /// 是否包含关系（顺/逆/同）
     pub fn 是否包含(&self) -> bool {
         matches!(self, Self::顺 | Self::逆 | Self::同)
     }
 
+    /// 是否缺口（向上缺口/向下缺口）
     pub fn 是否缺口(&self) -> bool {
         matches!(self, Self::向下缺口 | Self::向上缺口)
     }
 
+    /// 是否衔接（衔接向上/衔接向下）
     pub fn 是否衔接(&self) -> bool {
         matches!(self, Self::衔接向下 | Self::衔接向上)
     }
 
     /// 分析两个K线之间的相对方向
     pub fn 分析(前高: f64, 前低: f64, 后高: f64, 后低: f64) -> Self {
-        // NaN 值无法判断方向，视为"同"避免 panic
-        if 前高.is_nan() || 前低.is_nan() || 后高.is_nan() || 后低.is_nan() {
-            return Self::同;
-        }
         if 前高 == 后高 && 前低 == 后低 {
             return Self::同;
         }

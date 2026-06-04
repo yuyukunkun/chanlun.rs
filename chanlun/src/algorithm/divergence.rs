@@ -200,7 +200,7 @@ impl 背驰分析 {
         if let (Some(始), Some(终)) = (始_idx, 终_idx) {
             let (始, 终) = if 始 <= 终 { (始, 终) } else { (终, 始) };
             for k in &K线序列[始..=终] {
-                if let Some(ref macd) = k.macd {
+                if let Some(macd) = k.指标.read().unwrap().macd() {
                     let hist = macd.MACD柱;
                     if hist >= 0.0 {
                         阳 += hist;

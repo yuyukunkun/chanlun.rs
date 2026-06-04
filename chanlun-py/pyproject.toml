@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "chanlun"
-version = "2605.103"
+version = "2606.17"
 description = "缠论技术分析库 — Rust 高性能实现"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE", content-type = "text/plain" }
@@ -26,6 +26,11 @@ classifiers = [
     "Topic :: Office/Business :: Financial :: Investment",
 ]
 requires-python = ">=3.9"
+dependencies = [
+    "termcolor>=3.0",
+    "loguru>=0.6",
+    "backtrader==1.9.78.123",
+]
 
 [project.urls]
 Homepage = "https://github.com/YuYuKunKun/chanlun.rs"
@@ -41,3 +46,11 @@ manifest-path = "Cargo.toml"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["-v", "--tb=short", "--durations=10"]
+
+[tool.ruff.lint]
+# 启用 FA (flake8-future-annotations) 和 UP (pyupgrade) 规则
+select = ["FA", "UP"]
+
+# [tool.ruff.lint.flake8-future-annotations]
+# 强制在所有文件中注入 from __future__ import annotations
+# force-future-annotations = true

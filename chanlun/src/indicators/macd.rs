@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 
+use crate::kline::bar::K线;
 use serde::{Deserialize, Serialize};
 
 /// 平滑异同移动平均线 (MACD)
@@ -30,18 +31,29 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct 平滑异同移动平均线 {
+    /// 数据时间戳
     pub 时间戳: i64,
+    /// 收盘价
     pub 收盘价: f64,
+    /// 快线 EMA 周期
     pub 快线周期: i64,
+    /// 慢线 EMA 周期
     pub 慢线周期: i64,
+    /// 信号线周期
     pub 信号周期: i64,
+    /// DIF 值（快线 - 慢线）
     pub DIF: Option<f64>,
+    /// DEA 值（DIF 的信号线）
     pub DEA: Option<f64>,
+    /// MACD 柱（2 * (DIF - DEA)）
     #[serde(rename = "MACD柱")]
     #[serde(default)]
     pub MACD柱: f64,
+    /// 快线 EMA 值
     pub 快线EMA: Option<f64>,
+    /// 慢线 EMA 值
     pub 慢线EMA: Option<f64>,
+    /// DEA EMA 值
     pub DEA_EMA: Option<f64>,
 }
 
@@ -95,6 +107,30 @@ impl 平滑异同移动平均线 {
             慢线EMA: Some(慢线EMA),
             DEA_EMA: Some(DEA_EMA),
         }
+    }
+
+    /// 首次计算 MACD 指标 — 从 K线 取值后计算
+    pub fn 首次计算_K线(
+        k线: &K线,
+        计算方式: &str,
+        快线周期: i64,
+        慢线周期: i64,
+        信号周期: i64,
+    ) -> Self {
+        let 价格 = super::K线取值(k线.开盘价, k线.高, k线.低, k线.收盘价, 计算方式);
+        Self::首次计算(价格, k线.时间戳, 快线周期, 慢线周期, 信号周期)
+    }
+
+    /// 增量计算 MACD 指标 — 从 K线 取值后递推
+    pub fn 增量计算_K线(前一个MACD: &Self, 当前K线: &K线, 计算方式: &str) -> Self {
+        let 价格 = super::K线取值(
+            当前K线.开盘价,
+            当前K线.高,
+            当前K线.低,
+            当前K线.收盘价,
+            计算方式,
+        );
+        Self::增量计算(前一个MACD, 价格, 当前K线.时间戳)
     }
 
     /// 基于前一个 MACD 指标增量计算当前 MACD

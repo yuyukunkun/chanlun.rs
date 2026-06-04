@@ -11,7 +11,10 @@ __all__ = [
     "基础买卖点",
     "平滑异同移动平均线",
     "指标",
-    "特征分型",
+    "指标容器",
+    "指标计算器",
+    "均线工具",
+    "测试_读取数据",
     "相对强弱指数",
     "相对方向",
     "立体分析器",
@@ -27,8 +30,31 @@ __all__ = [
     "转化为时间戳",
     "转化为时间戳_数字",
     "随机指标",
+    "布林带",
+    "get_分型模式",
+    "set_分型模式",
+    "get_log_level",
+    "set_log_level",
+    "get_rs_log_level",
+    "set_rs_log_level",
     "chan",
 ]
 
 from ._chanlun import *
+from ._chanlun import set_log_level as _rs_set_log_level, get_log_level as _rs_get_log_level
 from . import chan
+from .chan import 测试_读取数据, 转化为时间戳, 转化为时间戳_数字, set_log_level, get_log_level
+
+
+def set_rs_log_level(level: str):
+    """设置 Rust 侧日志级别 (trace / debug / info / warn / error / off)
+
+    仅控制 Rust tracing 日志，不影响 Python loguru 日志。
+    Python 侧日志通过 set_log_level() 独立控制。
+    """
+    _rs_set_log_level(level)
+
+
+def get_rs_log_level() -> str:
+    """获取 Rust 侧日志级别"""
+    return _rs_get_log_level()

@@ -23,36 +23,48 @@
  */
 
 use crate::config::缠论配置;
-use crate::indicators::{
-    平滑异同移动平均线, 相对强弱指数, 随机指标, K线取值
-};
+use crate::indicators::指标计算器;
 use crate::kline::bar::K线;
 use crate::structure::fractal_obj::分型;
+use crate::types::SyncF64;
 use crate::types::分型结构;
 use crate::types::相对方向;
-use crate::types::SyncF64;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, RwLock};
 
 /// 缠论K线 — 经包含处理过后的K线
 ///
-/// 部分字段使用 Cell/RefCell 实现内部可变性，确保包含处理原地修改时
-/// Rc 指针不变，所有持有该 Rc 的引用（如分型.右）能看到最新数据。
+/// 部分字段使用 AtomicI64 / SyncF64 / RwLock 实现内部可变性，确保包含处理
+/// 原地修改时 Rc 指针不变，所有持有该 Rc 的引用（如分型.右）能看到最新数据。
 #[derive(Debug)]
 pub struct 缠论K线 {
+    /// 缠K序号（在缠论K线序列中的位置）
     pub 序号: AtomicI64,
+    /// Unix 时间戳（秒）
     pub 时间戳: AtomicI64,
+    /// 缠K最高价（经包含处理后可能高于原始K线）
     pub 高: SyncF64,
+    /// 缠K最低价（经包含处理后可能低于原始K线）
     pub 低: SyncF64,
+    /// 缠K方向（向上/向下）
     pub 方向: RwLock<相对方向>,
+    /// 分型结构（顶/底/上/下/散）
     pub 分型: RwLock<Option<分型结构>>,
+    /// 周期（秒）
     pub 周期: i64,
+    /// 品种标识
     pub 标识: String,
+    /// 分型特征值（历史高低点极值，用于背驰判断）
     pub 分型特征值: SyncF64,
+    /// 原始K线起始序号（包含处理前）
     pub 原始起始序号: i64,
+    /// 原始K线结束序号（包含处理后更新）
     pub 原始结束序号: AtomicI64,
+    /// 标的原始K线（该缠K对应的普K）
     pub 标的K线: RwLock<Arc<K线>>,
-    pub 买卖点信息: RwLock<Vec<String>>,
+    /// 买卖点信息集合
+    pub 买卖点信息: RwLock<HashSet<String>>,
 }
 
 impl Clone for 缠论K线 {
@@ -66,7 +78,7 @@ impl Clone for 缠论K线 {
             分型: RwLock::new(*self.分型.read().unwrap()),
             周期: self.周期,
             标识: self.标识.clone(),
-            分型特征值: SyncF64::new(self.分型特征值.get()),
+            分型特征值: SyncF64::new(self.高.get()),
             原始起始序号: self.原始起始序号,
             原始结束序号: AtomicI64::new(self.原始结束序号.load(Ordering::Relaxed)),
             标的K线: RwLock::new(Arc::clone(&self.标的K线.read().unwrap())),
@@ -108,7 +120,7 @@ impl 缠论K线 {
             分型: RwLock::new(*self.分型.read().unwrap()),
             周期: self.周期,
             标识: self.标识.clone(),
-            分型特征值: SyncF64::new(self.分型特征值.get()),
+            分型特征值: SyncF64::new(self.高.get()),
             原始起始序号: self.原始起始序号,
             原始结束序号: AtomicI64::new(self.原始结束序号.load(Ordering::Relaxed)),
             标的K线: RwLock::new(Arc::clone(&self.标的K线.read().unwrap())),
@@ -118,16 +130,18 @@ impl 缠论K线 {
 
     /// 与MACD柱子匹配 — 底分型时MACD柱应<0, 顶分型时>0
     pub fn 与MACD柱子匹配(&self) -> bool {
+        let 标 = self.标的K线.read().unwrap();
+        let 容器 = 标.指标.read().unwrap();
         match *self.分型.read().unwrap() {
             Some(分型结构::底) | Some(分型结构::下) => {
-                if let Some(ref macd) = self.标的K线.read().unwrap().macd {
+                if let Some(macd) = 容器.macd() {
                     macd.MACD柱 < 0.0
                 } else {
                     false
                 }
             }
             Some(分型结构::顶) | Some(分型结构::上) => {
-                if let Some(ref macd) = self.标的K线.read().unwrap().macd {
+                if let Some(macd) = 容器.macd() {
                     macd.MACD柱 > 0.0
                 } else {
                     false
@@ -139,9 +153,11 @@ impl 缠论K线 {
 
     /// 与RSI匹配 — 底分型时RSI应低于SMA, 顶分型时高于SMA
     pub fn 与RSI匹配(&self) -> bool {
+        let 标 = self.标的K线.read().unwrap();
+        let 容器 = 标.指标.read().unwrap();
         match *self.分型.read().unwrap() {
             Some(分型结构::底) | Some(分型结构::下) => {
-                if let Some(ref rsi) = self.标的K线.read().unwrap().rsi {
+                if let Some(rsi) = 容器.rsi() {
                     match (rsi.RSI, rsi.RSI_SMA) {
                         (Some(r), Some(sma)) => r < sma,
                         _ => false,
@@ -151,7 +167,7 @@ impl 缠论K线 {
                 }
             }
             Some(分型结构::顶) | Some(分型结构::上) => {
-                if let Some(ref rsi) = self.标的K线.read().unwrap().rsi {
+                if let Some(rsi) = 容器.rsi() {
                     match (rsi.RSI, rsi.RSI_SMA) {
                         (Some(r), Some(sma)) => r > sma,
                         _ => false,
@@ -166,9 +182,11 @@ impl 缠论K线 {
 
     /// 与KDJ匹配 — 底分型时K应低于D(死叉后), 顶分型时K应高于D(金叉后)
     pub fn 与KDJ匹配(&self) -> bool {
+        let 标 = self.标的K线.read().unwrap();
+        let 容器 = 标.指标.read().unwrap();
         match *self.分型.read().unwrap() {
             Some(分型结构::底) | Some(分型结构::下) => {
-                if let Some(ref kdj) = self.标的K线.read().unwrap().kdj {
+                if let Some(kdj) = 容器.kdj() {
                     match (kdj.K, kdj.D) {
                         (Some(k), Some(d)) => k < d,
                         _ => false,
@@ -178,7 +196,7 @@ impl 缠论K线 {
                 }
             }
             Some(分型结构::顶) | Some(分型结构::上) => {
-                if let Some(ref kdj) = self.标的K线.read().unwrap().kdj {
+                if let Some(kdj) = 容器.kdj() {
                     match (kdj.K, kdj.D) {
                         (Some(k), Some(d)) => k > d,
                         _ => false,
@@ -248,7 +266,7 @@ impl 缠论K线 {
             原始起始序号: 原始序号,
             原始结束序号: AtomicI64::new(原始序号),
             标的K线: RwLock::new(普k),
-            买卖点信息: RwLock::new(Vec::new()),
+            买卖点信息: RwLock::new(HashSet::new()),
         };
 
         if let Some(之前) = 之前 {
@@ -270,7 +288,7 @@ impl 缠论K线 {
     /// 兼并（合并）处理 — 缠论包含处理的核心算法
     ///
     /// 返回 (新缠K, 模式) — 模式: "添加"/"替换"/None
-    pub fn 兼并(
+    pub fn _兼并(
         之前缠K: Option<&缠论K线>,
         当前缠K: &缠论K线,
         当前普K: &Arc<K线>,
@@ -303,7 +321,7 @@ impl 缠论K线 {
 
         // 重复提交检测 — 当序号相同时认为是重复提交K线
         if 当前普K.序号 == 当前缠K.原始结束序号.load(Ordering::Relaxed) {
-            return (None, None);
+            // no-op: 对齐 Python ... (Ellipsis)
         }
 
         // 序号连续性检查
@@ -370,91 +388,14 @@ impl 缠论K线 {
         当前K线.标识 = 配置.标识.clone();
 
         // ---- 阶段1: 普K序列管理 + 指标增量计算 ----
+        // 对齐 Python: 先推入序列，再计算指标
         if 普K序列.is_empty() {
-            if 配置.计算指标 {
-                当前K线.macd = Some(平滑异同移动平均线::首次计算(
-                    K线取值(
-                        当前K线.开盘价,
-                        当前K线.高,
-                        当前K线.低,
-                        当前K线.收盘价,
-                        &配置.指标计算方式,
-                    ),
-                    当前K线.时间戳,
-                    配置.平滑异同移动平均线_快线周期,
-                    配置.平滑异同移动平均线_慢线周期,
-                    配置.平滑异同移动平均线_信号周期,
-                ));
-                当前K线.rsi = Some(相对强弱指数::首次计算(
-                    K线取值(
-                        当前K线.开盘价,
-                        当前K线.高,
-                        当前K线.低,
-                        当前K线.收盘价,
-                        &配置.指标计算方式,
-                    ),
-                    当前K线.时间戳,
-                    配置.相对强弱指数_周期,
-                    配置.相对强弱指数_超买阈值,
-                    配置.相对强弱指数_超卖阈值,
-                    Some(配置.相对强弱指数_移动平均线周期),
-                ));
-                当前K线.kdj = Some(随机指标::首次计算(
-                    当前K线.高,
-                    当前K线.低,
-                    当前K线.收盘价,
-                    当前K线.时间戳,
-                    配置.随机指标_RSV周期,
-                    配置.随机指标_K值平滑周期,
-                    配置.随机指标_D值平滑周期,
-                    配置.随机指标_超买阈值,
-                    配置.随机指标_超卖阈值,
-                ));
-            }
-            let 当前K线_rc = Arc::new(当前K线);
-            普K序列.push(当前K线_rc);
+            普K序列.push(Arc::new(当前K线));
         } else {
             let 之前普K = 普K序列.last().unwrap();
             if 之前普K.时间戳 == 当前K线.时间戳 {
-                // 同时间戳更新
+                // 同时间戳更新 — 替换 [-1]
                 当前K线.序号 = 之前普K.序号;
-                if 配置.计算指标 && 普K序列.len() >= 2 {
-                    if let Some(ref prev_macd) = 普K序列[普K序列.len() - 2].macd {
-                        当前K线.macd = Some(平滑异同移动平均线::增量计算(
-                            prev_macd,
-                            K线取值(
-                                当前K线.开盘价,
-                                当前K线.高,
-                                当前K线.低,
-                                当前K线.收盘价,
-                                &配置.指标计算方式,
-                            ),
-                            当前K线.时间戳,
-                        ));
-                    }
-                    if let Some(ref prev_rsi) = 普K序列[普K序列.len() - 2].rsi {
-                        当前K线.rsi = Some(相对强弱指数::增量计算(
-                            prev_rsi,
-                            K线取值(
-                                当前K线.开盘价,
-                                当前K线.高,
-                                当前K线.低,
-                                当前K线.收盘价,
-                                &配置.指标计算方式,
-                            ),
-                            当前K线.时间戳,
-                        ));
-                    }
-                    if let Some(ref prev_kdj) = 普K序列[普K序列.len() - 2].kdj {
-                        当前K线.kdj = Some(随机指标::增量计算(
-                            prev_kdj,
-                            当前K线.高,
-                            当前K线.低,
-                            当前K线.收盘价,
-                            当前K线.时间戳,
-                        ));
-                    }
-                }
                 普K序列.pop();
                 普K序列.push(Arc::new(当前K线));
             } else {
@@ -462,45 +403,13 @@ impl 缠论K线 {
                     panic!("时序错误: 之前={}, 当前={}", 之前普K.时间戳, 当前K线.时间戳);
                 }
                 当前K线.序号 = 之前普K.序号 + 1;
-                if 配置.计算指标 {
-                    if let Some(ref prev_macd) = 之前普K.macd {
-                        当前K线.macd = Some(平滑异同移动平均线::增量计算(
-                            prev_macd,
-                            K线取值(
-                                当前K线.开盘价,
-                                当前K线.高,
-                                当前K线.低,
-                                当前K线.收盘价,
-                                &配置.指标计算方式,
-                            ),
-                            当前K线.时间戳,
-                        ));
-                    }
-                    if let Some(ref prev_rsi) = 之前普K.rsi {
-                        当前K线.rsi = Some(相对强弱指数::增量计算(
-                            prev_rsi,
-                            K线取值(
-                                当前K线.开盘价,
-                                当前K线.高,
-                                当前K线.低,
-                                当前K线.收盘价,
-                                &配置.指标计算方式,
-                            ),
-                            当前K线.时间戳,
-                        ));
-                    }
-                    if let Some(ref prev_kdj) = 之前普K.kdj {
-                        当前K线.kdj = Some(随机指标::增量计算(
-                            prev_kdj,
-                            当前K线.高,
-                            当前K线.低,
-                            当前K线.收盘价,
-                            当前K线.时间戳,
-                        ));
-                    }
-                }
                 普K序列.push(Arc::new(当前K线));
             }
+        }
+        // 计算指标: 对齐 Python，仅当 计算指标 开启时执行
+        if 配置.计算指标 {
+            let n = 普K序列.len();
+            指标计算器::计算并挂载(&普K序列[n - 1], &普K序列[..n - 1], 配置);
         }
 
         // ---- 阶段2: 缠K合并 ----
@@ -512,7 +421,7 @@ impl 缠论K线 {
             let (左边, 右边) = 缠K序列.split_at_mut(len - 1);
             let 之前缠K: Option<&缠论K线> = 左边.last().map(Arc::as_ref);
             let 最后一个缠K = &*右边[0];
-            let (新缠K, 模式) = Self::兼并(之前缠K, 最后一个缠K, 当前K线_ref, 配置);
+            let (新缠K, 模式) = Self::_兼并(之前缠K, 最后一个缠K, 当前K线_ref, 配置);
 
             if let Some(k) = 新缠K {
                 match 模式.as_deref() {
@@ -521,8 +430,7 @@ impl 缠论K线 {
                         状态 = "创建".into();
                     }
                     Some("替换") => {
-                        // Cell::set 已原地更新数据，无需 pop+push 打破 Rc 身份
-                        状态 = "兼并".into();
+                        状态 = "替换".into();
                     }
                     _ => {
                         状态 = "兼并".into();

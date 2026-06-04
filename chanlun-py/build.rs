@@ -58,10 +58,10 @@ fn read_version(path: &std::path::Path, section: &str) -> String {
         if !in_section {
             continue;
         }
-        if trimmed.starts_with("version") {
-            if let Some(v) = trimmed.split('=').nth(1) {
-                return v.trim().trim_matches('"').trim().to_string();
-            }
+        if trimmed.starts_with("version")
+            && let Some(v) = trimmed.split('=').nth(1)
+        {
+            return v.trim().trim_matches('"').trim().to_string();
         }
     }
     panic!("Cannot parse version from {:?}", path);

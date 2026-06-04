@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 
+use crate::kline::bar::K线;
 use serde::{Deserialize, Serialize};
 
 /// 相对强弱指数 (RSI)
@@ -30,19 +31,33 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct 相对强弱指数 {
+    /// 数据时间戳
     pub 时间戳: i64,
+    /// 收盘价
     pub 收盘价: f64,
+    /// RSI 计算周期
     pub 周期: i64,
+    /// 超买阈值
     pub 超买阈值: f64,
+    /// 超卖阈值
     pub 超卖阈值: f64,
+    /// RSI SMA 平滑周期
     pub RSI_SMA周期: Option<i64>,
+    /// RSI 值
     pub RSI: Option<f64>,
+    /// 平均上涨幅度
     pub 平均上涨: Option<f64>,
+    /// 平均下跌幅度
     pub 平均下跌: Option<f64>,
+    /// 当前上涨幅度
     pub 上涨幅度: f64,
+    /// 当前下跌幅度
     pub 下跌幅度: f64,
+    /// 平滑系数 (1/周期)
     pub 平滑系数: f64,
+    /// RSI SMA 值
     pub RSI_SMA: Option<f64>,
+    /// RSI 历史队列（用于滚动计算）
     pub RSI历史队列: Vec<f64>,
 }
 
@@ -95,6 +110,31 @@ impl 相对强弱指数 {
         }
     }
 
+    /// 首次计算 RSI 指标 — 从 K线 取值后计算
+    pub fn 首次计算_K线(
+        k线: &K线,
+        计算方式: &str,
+        周期: i64,
+        超买阈值: f64,
+        超卖阈值: f64,
+        RSI_SMA周期: Option<i64>,
+    ) -> Self {
+        let 价格 = super::K线取值(k线.开盘价, k线.高, k线.低, k线.收盘价, 计算方式);
+        Self::首次计算(价格, k线.时间戳, 周期, 超买阈值, 超卖阈值, RSI_SMA周期)
+    }
+
+    /// 增量计算 RSI 指标 — 从 K线 取值后递推
+    pub fn 增量计算_K线(前一个RSI: &Self, 当前K线: &K线, 计算方式: &str) -> Self {
+        let 价格 = super::K线取值(
+            当前K线.开盘价,
+            当前K线.高,
+            当前K线.低,
+            当前K线.收盘价,
+            计算方式,
+        );
+        Self::增量计算(前一个RSI, 价格, 当前K线.时间戳)
+    }
+
     /// 基于前一个 RSI 增量计算当前 RSI
     pub fn 增量计算(前一个RSI: &Self, 当前收盘价: f64, 当前时间: i64) -> Self {
         let 周期 = 前一个RSI.周期;
@@ -120,11 +160,7 @@ impl 相对强弱指数 {
 
         // RSI
         let RSI = if 平均下跌 == 0.0 {
-            if 平均上涨 > 0.0 {
-                100.0
-            } else {
-                50.0
-            }
+            if 平均上涨 > 0.0 { 100.0 } else { 50.0 }
         } else {
             let RS = 平均上涨 / 平均下跌;
             100.0 - (100.0 / (1.0 + RS))

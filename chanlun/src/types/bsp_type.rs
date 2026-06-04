@@ -91,6 +91,7 @@ impl std::fmt::Display for 买卖点类型 {
 }
 
 impl 买卖点类型 {
+    /// 判断是否为买点类型
     pub fn 是买点(&self) -> bool {
         matches!(
             self,
@@ -106,6 +107,7 @@ impl 买卖点类型 {
         )
     }
 
+    /// 判断是否为卖点类型
     pub fn 是卖点(&self) -> bool {
         matches!(
             self,

@@ -25,12 +25,15 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyType};
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::sync::atomic::Ordering;
 
 use crate::config_py::缠论配置Py;
-use crate::indicators_py::{平滑异同移动平均线Py, 相对强弱指数Py, 随机指标Py};
+use crate::indicators_py::{
+    平滑异同移动平均线Py, 指标容器Py, 相对强弱指数Py, 随机指标Py
+};
+use crate::structure_py::fractal_to_py;
 use crate::types_py::相对方向Py;
 
 // ========== K线 ==========
@@ -85,9 +88,7 @@ impl K线Py {
                 开盘价,
                 收盘价,
                 成交量,
-                macd: None,
-                rsi: None,
-                kdj: None,
+                指标: RwLock::new(chanlun::indicators::指标容器::new()),
             }),
         }
     }
@@ -146,25 +147,39 @@ impl K线Py {
     #[getter]
     fn macd(&self) -> Option<平滑异同移动平均线Py> {
         self.inner
-            .macd
-            .as_ref()
-            .map(|m| 平滑异同移动平均线Py { inner: m.clone() })
+            .指标
+            .read()
+            .unwrap()
+            .macd_cloned()
+            .map(|m| 平滑异同移动平均线Py { inner: m })
     }
 
     #[getter]
     fn rsi(&self) -> Option<相对强弱指数Py> {
         self.inner
-            .rsi
-            .as_ref()
-            .map(|r| 相对强弱指数Py { inner: r.clone() })
+            .指标
+            .read()
+            .unwrap()
+            .rsi_cloned()
+            .map(|r| 相对强弱指数Py { inner: r })
     }
 
     #[getter]
     fn kdj(&self) -> Option<随机指标Py> {
         self.inner
-            .kdj
-            .as_ref()
-            .map(|k| 随机指标Py { inner: k.clone() })
+            .指标
+            .read()
+            .unwrap()
+            .kdj_cloned()
+            .map(|k| 随机指标Py { inner: k })
+    }
+
+    /// 指标容器 — 包含所有已注册指标（MACD/RSI/KDJ/BOLL/均线/单值）
+    #[getter]
+    fn 指标(&self) -> 指标容器Py {
+        指标容器Py {
+            inner: self.inner.指标.read().unwrap().clone(),
+        }
     }
 
     /// pandas 兼容 — 返回所有字段构成的字典
@@ -190,6 +205,7 @@ impl K线Py {
         if let Some(v) = self.kdj() {
             dict.set_item("kdj", v)?;
         }
+        dict.set_item("指标", self.指标())?;
         Ok(dict.into())
     }
 
@@ -545,14 +561,14 @@ impl 缠论K线Py {
             .unwrap()
             .get(&src_key)
             .map(|p| p.clone_ref(py));
-        if let Some(cached_src) = cached_src {
-            if let Ok(new_set) = pyo3::types::PySet::empty(py) {
-                for item in cached_src.bind(py).iter() {
-                    let _ = new_set.add(item);
-                }
-                let py_set: Py<pyo3::types::PySet> = new_set.into();
-                BSP_CACHE.write().unwrap().insert(dst_key, py_set);
+        if let Some(cached_src) = cached_src
+            && let Ok(new_set) = pyo3::types::PySet::empty(py)
+        {
+            for item in cached_src.bind(py).iter() {
+                let _ = new_set.add(item);
             }
+            let py_set: Py<pyo3::types::PySet> = new_set.into();
+            BSP_CACHE.write().unwrap().insert(dst_key, py_set);
         }
         mirror
     }
@@ -583,10 +599,14 @@ impl 缠论K线Py {
         if let Some(set) = cached {
             return Ok(set.into_any());
         }
-        // 创建新的 PySet 并存入全局缓存
+        // 创建新的 PySet，从 Rust HashSet 同步已有内容
         let set = pyo3::types::PySet::empty(py)?;
+        let bsp_info = self.inner.买卖点信息.read().unwrap();
+        for item in bsp_info.iter() {
+            set.add(item.as_str())?;
+        }
+        drop(bsp_info);
         BSP_CACHE.write().unwrap().insert(key, set.into());
-        // 重新读取并返回（无法从 insert 获取 Py 引用，需要重新读）
         Ok(BSP_CACHE
             .read()
             .unwrap()
@@ -642,29 +662,6 @@ impl 缠论K线Py {
     }
 
     #[classmethod]
-    /// K线包含处理（合并）
-    fn 兼并(
-        _cls: &Bound<'_, PyType>,
-        之前缠K: Option<&Bound<'_, Self>>,
-        当前缠K: &Bound<'_, Self>,
-        当前普K: &Bound<'_, K线Py>,
-        配置: &Bound<'_, 缠论配置Py>,
-        py: Python<'_>,
-    ) -> PyResult<(Option<Py<Self>>, Option<String>)> {
-        let ck_inner = (*当前缠K.borrow().inner).clone();
-        let config = 配置.borrow().to_rust_config(py)?;
-        let prev_ref = 之前缠K.map(|prev| prev.borrow());
-        let prev_inner = prev_ref.as_ref().map(|r| r.inner.as_ref());
-        let (result, mode) = chanlun::kline::chan_kline::缠论K线::兼并(
-            prev_inner,
-            &ck_inner,
-            &当前普K.borrow().inner,
-            &config,
-        );
-        Ok((result.map(|rc| chan_kline_to_py(py, rc)), mode))
-    }
-
-    #[classmethod]
     /// 分析K线，执行指标计算+包含处理+分型判定
     fn 分析(
         _cls: &Bound<'_, PyType>,
@@ -686,14 +683,14 @@ impl 缠论K线Py {
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
 
-        let (status, _fractal) = chanlun::kline::chan_kline::缠论K线::分析(
+        let (status, fractal) = chanlun::kline::chan_kline::缠论K线::分析(
             ck_inner,
             &mut ck_seq,
             &mut bar_seq,
             &config,
         );
 
-        Ok((status, None))
+        Ok((status, fractal.map(|f| fractal_to_py(py, f).into_any())))
     }
 
     #[staticmethod]
