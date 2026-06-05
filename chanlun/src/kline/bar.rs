@@ -270,6 +270,50 @@ impl K线 {
         Some(&序列[始_idx..=终_idx])
     }
 
+    /// 结构化相等校验 — 比对各字段，浮点字段使用容差比较，返回 (是否相等, 差异描述)
+    pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
+        if self.标识 != other.标识 {
+            return (
+                false,
+                format!("K线: [标识] 不等 A={},B={}", self.标识, other.标识),
+            );
+        }
+        if self.序号 != other.序号 {
+            return (
+                false,
+                format!("K线: [序号] 不等 A={},B={}", self.序号, other.序号),
+            );
+        }
+        if self.周期 != other.周期 {
+            return (
+                false,
+                format!("K线: [周期] 不等 A={},B={}", self.周期, other.周期),
+            );
+        }
+        if self.时间戳 != other.时间戳 {
+            return (
+                false,
+                format!("K线: [时间戳] 不等 A={},B={}", self.时间戳, other.时间戳),
+            );
+        }
+        let 浮点字段 = [
+            ("高", self.高, other.高),
+            ("低", self.低, other.低),
+            ("开盘价", self.开盘价, other.开盘价),
+            ("收盘价", self.收盘价, other.收盘价),
+            ("成交量", self.成交量, other.成交量),
+        ];
+        for (名, a, b) in &浮点字段 {
+            if (a - b).abs() > 浮点容差 {
+                return (
+                    false,
+                    format!("K线: [{名}] 浮点超限 容差={浮点容差:.2e} A={a:.10},B={b:.10}"),
+                );
+            }
+        }
+        (true, "K线: 全部字段一致".into())
+    }
+
     /// 截取Arc<K线>序列中从始到终的片段
     pub fn 截取rc(序列: &[Arc<Self>], 始: &Arc<Self>, 终: &Arc<Self>) -> Vec<Arc<Self>> {
         let 始_ptr = Arc::as_ptr(始);

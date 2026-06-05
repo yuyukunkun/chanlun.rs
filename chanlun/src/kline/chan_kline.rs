@@ -531,6 +531,137 @@ impl 缠论K线 {
         let 终_idx = 序列.iter().position(|k| std::ptr::eq(Arc::as_ptr(k), 终))?;
         Some(序列[始_idx..=终_idx].to_vec())
     }
+
+    /// 结构化相等校验 — 比对所有字段，浮点容差，递归校验标的K线，返回 (是否相等, 差异描述)
+    pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
+        if self.序号.load(Ordering::Relaxed) != other.序号.load(Ordering::Relaxed) {
+            return (
+                false,
+                format!(
+                    "缠论K线: [序号] 不等 A={},B={}",
+                    self.序号.load(Ordering::Relaxed),
+                    other.序号.load(Ordering::Relaxed)
+                ),
+            );
+        }
+        if self.时间戳.load(Ordering::Relaxed) != other.时间戳.load(Ordering::Relaxed) {
+            return (
+                false,
+                format!(
+                    "缠论K线: [时间戳] 不等 A={},B={}",
+                    self.时间戳.load(Ordering::Relaxed),
+                    other.时间戳.load(Ordering::Relaxed)
+                ),
+            );
+        }
+        if (self.高.get() - other.高.get()).abs() > 浮点容差 {
+            return (
+                false,
+                format!(
+                    "缠论K线: [高] 浮点超限 容差={浮点容差:.2e} A={:.10},B={:.10}",
+                    self.高.get(),
+                    other.高.get()
+                ),
+            );
+        }
+        if (self.低.get() - other.低.get()).abs() > 浮点容差 {
+            return (
+                false,
+                format!(
+                    "缠论K线: [低] 浮点超限 容差={浮点容差:.2e} A={:.10},B={:.10}",
+                    self.低.get(),
+                    other.低.get()
+                ),
+            );
+        }
+        if *self.方向.read().unwrap() != *other.方向.read().unwrap() {
+            return (
+                false,
+                format!(
+                    "缠论K线: [方向] 不等 A={},B={}",
+                    self.方向.read().unwrap(),
+                    other.方向.read().unwrap()
+                ),
+            );
+        }
+        if *self.分型.read().unwrap() != *other.分型.read().unwrap() {
+            return (
+                false,
+                format!(
+                    "缠论K线: [分型] 不等 A={:?},B={:?}",
+                    self.分型.read().unwrap(),
+                    other.分型.read().unwrap()
+                ),
+            );
+        }
+        if self.周期 != other.周期 {
+            return (
+                false,
+                format!("缠论K线: [周期] 不等 A={},B={}", self.周期, other.周期),
+            );
+        }
+        if self.标识 != other.标识 {
+            return (
+                false,
+                format!("缠论K线: [标识] 不等 A={},B={}", self.标识, other.标识),
+            );
+        }
+        if (self.分型特征值.get() - other.分型特征值.get()).abs() > 浮点容差 {
+            return (
+                false,
+                format!(
+                    "缠论K线: [分型特征值] 浮点超限 A={:.10},B={:.10}",
+                    self.分型特征值.get(),
+                    other.分型特征值.get()
+                ),
+            );
+        }
+        if self.原始起始序号 != other.原始起始序号 {
+            return (
+                false,
+                format!(
+                    "缠论K线: [原始起始序号] 不等 A={},B={}",
+                    self.原始起始序号, other.原始起始序号
+                ),
+            );
+        }
+        if self.原始结束序号.load(Ordering::Relaxed) != other.原始结束序号.load(Ordering::Relaxed)
+        {
+            return (
+                false,
+                format!(
+                    "缠论K线: [原始结束序号] 不等 A={},B={}",
+                    self.原始结束序号.load(Ordering::Relaxed),
+                    other.原始结束序号.load(Ordering::Relaxed)
+                ),
+            );
+        }
+        // 标的K线 递归
+        let (eq, msg) = self
+            .标的K线
+            .read()
+            .unwrap()
+            .相等(&other.标的K线.read().unwrap(), 浮点容差);
+        if !eq {
+            return (false, format!("缠论K线: 标的K线子项异常 >> {msg}"));
+        }
+        // 买卖点信息
+        let a_guard = self.买卖点信息.read().unwrap();
+        let b_guard = other.买卖点信息.read().unwrap();
+        let a_set: std::collections::HashSet<&String> = a_guard.iter().collect();
+        let b_set: std::collections::HashSet<&String> = b_guard.iter().collect();
+        if a_set != b_set {
+            return (
+                false,
+                format!(
+                    "缠论K线: [买卖点信息] 集合不等 A={:?},B={:?}",
+                    self.买卖点信息.read().unwrap(),
+                    other.买卖点信息.read().unwrap()
+                ),
+            );
+        }
+        (true, "缠论K线: 全部字段一致".into())
+    }
 }
 
 impl crate::types::fractal::有高低 for 缠论K线 {

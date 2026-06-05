@@ -66,7 +66,7 @@ impl 分型 {
         左: Option<Arc<缠论K线>>, 中: Arc<缠论K线>, 右: Option<Arc<缠论K线>>
     ) -> Self {
         if let (Some(左), Some(右)) = (&左, &右) {
-            debug_assert!(
+            assert!(
                 左.时间戳.load(Ordering::Relaxed) < 中.时间戳.load(Ordering::Relaxed)
                     && 中.时间戳.load(Ordering::Relaxed) < 右.时间戳.load(Ordering::Relaxed),
                 "分型时间戳断言失败: 左={}, 中={}, 右={}",
@@ -255,6 +255,68 @@ impl 分型 {
             }
         }
         分型序列.push(当前分型);
+    }
+
+    /// 结构化相等校验 — 递归校验左/中/右缠伦K线 + 自有缓存字段，返回 (是否相等, 差异描述)
+    pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
+        match (&self.左, &other.左) {
+            (None, None) => {}
+            (Some(a), Some(b)) => {
+                let (eq, msg) = a.相等(b, 浮点容差);
+                if !eq {
+                    return (false, format!("分型: [左]缠论K线异常 >> {msg}"));
+                }
+            }
+            (a, b) => {
+                return (
+                    false,
+                    format!("分型: [左]空值不一致 A={},B={}", a.is_some(), b.is_some()),
+                );
+            }
+        }
+        {
+            let (eq, msg) = self.中.相等(&other.中, 浮点容差);
+            if !eq {
+                return (false, format!("分型: [中]缠论K线异常 >> {msg}"));
+            }
+        }
+        match (&self.右, &other.右) {
+            (None, None) => {}
+            (Some(a), Some(b)) => {
+                let (eq, msg) = a.相等(b, 浮点容差);
+                if !eq {
+                    return (false, format!("分型: [右]缠论K线异常 >> {msg}"));
+                }
+            }
+            (a, b) => {
+                return (
+                    false,
+                    format!("分型: [右]空值不一致 A={},B={}", a.is_some(), b.is_some()),
+                );
+            }
+        }
+        if self.结构 != other.结构 {
+            return (
+                false,
+                format!("分型: [结构] 不等 A={},B={}", self.结构, other.结构),
+            );
+        }
+        if self.时间戳 != other.时间戳 {
+            return (
+                false,
+                format!("分型: [时间戳] 不等 A={},B={}", self.时间戳, other.时间戳),
+            );
+        }
+        if (self.分型特征值 - other.分型特征值).abs() > 浮点容差 {
+            return (
+                false,
+                format!(
+                    "分型: [分型特征值] 浮点超限 A={:.10},B={:.10}",
+                    self.分型特征值, other.分型特征值
+                ),
+            );
+        }
+        (true, "分型: 全部字段一致".into())
     }
 }
 

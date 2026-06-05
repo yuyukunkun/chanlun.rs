@@ -64,6 +64,29 @@ impl 缺口 {
 
         Some(Self::new(上界.max(下界), 上界.min(下界)))
     }
+
+    /// 结构化相等校验 — 浮点容差比较高/低，返回 (是否相等, 差异描述)
+    pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
+        if (self.高 - other.高).abs() > 浮点容差 {
+            return (
+                false,
+                format!(
+                    "缺口: [高] 浮点超限 容差={浮点容差:.2e} A={:.10},B={:.10}",
+                    self.高, other.高
+                ),
+            );
+        }
+        if (self.低 - other.低).abs() > 浮点容差 {
+            return (
+                false,
+                format!(
+                    "缺口: [低] 浮点超限 容差={浮点容差:.2e} A={:.10},B={:.10}",
+                    self.低, other.低
+                ),
+            );
+        }
+        (true, "缺口: 高低价格一致".into())
+    }
 }
 
 impl std::fmt::Display for 缺口 {

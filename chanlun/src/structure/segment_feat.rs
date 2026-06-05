@@ -316,6 +316,52 @@ impl 线段特征 {
         }
         结果
     }
+
+    /// 结构化相等校验 — 逐项递归校验基础序列中的虚线，返回 (是否相等, 差异描述)
+    pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
+        if self.序号 != other.序号 {
+            return (
+                false,
+                format!("线段特征: [序号] 不等 A={},B={}", self.序号, other.序号),
+            );
+        }
+        if *self.标识.read().unwrap() != *other.标识.read().unwrap() {
+            return (
+                false,
+                format!(
+                    "线段特征: [标识] 不等 A={},B={}",
+                    self.标识.read().unwrap(),
+                    other.标识.read().unwrap()
+                ),
+            );
+        }
+        if self.线段方向 != other.线段方向 {
+            return (
+                false,
+                format!(
+                    "线段特征: [线段方向] 不等 A={},B={}",
+                    self.线段方向, other.线段方向
+                ),
+            );
+        }
+        if self.基础序列.len() != other.基础序列.len() {
+            return (
+                false,
+                format!(
+                    "线段特征: [基础序列] 长度不一致 A={},B={}",
+                    self.基础序列.len(),
+                    other.基础序列.len()
+                ),
+            );
+        }
+        for (idx, (a, b)) in self.基础序列.iter().zip(other.基础序列.iter()).enumerate() {
+            let (eq, msg) = a.相等(b, 浮点容差);
+            if !eq {
+                return (false, format!("线段特征: 基础序列[{idx}]虚线异常 >> {msg}"));
+            }
+        }
+        (true, "线段特征: 全部字段一致".into())
+    }
 }
 
 impl crate::types::fractal::有高低 for 线段特征 {

@@ -37,9 +37,15 @@ __all__ = [
     "set_log_level",
     "get_rs_log_level",
     "set_rs_log_level",
+    "K线相等",
+    "缠论K线相等",
+    "分型相等",
+    "缺口相等",
+    "线段特征相等",
+    "中枢相等",
+    "虚线相等",
     "chan",
 ]
-
 from ._chanlun import *
 from ._chanlun import set_log_level as _rs_set_log_level, get_log_level as _rs_get_log_level
 from . import chan

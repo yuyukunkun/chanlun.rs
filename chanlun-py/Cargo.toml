@@ -12,7 +12,8 @@ crate-type = ["cdylib"]
 name = "chanlun"
 
 [dependencies]
-chanlun = "26.6.1" # { path = "../chanlun" }
+chanlun = { path = "../chanlun" }
+lru = "0.18"
 pyo3 = { version = "0.28", features = ["experimental-inspect"] }
 serde_json = "1"
 chrono = "0.4"

@@ -387,7 +387,7 @@ impl 中枢 {
     pub fn 创建(
         左: Arc<虚线>, 中: Arc<虚线>, 右: Arc<虚线>, 级别: i64, 标识: &str
     ) -> Self {
-        debug_assert!(Self::基础检查(&左, &中, &右), "中枢.创建 基础检查失败");
+        assert!(Self::基础检查(&左, &中, &右), "中枢.创建 基础检查失败");
         Self::new(
             0,
             format!("{}中枢<{}>", 标识, 中.标识.read().unwrap()),
@@ -566,7 +566,7 @@ impl 中枢 {
             } else {
                 if 候选序列.is_empty() {
                     // 仍在范围内：延伸中枢
-                    debug_assert!(
+                    assert!(
                         中枢序列[当前中枢_idx]
                             .基础序列
                             .read()
@@ -614,6 +614,99 @@ impl 中枢 {
                 }
             }
         }
+    }
+
+    /// 结构化相等校验 — 递归校验基础序列虚线和第三买卖线，返回 (是否相等, 差异描述)
+    pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
+        if self.序号.load(Ordering::Relaxed) != other.序号.load(Ordering::Relaxed) {
+            return (
+                false,
+                format!(
+                    "中枢: [序号] 不等 A={},B={}",
+                    self.序号.load(Ordering::Relaxed),
+                    other.序号.load(Ordering::Relaxed)
+                ),
+            );
+        }
+        if *self.标识.read().unwrap() != *other.标识.read().unwrap() {
+            return (
+                false,
+                format!(
+                    "中枢: [标识] 不等 A={},B={}",
+                    self.标识.read().unwrap(),
+                    other.标识.read().unwrap()
+                ),
+            );
+        }
+        if self.级别.load(Ordering::Relaxed) != other.级别.load(Ordering::Relaxed) {
+            return (
+                false,
+                format!(
+                    "中枢: [级别] 不等 A={},B={}",
+                    self.级别.load(Ordering::Relaxed),
+                    other.级别.load(Ordering::Relaxed)
+                ),
+            );
+        }
+        // 基础序列
+        let a_seq = self.基础序列.read().unwrap();
+        let b_seq = other.基础序列.read().unwrap();
+        if a_seq.len() != b_seq.len() {
+            return (
+                false,
+                format!(
+                    "中枢: [基础序列] 长度不一致 A={},B={}",
+                    a_seq.len(),
+                    b_seq.len()
+                ),
+            );
+        }
+        for (idx, (a, b)) in a_seq.iter().zip(b_seq.iter()).enumerate() {
+            let (eq, msg) = a.相等(b, 浮点容差);
+            if !eq {
+                return (false, format!("中枢: 基础序列[{idx}]虚线异常 >> {msg}"));
+            }
+        }
+        // 第三买卖线
+        let 检查单个 = |名: &str,
+                        a: &Option<Arc<虚线>>,
+                        b: &Option<Arc<虚线>>,
+                        容差: f64|
+         -> Result<(), String> {
+            match (a, b) {
+                (None, None) => Ok(()),
+                (Some(x), Some(y)) => {
+                    let (eq, msg) = x.相等(y, 容差);
+                    if eq {
+                        Ok(())
+                    } else {
+                        Err(format!("中枢: [{名}]子虚线异常 >> {msg}"))
+                    }
+                }
+                _ => Err(format!(
+                    "中枢: [{名}]空值不一致 A={},B={}",
+                    a.is_some(),
+                    b.is_some()
+                )),
+            }
+        };
+        检查单个(
+            "第三买卖线",
+            &self.第三买卖线.read().unwrap(),
+            &other.第三买卖线.read().unwrap(),
+            浮点容差,
+        )
+        .map_err(|e| (false, e))
+        .ok();
+        检查单个(
+            "本级_第三买卖线",
+            &self.本级_第三买卖线.read().unwrap(),
+            &other.本级_第三买卖线.read().unwrap(),
+            浮点容差,
+        )
+        .map_err(|e| (false, e))
+        .ok();
+        (true, "中枢: 全部字段一致".into())
     }
 }
 

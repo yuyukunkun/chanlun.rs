@@ -103,6 +103,7 @@ fn init_tracing() {
 mod algorithm_py;
 mod business_py;
 mod config_py;
+mod equality_py;
 mod indicators_py;
 mod kline_py;
 mod structure_py;
@@ -175,6 +176,8 @@ fn _chanlun(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     algorithm_py::register(m)?;
     // 阶段 7: 业务
     business_py::register(m)?;
+    // 阶段 8: 相等校验函数
+    equality_py::register(m)?;
     Ok(())
 }
 

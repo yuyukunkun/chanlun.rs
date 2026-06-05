@@ -785,7 +785,7 @@ impl 线段 {
 
                 let 之前线段 = 线段序列.last().unwrap();
 
-                debug_assert!(
+                assert!(
                     之前线段.特征序列.read().unwrap()[2].is_some()
                         || 之前线段.短路修正.load(Ordering::Relaxed),
                     "线段._向序列中添加[{}], 之前线段.右 = None {}",
@@ -849,10 +849,9 @@ impl 线段 {
             }
         }
 
-        let mut 弹出 = 线段序列.pop().unwrap();
-        let seg = Arc::make_mut(&mut 弹出);
-        *seg.前一结束位置.write().unwrap() = None;
-        seg.有效性.store(false, Ordering::Relaxed);
+        let 弹出 = 线段序列.pop().unwrap();
+        弹出.有效性.store(false, Ordering::Relaxed);
+        *弹出.前一结束位置.write().unwrap() = None;
 
         Some(弹出)
     }
@@ -1510,9 +1509,8 @@ impl 线段 {
         }
 
         if Arc::as_ptr(线段序列.last().unwrap()) == Arc::as_ptr(待弹出线段) {
-            let mut drop = 线段序列.pop().unwrap();
-            let seg = Arc::make_mut(&mut drop);
-            seg.有效性.store(false, Ordering::Relaxed);
+            let drop = 线段序列.pop().unwrap();
+            drop.有效性.store(false, Ordering::Relaxed);
             Some(drop)
         } else {
             panic!("线段._从序列中删除 弹出数据不在列表中 {}", 待弹出线段);
@@ -1724,7 +1722,7 @@ impl 线段 {
 
         let 进入段 = &阳[阳.len() - 3];
         let 离开段 = &阳[阳.len() - 1];
-        debug_assert!(
+        assert!(
             进入段.序号.load(Ordering::Relaxed) < 离开段.序号.load(Ordering::Relaxed),
             "进入段.序号 >= 离开段.序号"
         );
@@ -1780,7 +1778,7 @@ impl 线段 {
                 {
                     let 进入段 = &当前段.基础序列.read().unwrap()[序号 - 1];
                     let 离开段 = &阳[阳.len() - 1];
-                    debug_assert!(
+                    assert!(
                         进入段.序号.load(Ordering::Relaxed) < 离开段.序号.load(Ordering::Relaxed)
                     );
                     if 进入段.方向() != 离开段.方向() {
@@ -1807,9 +1805,7 @@ impl 线段 {
                 // 第三买卖点后盘整背驰
                 let 进入段 = &阳[阳.len() - 3];
                 let 离开段 = &阳[阳.len() - 1];
-                debug_assert!(
-                    进入段.序号.load(Ordering::Relaxed) < 离开段.序号.load(Ordering::Relaxed)
-                );
+                assert!(进入段.序号.load(Ordering::Relaxed) < 离开段.序号.load(Ordering::Relaxed));
                 if 进入段.方向() != 离开段.方向() {
                     return crate::algorithm::divergence::背驰分析::测度背驰(
                         进入段, 离开段,

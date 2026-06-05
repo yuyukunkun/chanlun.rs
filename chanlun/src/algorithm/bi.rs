@@ -645,11 +645,13 @@ impl 笔 {
         }
 
         if let Some(前一笔) = 笔序列.last() {
-            let seg = Arc::make_mut(&mut 新笔);
-            seg.序号
+            let 新筆 = Arc::make_mut(&mut 新笔);
+            新筆
+                .序号
                 .store(前一笔.序号.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
-            if seg.武.read().unwrap().左.is_none() || seg.武.read().unwrap().右.is_none() {
-                seg.有效性.store(false, Ordering::Relaxed);
+            if 新筆.武.read().unwrap().左.is_none() || 新筆.武.read().unwrap().右.is_none()
+            {
+                新筆.有效性.store(false, Ordering::Relaxed);
             }
             if matches!(
                 前一笔.武.read().unwrap().结构(),

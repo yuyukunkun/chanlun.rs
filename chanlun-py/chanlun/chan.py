@@ -89,6 +89,13 @@ __all__ = [
     "布林带",
     "set_log_level",
     "get_log_level",
+    "K线相等",
+    "缠论K线相等",
+    "分型相等",
+    "缺口相等",
+    "线段特征相等",
+    "中枢相等",
+    "虚线相等",
 ]
 
 # 日志级别映射: 名称 → loguru 级别名
@@ -6375,6 +6382,317 @@ def 测试_周期合成(配置: 缠论配置, 配置组: Dict[int, 缠论配置]
         return 多级别分析
 
     return 魔法
+
+
+@lru_cache(128)
+def K线相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
+    """原始K线相等校验：字段完备→浮点容错→普通全等"""
+    比对字段 = ["标识", "序号", "周期", "时间戳", "高", "低", "开盘价", "收盘价", "成交量"]
+
+    for 字段 in 比对字段:
+        a有 = hasattr(A, 字段)
+        b有 = hasattr(B, 字段)
+        if a有 and not b有:
+            return False, f"K线校验：字段[{字段}]，A存在属性、B缺失属性"
+        if not a有 and b有:
+            return False, f"K线校验：字段[{字段}]，B存在属性、A缺失属性"
+        if not (a有 and b有):
+            continue
+
+        valA = getattr(A, 字段)
+        valB = getattr(B, 字段)
+        # 双浮点容错对比
+        if isinstance(valA, float) and isinstance(valB, float):
+            差值 = abs(valA - valB)
+            if 差值 > 浮点容差:
+                return False, f"K线校验：字段[{字段}]浮点超限，容差={浮点容差:.2e}，A={valA:.10f},B={valB:.10f},差值={差值:.10f}"
+
+        elif 字段 == "时间戳":
+            if int(valA) != int(valB):
+                return False, f"K线校验：字段[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+        else:
+            if valA != valB:
+                return False, f"K线校验：字段[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+
+    return True, "K线：全部字段结构、数值校验完全一致"
+
+
+@lru_cache(4096)
+def 缠论K线相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
+    """缠论K线：基础字段+标的K线递归校验"""
+    比对字段 = ["序号", "时间戳", "高", "低", "方向", "分型", "周期", "标识", "分型特征值", "原始起始序号", "原始结束序号", "标的K线", "买卖点信息"]
+
+    for 字段 in 比对字段:
+        a有 = hasattr(A, 字段)
+        b有 = hasattr(B, 字段)
+        if a有 and not b有:
+            return False, f"缠论K线校验：字段[{字段}]，A存在、B缺失属性"
+        if not a有 and b有:
+            return False, f"缠论K线校验：字段[{字段}]，B存在、A缺失属性"
+        if not (a有 and b有):
+            continue
+
+        valA = getattr(A, 字段)
+        valB = getattr(B, 字段)
+
+        if isinstance(valA, float) and isinstance(valB, float):
+            差值 = abs(valA - valB)
+            if 差值 > 浮点容差:
+                return False, f"缠论K线校验：[{字段}]浮点超限，容差={浮点容差:.2e}，A={valA:.10f},B={valB:.10f},差值={差值:.10f}"
+        elif 字段 == "标的K线":
+            if valA is None and valB is None:
+                continue
+            if valA is None or valB is None:
+                return False, f"缠论K线校验：[标的K线]单边空值，A={valA is None},B={valB is None}"
+            eq_flag, msg = K线相等(valA, valB, 浮点容差)
+            if not eq_flag:
+                return False, f"缠论K线校验：标的K线子项异常 >> {msg}"
+
+        elif 字段 == "时间戳":
+            if int(valA) != int(valB):
+                return False, f"缠论K线校验：字段[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+
+        elif 字段 == "方向":
+            if str(valA) != str(valB):
+                return False, f"缠论K线校验：字段[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+
+        elif 字段 == "分型":
+            if str(valA) != str(valB):
+                return False, f"缠论K线校验：字段[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+
+        elif 字段 == "买卖点信息":
+            if set(valA) != set(valB):
+                return False, f"缠论K线校验：字段[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+        else:
+            if valA != valB:
+                return False, f"缠论K线校验：[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+
+    return True, "缠论K线：全部字段、嵌套原始K线校验一致"
+
+
+@lru_cache(4096)
+def 分型相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
+    """分型：左/中/右缠论K线递归 + 自有字段"""
+    比对字段 = ["左", "中", "右", "_结构", "_时间戳", "_分型特征值"]
+
+    for 字段 in 比对字段:
+        a存在 = hasattr(A, 字段)
+        b存在 = hasattr(B, 字段)
+        if a存在 and not b存在:
+            return False, f"分型校验：[{字段}]A有属性、B缺失"
+        if not a存在 and b存在:
+            return False, f"分型校验：[{字段}]B有属性、A缺失"
+        if not (a存在 and b存在):
+            continue
+
+        valA = getattr(A, 字段)
+        valB = getattr(B, 字段)
+
+        if isinstance(valA, float) and isinstance(valB, float):
+            差值 = abs(valA - valB)
+            if 差值 > 浮点容差:
+                return False, f"分型校验：[{字段}]浮点超限，容差={浮点容差:.2e}，A={valA:.10f},B={valB:.10f},差值={差值:.10f}"
+        elif 字段 in ("左", "中", "右"):
+            if valA is None and valB is None:
+                continue
+            if valA is None or valB is None:
+                return False, f"分型校验：[{字段}]空值不一致，A={valA is None},B={valB is None}"
+            eq_ok, msg = 缠论K线相等(valA, valB, 浮点容差)
+            if not eq_ok:
+                return False, f"分型校验：[{字段}]缠论K线子项异常 >> {msg}"
+
+        elif 字段 == "_结构":
+            if str(valA) != str(valB):
+                return False, f"分型K线校验：字段[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+
+        elif 字段 == "_时间戳":
+            if int(valA) != int(valB):
+                return False, f"分型K线校验：字段[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+
+        else:
+            if valA != valB:
+                return False, f"分型校验：[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+
+    return True, "分型：自有字段+三根缠论K线全部校验一致"
+
+
+@lru_cache(4096)
+def 缺口相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
+    """缺口：高、低浮点校验"""
+    比对字段 = ["高", "低"]
+    for 字段 in 比对字段:
+        a有 = hasattr(A, 字段)
+        b有 = hasattr(B, 字段)
+        if a有 and not b有:
+            return False, f"缺口校验：[{字段}]A存在、B缺失属性"
+        if not a有 and b有:
+            return False, f"缺口校验：[{字段}]B存在、A缺失属性"
+        if not (a有 and b有):
+            continue
+
+        valA = getattr(A, 字段)
+        valB = getattr(B, 字段)
+        if isinstance(valA, float) and isinstance(valB, float):
+            差值 = abs(valA - valB)
+            if 差值 > 浮点容差:
+                return False, f"缺口校验：[{字段}]浮点超限，容差={浮点容差:.2e}，A={valA:.10f},B={valB:.10f},差值={差值:.10f}"
+        else:
+            if valA != valB:
+                return False, f"缺口校验：[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+    return True, "缺口：上下沿价格校验完全一致"
+
+
+@lru_cache(4096)
+def 线段特征相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
+    """线段特征：基础序列虚线列表逐项校验"""
+    比对字段 = ["序号", "标识", "线段方向", "基础序列"]
+    标签 = f"线段特征校验[A标识={A.标识}, B标识={B.标识}]"
+    for 字段 in 比对字段:
+        a有 = hasattr(A, 字段)
+        b有 = hasattr(B, 字段)
+        if a有 and not b有:
+            return False, f"{标签}：[{字段}]A存在、B缺失属性"
+        if not a有 and b有:
+            return False, f"{标签}：[{字段}]B存在、A缺失属性"
+        if not (a有 and b有):
+            continue
+
+        valA = getattr(A, 字段)
+        valB = getattr(B, 字段)
+        if 字段 == "基础序列":
+            if len(valA) != len(valB):
+                return False, f"{标签}：[基础序列]列表长度不一致，A长度={len(valA)},B长度={len(valB)}"
+            for idx, (itemA, itemB) in enumerate(zip(valA, valB)):
+                eq, msg = 虚线相等(itemA, itemB, 浮点容差)
+                if not eq:
+                    return False, f"{标签}：基础序列[{idx}]子虚线异常 >> {msg}"
+
+        elif 字段 == "线段方向":
+            if str(valA) != str(valB):
+                return False, f"{标签}：[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+        else:
+            if valA != valB:
+                return False, f"{标签}：[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+    return True, f"{标签}：字段与内部虚线序列全部一致"
+
+
+@lru_cache(4096)
+def 中枢相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
+    """中枢：基础序列虚线列表+第三买卖线单虚线"""
+    比对字段 = ["序号", "标识", "级别", "基础序列", "第三买卖线", "本级_第三买卖线"]
+    标签 = f"中枢校验[A标识={A.标识}, B标识={B.标识}]"
+    for 字段 in 比对字段:
+        a有 = hasattr(A, 字段)
+        b有 = hasattr(B, 字段)
+        if a有 and not b有:
+            return False, f"{标签}：[{字段}]A存在、B缺失属性"
+        if not a有 and b有:
+            return False, f"{标签}：[{字段}]B存在、A缺失属性"
+        if not (a有 and b有):
+            continue
+
+        valA = getattr(A, 字段)
+        valB = getattr(B, 字段)
+
+        if 字段 == "基础序列":
+            if len(valA) != len(valB):
+                return False, f"{标签}：[基础序列]长度不一致 A={len(valA)},B={len(valB)}"
+            for idx, (itemA, itemB) in enumerate(zip(valA, valB)):
+                eq, msg = 虚线相等(itemA, itemB, 浮点容差)
+                if not eq:
+                    return False, f"{标签}：基础序列[{idx}]虚线异常 >> {msg}"
+        elif 字段 in ("第三买卖线", "本级_第三买卖线"):
+            if valA is None and valB is None:
+                continue
+            if valA is None or valB is None:
+                return False, f"{标签}：[{字段}]空值不一致 A={valA is None},B={valB is None}"
+            eq, msg = 虚线相等(valA, valB, 浮点容差)
+            if not eq:
+                return False, f"{标签}：[{字段}]子虚线异常 >> {msg}"
+        else:
+            if valA != valB:
+                return False, f"{标签}：[{字段}]数值不等，A={repr(valA)},B={repr(valB)}"
+
+    return True, f"{标签}：基础序列+第三买卖线全部校验一致"
+
+
+@lru_cache(4096)
+def 虚线相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
+    """虚线(笔/线段)：全量字段、分型/缺口/K线/列表嵌套精细化报错"""
+    比对字段 = ["标识", "序号", "级别", "文", "武", "有效性", "基础序列", "特征序列", "实_中枢序列", "虚_中枢序列", "合_中枢序列", "确认K线", "模式", "_特征序列_显示", "前一缺口", "前一结束位置", "短路修正"]
+    标签 = f"虚线校验[A标识={A.标识}, B标识={B.标识}]"
+    for 字段 in 比对字段:
+        a有 = hasattr(A, 字段)
+        b有 = hasattr(B, 字段)
+        if a有 and not b有:
+            return False, f"{标签}：[{字段}]A存在属性、B缺失属性"
+        if not a有 and b有:
+            return False, f"{标签}：[{字段}]B存在属性、A缺失属性"
+        if not (a有 and b有):
+            continue
+
+        valA = getattr(A, 字段)
+        valB = getattr(B, 字段)
+
+        # 文/武：分型
+        if 字段 in ("文", "武"):
+            if valA is None and valB is None:
+                continue
+            if valA is None or valB is None:
+                return False, f"{标签}：[{字段}]分型空值不一致 A={valA is None},B={valB is None}"
+            eq, msg = 分型相等(valA, valB, 浮点容差)
+            if not eq:
+                return False, f"{标签}：[{字段}]子分型异常 >> {msg}"
+        # 前一缺口
+        elif 字段 == "前一缺口":
+            if valA is None and valB is None:
+                continue
+            if valA is None or valB is None:
+                return False, f"{标签}：[前一缺口]空值不一致 A={valA is None},B={valB is None}"
+            eq, msg = 缺口相等(valA, valB, 浮点容差)
+            if not eq:
+                return False, f"{标签}：[前一缺口]子缺口异常 >> {msg}"
+        # 前一缺口
+        elif 字段 == "前一结束位置":
+            if valA is None and valB is None:
+                continue
+            if valA is None or valB is None:
+                return False, f"{标签}：[前一结束位置]空值不一致 A={valA is None},B={valB is None}"
+            eq, msg = 虚线相等(valA, valB, 浮点容差)
+            if not eq:
+                return False, f"{标签}：[前一结束位置]异常 >> {msg}"
+        # 确认K线
+        elif 字段 == "确认K线":
+            if valA is None and valB is None:
+                continue
+            if valA is None or valB is None:
+                return False, f"{标签}：[确认K线]空值不一致 A={valA is None},B={valB is None}"
+            eq, msg = 缠论K线相等(valA, valB, 浮点容差)
+            if not eq:
+                return False, f"{标签}：[确认K线]子缠论K线异常 >> {msg}"
+        # 各类列表
+        elif 字段 in ("基础序列", "实_中枢序列", "虚_中枢序列", "合_中枢序列", "特征序列"):
+            if len(valA) != len(valB):
+                return False, f"{标签}：[{字段}]列表长度不一致 A={len(valA)},B={len(valB)}"
+            for idx, (itemA, itemB) in enumerate(zip(valA, valB)):
+                if itemA is None and itemB is None:
+                    continue
+                if itemA is None or itemB is None:
+                    return False, f"{标签}：[{字段}][{idx}]单项空值不一致 A={itemA is None},B={itemB is None}"
+                if 字段 == "基础序列":
+                    eq, msg = 虚线相等(itemA, itemB, 浮点容差)
+                elif "中枢" in 字段:
+                    eq, msg = 中枢相等(itemA, itemB, 浮点容差)
+                else:
+                    eq, msg = 线段特征相等(itemA, itemB, 浮点容差)
+                if not eq:
+                    return False, f"{标签}：[{字段}][{idx}]子项异常 >> {msg}"
+        # 普通字段
+        else:
+            if valA != valB:
+                return False, f"{标签}：[{字段}]数值不等 A={repr(valA)},B={repr(valB)}"
+
+    return True, f"{标签}：全字段、所有嵌套子结构校验全部一致"
 
 
 if __name__ == "__main__":

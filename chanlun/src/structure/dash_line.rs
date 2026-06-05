@@ -1150,6 +1150,241 @@ impl 虚线 {
 
         (结果, "".into())
     }
+
+    /// 结构化相等校验 — 递归校验所有子结构（分型/缺口/缠K/中枢/线段特征/虚线），返回 (是否相等, 差异描述)
+    pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
+        if *self.标识.read().unwrap() != *other.标识.read().unwrap() {
+            return (
+                false,
+                format!(
+                    "虚线: [标识] 不等 A={},B={}",
+                    self.标识.read().unwrap(),
+                    other.标识.read().unwrap()
+                ),
+            );
+        }
+        if self.序号.load(Ordering::Relaxed) != other.序号.load(Ordering::Relaxed) {
+            return (
+                false,
+                format!(
+                    "虚线: [序号] 不等 A={},B={}",
+                    self.序号.load(Ordering::Relaxed),
+                    other.序号.load(Ordering::Relaxed)
+                ),
+            );
+        }
+        if self.级别.load(Ordering::Relaxed) != other.级别.load(Ordering::Relaxed) {
+            return (
+                false,
+                format!(
+                    "虚线: [级别] 不等 A={},B={}",
+                    self.级别.load(Ordering::Relaxed),
+                    other.级别.load(Ordering::Relaxed)
+                ),
+            );
+        }
+        // 文
+        {
+            let (eq, msg) = self.文.相等(&other.文, 浮点容差);
+            if !eq {
+                return (false, format!("虚线: [文]分型异常 >> {msg}"));
+            }
+        }
+        // 武
+        {
+            let (eq, msg) = self
+                .武
+                .read()
+                .unwrap()
+                .相等(&other.武.read().unwrap(), 浮点容差);
+            if !eq {
+                return (false, format!("虚线: [武]分型异常 >> {msg}"));
+            }
+        }
+        if self.有效性.load(Ordering::Relaxed) != other.有效性.load(Ordering::Relaxed) {
+            return (
+                false,
+                format!(
+                    "虚线: [有效性] 不等 A={},B={}",
+                    self.有效性.load(Ordering::Relaxed),
+                    other.有效性.load(Ordering::Relaxed)
+                ),
+            );
+        }
+        // 基础序列
+        {
+            let a = self.基础序列.read().unwrap();
+            let b = other.基础序列.read().unwrap();
+            if a.len() != b.len() {
+                return (
+                    false,
+                    format!("虚线: [基础序列] 长度不一致 A={},B={}", a.len(), b.len()),
+                );
+            }
+            for (idx, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+                let (eq, msg) = x.相等(y, 浮点容差);
+                if !eq {
+                    return (false, format!("虚线: 基础序列[{idx}]虚线异常 >> {msg}"));
+                }
+            }
+        }
+        // 特征序列
+        {
+            let a = self.特征序列.read().unwrap();
+            let b = other.特征序列.read().unwrap();
+            if a.len() != b.len() {
+                return (
+                    false,
+                    format!("虚线: [特征序列] 长度不一致 A={},B={}", a.len(), b.len()),
+                );
+            }
+            for (idx, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+                match (x, y) {
+                    (None, None) => {}
+                    (Some(xx), Some(yy)) => {
+                        let (eq, msg) = xx.相等(yy, 浮点容差);
+                        if !eq {
+                            return (false, format!("虚线: 特征序列[{idx}]线段特征异常 >> {msg}"));
+                        }
+                    }
+                    _ => return (false, format!("虚线: 特征序列[{idx}]空值不一致")),
+                }
+            }
+        }
+        // 中枢序列
+        let 检查中枢列表 =
+            |名: &str, a: &[Arc<中枢>], b: &[Arc<中枢>], 容差: f64| -> Result<(), String> {
+                if a.len() != b.len() {
+                    return Err(format!(
+                        "虚线: [{名}] 长度不一致 A={},B={}",
+                        a.len(),
+                        b.len()
+                    ));
+                }
+                for (idx, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+                    let (eq, msg) = x.相等(y, 容差);
+                    if !eq {
+                        return Err(format!("虚线: {名}[{idx}]中枢异常 >> {msg}"));
+                    }
+                }
+                Ok(())
+            };
+        检查中枢列表(
+            "实_中枢序列",
+            &self.实_中枢序列.read().unwrap(),
+            &other.实_中枢序列.read().unwrap(),
+            浮点容差,
+        )
+        .map_err(|e| (false, e))
+        .ok();
+        检查中枢列表(
+            "虚_中枢序列",
+            &self.虚_中枢序列.read().unwrap(),
+            &other.虚_中枢序列.read().unwrap(),
+            浮点容差,
+        )
+        .map_err(|e| (false, e))
+        .ok();
+        检查中枢列表(
+            "合_中枢序列",
+            &self.合_中枢序列.read().unwrap(),
+            &other.合_中枢序列.read().unwrap(),
+            浮点容差,
+        )
+        .map_err(|e| (false, e))
+        .ok();
+        // 确认K线
+        match (
+            &*self.确认K线.read().unwrap(),
+            &*other.确认K线.read().unwrap(),
+        ) {
+            (None, None) => {}
+            (Some(a), Some(b)) => {
+                let (eq, msg) = a.相等(b, 浮点容差);
+                if !eq {
+                    return (false, format!("虚线: [确认K线]缠论K线异常 >> {msg}"));
+                }
+            }
+            (a, b) => {
+                return (
+                    false,
+                    format!(
+                        "虚线: [确认K线]空值不一致 A={},B={}",
+                        a.is_some(),
+                        b.is_some()
+                    ),
+                );
+            }
+        }
+        // 模式
+        if *self.模式.read().unwrap() != *other.模式.read().unwrap() {
+            return (
+                false,
+                format!(
+                    "虚线: [模式] 不等 A={},B={}",
+                    self.模式.read().unwrap(),
+                    other.模式.read().unwrap()
+                ),
+            );
+        }
+        // _特征序列_显示
+        if self._特征序列_显示.load(Ordering::Relaxed)
+            != other._特征序列_显示.load(Ordering::Relaxed)
+        {
+            return (false, "虚线: [_特征序列_显示] 不等".to_string());
+        }
+        // 前一缺口
+        match (
+            &*self.前一缺口.read().unwrap(),
+            &*other.前一缺口.read().unwrap(),
+        ) {
+            (None, None) => {}
+            (Some(a), Some(b)) => {
+                let (eq, msg) = a.相等(b, 浮点容差);
+                if !eq {
+                    return (false, format!("虚线: [前一缺口]缺口异常 >> {msg}"));
+                }
+            }
+            (a, b) => {
+                return (
+                    false,
+                    format!(
+                        "虚线: [前一缺口]空值不一致 A={},B={}",
+                        a.is_some(),
+                        b.is_some()
+                    ),
+                );
+            }
+        }
+        // 前一结束位置
+        match (
+            &*self.前一结束位置.read().unwrap(),
+            &*other.前一结束位置.read().unwrap(),
+        ) {
+            (None, None) => {}
+            (Some(a), Some(b)) => {
+                let (eq, msg) = a.相等(b, 浮点容差);
+                if !eq {
+                    return (false, format!("虚线: [前一结束位置]虚线异常 >> {msg}"));
+                }
+            }
+            (a, b) => {
+                return (
+                    false,
+                    format!(
+                        "虚线: [前一结束位置]空值不一致 A={},B={}",
+                        a.is_some(),
+                        b.is_some()
+                    ),
+                );
+            }
+        }
+        // 短路修正
+        if self.短路修正.load(Ordering::Relaxed) != other.短路修正.load(Ordering::Relaxed) {
+            return (false, "虚线: [短路修正] 不等".to_string());
+        }
+        (true, "虚线: 全量字段嵌套校验一致".into())
+    }
 }
 
 impl std::fmt::Display for 虚线 {
