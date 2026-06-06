@@ -994,7 +994,13 @@ pub struct 线段特征Py {
 impl 线段特征Py {
     #[getter]
     fn 序号(&self) -> i64 {
-        self.inner.序号
+        self.inner.序号.load(Ordering::Relaxed)
+    }
+
+    #[setter]
+    #[pyo3(name = "序号")]
+    fn set_序号(&self, value: i64) {
+        self.inner.序号.store(value, Ordering::Relaxed);
     }
 
     #[getter]

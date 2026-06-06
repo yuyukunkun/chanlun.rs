@@ -26,6 +26,7 @@ use crate::structure::dash_line::虚线;
 use crate::structure::feat_fractal::特征分型;
 use crate::structure::fractal_obj::分型;
 use crate::types::{分型结构, 相对方向};
+use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 
@@ -48,7 +49,7 @@ use std::sync::{Arc, RwLock};
 #[derive(Debug)]
 pub struct 线段特征 {
     /// 特征序列元素编号
-    pub 序号: i64,
+    pub 序号: AtomicI64,
     /// 标识字符串（如 "特征<虚线>"）
     pub 标识: RwLock<String>,
     /// 所属线段的方向
@@ -60,7 +61,7 @@ pub struct 线段特征 {
 impl Clone for 线段特征 {
     fn clone(&self) -> Self {
         Self {
-            序号: self.序号,
+            序号: AtomicI64::new(self.序号.load(Ordering::Relaxed)),
             标识: RwLock::new(self.标识.read().unwrap().clone()),
             线段方向: self.线段方向,
             基础序列: self.基础序列.clone(),
@@ -72,7 +73,7 @@ impl 线段特征 {
     /// 新建线段特征（给定标识、基础序列和线段方向）
     pub fn new(标识: String, 基础序列: Vec<Arc<虚线>>, 线段方向: 相对方向) -> Self {
         Self {
-            序号: 0,
+            序号: AtomicI64::new(0),
             标识: RwLock::new(标识),
             线段方向,
             基础序列,
@@ -319,10 +320,14 @@ impl 线段特征 {
 
     /// 结构化相等校验 — 逐项递归校验基础序列中的虚线，返回 (是否相等, 差异描述)
     pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
-        if self.序号 != other.序号 {
+        if self.序号.load(Ordering::Relaxed) != other.序号.load(Ordering::Relaxed) {
             return (
                 false,
-                format!("线段特征: [序号] 不等 A={},B={}", self.序号, other.序号),
+                format!(
+                    "线段特征: [序号] 不等 A={},B={}",
+                    self.序号.load(Ordering::Relaxed),
+                    other.序号.load(Ordering::Relaxed)
+                ),
             );
         }
         if *self.标识.read().unwrap() != *other.标识.read().unwrap() {
