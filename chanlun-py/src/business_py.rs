@@ -675,6 +675,13 @@ impl 买卖点Py {
 ///   线段_线段序列 / 线段_中枢序列
 ///   扩展线段序列_扩展线段 / 扩展中枢序列_扩展线段
 ///
+/// 分析层次（可读写）:
+///   线段分析层次: int (默认 3) / 扩展线段分析层次: int (默认 3) / 混合扩展线段分析层次: int (默认 3)
+///
+/// 序列组（只读，返回 list[list[...]]）:
+///   线段序列组 / 中枢序列组 / 扩展线段序列组 / 扩展中枢序列组
+///   混合扩展线段序列组 / 混合扩展中枢序列组
+///
 /// 核心方法:
 ///   增加原始K线(普K) — 喂入一根普通K线，触发全层级增量计算
 ///   重置基础序列() — 清空所有计算状态和序列
@@ -1040,7 +1047,7 @@ impl 观察者Py {
     #[getter]
     fn 线段序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for d in &self.obs().线段序列 {
+        for d in self.obs().线段序列() {
             list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
@@ -1049,7 +1056,7 @@ impl 观察者Py {
     #[getter]
     fn 中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for h in &self.obs().中枢序列 {
+        for h in self.obs().中枢序列() {
             list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
@@ -1058,7 +1065,7 @@ impl 观察者Py {
     #[getter]
     fn 扩展线段序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for d in &self.obs().扩展线段序列 {
+        for d in self.obs().扩展线段序列() {
             list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
@@ -1067,7 +1074,7 @@ impl 观察者Py {
     #[getter]
     fn 扩展中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for h in &self.obs().扩展中枢序列 {
+        for h in self.obs().扩展中枢序列() {
             list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
@@ -1076,7 +1083,7 @@ impl 观察者Py {
     #[getter]
     fn 扩展线段序列_线段(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for d in &self.obs().扩展线段序列_线段 {
+        for d in self.obs().扩展线段序列_线段() {
             list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
@@ -1085,7 +1092,7 @@ impl 观察者Py {
     #[getter]
     fn 扩展中枢序列_线段(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for h in &self.obs().扩展中枢序列_线段 {
+        for h in self.obs().扩展中枢序列_线段() {
             list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
@@ -1094,7 +1101,7 @@ impl 观察者Py {
     #[getter]
     fn 线段_线段序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for d in &self.obs().线段_线段序列 {
+        for d in self.obs().线段_线段序列() {
             list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
@@ -1103,7 +1110,7 @@ impl 观察者Py {
     #[getter]
     fn 线段_中枢序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for h in &self.obs().线段_中枢序列 {
+        for h in self.obs().线段_中枢序列() {
             list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
@@ -1112,7 +1119,7 @@ impl 观察者Py {
     #[getter]
     fn 扩展线段序列_扩展线段(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for d in &self.obs().扩展线段序列_扩展线段 {
+        for d in self.obs().扩展线段序列_扩展线段() {
             list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
@@ -1121,10 +1128,111 @@ impl 观察者Py {
     #[getter]
     fn 扩展中枢序列_扩展线段(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for h in &self.obs().扩展中枢序列_扩展线段 {
+        for h in self.obs().扩展中枢序列_扩展线段() {
             list.append(hub_to_py(py, Arc::clone(h)))?;
         }
         Ok(list.into())
+    }
+
+    // ---- 分析层次 getter/setter ----
+
+    #[getter]
+    fn 线段分析层次(&self) -> usize {
+        self.obs().线段分析层次
+    }
+
+    #[setter]
+    #[pyo3(name = "线段分析层次")]
+    fn 设置_线段分析层次(&mut self, value: usize) {
+        self.obs_mut().线段分析层次 = value;
+    }
+
+    #[getter]
+    fn 扩展线段分析层次(&self) -> usize {
+        self.obs().扩展线段分析层次
+    }
+
+    #[setter]
+    #[pyo3(name = "扩展线段分析层次")]
+    fn 设置_扩展线段分析层次(&mut self, value: usize) {
+        self.obs_mut().扩展线段分析层次 = value;
+    }
+
+    #[getter]
+    fn 混合扩展线段分析层次(&self) -> usize {
+        self.obs().混合扩展线段分析层次
+    }
+
+    #[setter]
+    #[pyo3(name = "混合扩展线段分析层次")]
+    fn 设置_混合扩展线段分析层次(&mut self, value: usize) {
+        self.obs_mut().混合扩展线段分析层次 = value;
+    }
+
+    // ---- 序列组 getters (返回 list[list[...]]) ----
+
+    #[getter]
+    fn 线段序列组(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self._虚线序列组_to_py(&self.obs().线段序列组, py)
+    }
+
+    #[getter]
+    fn 中枢序列组(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self._中枢序列组_to_py(&self.obs().中枢序列组, py)
+    }
+
+    #[getter]
+    fn 扩展线段序列组(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self._虚线序列组_to_py(&self.obs().扩展线段序列组, py)
+    }
+
+    #[getter]
+    fn 扩展中枢序列组(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self._中枢序列组_to_py(&self.obs().扩展中枢序列组, py)
+    }
+
+    #[getter]
+    fn 混合扩展线段序列组(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self._虚线序列组_to_py(&self.obs().混合扩展线段序列组, py)
+    }
+
+    #[getter]
+    fn 混合扩展中枢序列组(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self._中枢序列组_to_py(&self.obs().混合扩展中枢序列组, py)
+    }
+}
+
+impl 观察者Py {
+    fn _虚线序列组_to_py(
+        &self,
+        组: &Vec<Vec<Arc<chanlun::structure::dash_line::虚线>>>,
+        py: Python<'_>,
+    ) -> PyResult<Py<PyAny>> {
+        let outer = pyo3::types::PyList::empty(py);
+        for inner_vec in 组 {
+            let inner_list = pyo3::types::PyList::empty(py);
+            for d in inner_vec {
+                inner_list.append(dashed_to_py(py, Arc::clone(d)))?;
+            }
+            outer.append(inner_list)?;
+        }
+        Ok(outer.into())
+    }
+
+    fn _中枢序列组_to_py(
+        &self,
+        组: &Vec<Vec<Arc<chanlun::algorithm::hub::中枢>>>,
+        py: Python<'_>,
+    ) -> PyResult<Py<PyAny>> {
+        let outer = pyo3::types::PyList::empty(py);
+        for inner_vec in 组 {
+            let inner_list = pyo3::types::PyList::empty(py);
+            for h in inner_vec {
+                inner_list.append(hub_to_py(py, Arc::clone(h)))?;
+            }
+            outer.append(inner_list)?;
+        }
+        Ok(outer.into())
     }
 }
 

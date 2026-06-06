@@ -1001,7 +1001,7 @@ class 回测(高级策略基类):
     def 检查买信号(self):
         if self.p.观察员.笔序列:
             k线 = self.p.观察员.缠论K线序列[-1]
-            self.日志(f"检查买信号 当前笔 {self.p.观察员.笔序列[-1]}")
+            # self.日志(f"检查买信号 当前笔 {self.p.观察员.笔序列[-1]}")
             if k线.买卖点信息:
                 print(f"回测-首 {self.p.观察员.__class__.__name__}", k线.买卖点信息)
             首 = True if k线.买卖点信息 and "买" in next(iter(k线.买卖点信息)) else False
@@ -1024,7 +1024,7 @@ class 回测(高级策略基类):
 
     def 检查卖信号(self):
         if self.p.观察员.笔序列:
-            self.日志(f"检查卖信号 当前笔 {self.p.观察员.笔序列[-1]}")
+            # self.日志(f"检查卖信号 当前笔 {self.p.观察员.笔序列[-1]}")
             k线 = self.p.观察员.缠论K线序列[-1]
             if k线.买卖点信息:
                 print(f"回测-首 {self.p.观察员.__class__.__name__}", k线.买卖点信息)

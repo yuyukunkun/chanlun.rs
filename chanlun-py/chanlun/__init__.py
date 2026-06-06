@@ -14,7 +14,6 @@ __all__ = [
     "指标容器",
     "指标计算器",
     "均线工具",
-    "测试_读取数据",
     "相对强弱指数",
     "相对方向",
     "立体分析器",
@@ -49,7 +48,7 @@ __all__ = [
 from ._chanlun import *
 from ._chanlun import set_log_level as _rs_set_log_level, get_log_level as _rs_get_log_level
 from . import chan
-from .chan import 测试_读取数据, 转化为时间戳, 转化为时间戳_数字, set_log_level, get_log_level
+from .chan import set_log_level, get_log_level
 
 
 def set_rs_log_level(level: str):

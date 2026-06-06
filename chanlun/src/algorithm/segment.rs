@@ -1050,6 +1050,7 @@ impl 线段 {
         Self::_刷新(&线段序列[idx], 配置);
 
         let 当前线段 = Arc::clone(&线段序列[idx]);
+        当前线段.短路修正.store(true, Ordering::Relaxed);
         if 当前线段.特征序列.read().unwrap()[2].is_some() {
             let 段 = 虚线::创建线段(&[
                 Arc::clone(&基础序列[基础序列.len() - 3]),

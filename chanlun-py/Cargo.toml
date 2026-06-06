@@ -1,6 +1,6 @@
 [package]
 name = "chanlun-py"
-version = "26.6.17"
+version = "26.6.34"
 edition = "2024"
 description = "缠论技术分析库 — Rust 高性能 Python 绑定"
 authors = ["YuYuKunKun"]

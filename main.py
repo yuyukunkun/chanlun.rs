@@ -46,10 +46,7 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel
 import backtrader as bt
 
-try:
-    from chanlun import *
-except ImportError:
-    from chan import *
+from chanlun import *
 
 from strategies import *
 
@@ -321,471 +318,6 @@ class 时间周期:
             return 数值 * 60
 
 
-class BSP点:
-    """缠论买卖点（独立于旧买卖点类，对标 CBS_Point）。支持同一笔上叠加多种类型。"""
-
-    __slots__ = ("笔", "K线单元", "是否买点", "类型列表", "关联T1", "特征字典")
-
-    def __init__(self, 笔: "虚线", 是否买点: bool, 类型: "买卖点类型", 关联T1: "Optional[BSP点]" = None, 特征字典: dict = None):
-        self.笔 = 笔
-        self.K线单元 = 笔.武.中
-        self.是否买点 = 是否买点
-        self.类型列表: List["买卖点类型"] = [类型]
-        self.关联T1: "Optional[BSP点]" = 关联T1
-        self.特征字典 = 特征字典 or {}
-
-    def 添加类型(self, 类型: "买卖点类型", 关联T1: "Optional[BSP点]" = None):
-        if 类型 not in self.类型列表:
-            self.类型列表.append(类型)
-        if self.关联T1 is None:
-            self.关联T1 = 关联T1
-        elif 关联T1 is not None:
-            assert self.关联T1.K线单元.序号 == 关联T1.K线单元.序号
-
-    @property
-    def 类型字符串(self) -> str:
-        return ",".join([t.value for t in self.类型列表])
-
-    @property
-    def 备注(self) -> str:
-        return self.类型字符串
-
-
-class 买卖点识别器:
-    """缠论六类买卖点识别引擎。对标 ./对标/chan.py BuySellPoint 逻辑。"""
-
-    _最后确认位置: Dict[str, int] = {}  # 对标 last_sure_pos
-    _BSP1字典: Dict[str, Dict[int, "BSP点"]] = {}  # 对标 bsp1_dict: key → 笔序号 → BSP点
-
-    # ================================================================
-    # 主入口
-    # ================================================================
-
-    @staticmethod
-    def 计算(obs: "观察者") -> None:
-        if not obs.线段序列 or not obs.普通K线序列:
-            return
-
-        key = obs.标识
-        最后确认 = 买卖点识别器._最后确认位置.get(key, -1)
-
-        # 新确认的线段（仅用于 T1 增量识别，避免重复创建 T1）
-        新确认线段 = [seg for i, seg in enumerate(obs.线段序列) if i > 最后确认 and seg.特征序列[2] is not None]
-
-        if not 新确认线段:
-            return
-
-        买卖点识别器._最后确认位置[key] = obs.线段序列.index(新确认线段[-1])
-
-        配置 = obs.配置
-
-        if 配置.买卖点_计算线段BSP1:
-            买卖点识别器._计算线段BSP1(obs, 新确认线段)
-
-        # T2 / T3 需要全部已确认线段（含历史），以便在后续笔到达后重新检查
-        全部已确认 = [seg for seg in obs.线段序列 if seg.特征序列[2] is not None]
-        全量T1列表 = list(买卖点识别器._BSP1字典.get(key, {}).values()) if 配置.买卖点_依赖T1 else []
-
-        if 配置.买卖点_处理BSP2:
-            买卖点识别器._处理BSP2(obs, 全量T1列表, 全部已确认)
-
-        if 配置.买卖点_计算线段BSP3:
-            买卖点识别器._计算线段BSP3(obs, 全量T1列表, 全部已确认)
-
-    # ================================================================
-    # MACD 指标计算
-    # ================================================================
-
-    @staticmethod
-    def _计算MACD指标(笔: "虚线", K线序列: "List[K线]", 方式: str) -> float:
-        始K = 笔.文.中.标的K线
-        终K = 笔.武.中.标的K线
-        try:
-            始索引 = K线序列.index(始K)
-            终索引 = K线序列.index(终K)
-        except ValueError:
-            return float("inf")
-
-        if 方式 == "峰":
-            峰值 = 0.0
-            for i in range(始索引, 终索引 + 1):
-                k = K线序列[i]
-                if k.macd and k.macd.MACD柱 is not None:
-                    v = abs(k.macd.MACD柱)
-                    if v > 峰值:
-                        峰值 = v
-            return 峰值
-        else:
-            macd_dict = K线.获取MACD(K线序列, 始K, 终K)
-            return abs(macd_dict.get("总", 0.0))
-
-    # ================================================================
-    # 中枢查找工具
-    # ================================================================
-
-    @staticmethod
-    def _取线段内部中枢序列(段: "虚线", 来源: str) -> "List[中枢]":
-        if 来源 == "实":
-            return 段.实_中枢序列
-        elif 来源 == "虚":
-            return 段.虚_中枢序列
-        else:
-            return 段.合_中枢序列
-
-    @staticmethod
-    def _找多笔中枢(中枢序列: "List[中枢]") -> "Optional[中枢]":
-        for zs in reversed(中枢序列):
-            if len(zs) >= 3:
-                return zs
-        return None
-
-    @staticmethod
-    def _全局索引(笔: "虚线", 笔序列: "List[虚线]") -> int:
-        """返回笔在全局笔序列中的索引。"""
-        try:
-            return 笔序列.index(笔)
-        except ValueError:
-            return -1
-
-    @staticmethod
-    def _笔振幅(笔: "虚线") -> float:
-        """笔的振幅 = |武分型特征值 - 文分型特征值|。对标 bi.amp()。"""
-        return abs(笔.武.分型特征值 - 笔.文.分型特征值)
-
-    @staticmethod
-    def _有重叠(低1: float, 高1: float, 低2: float, 高2: float) -> bool:
-        """两区间是否有交集。对标 has_overlap。"""
-        return not (高1 < 低2 or 高2 < 低1)
-
-    @staticmethod
-    def _段末同向笔(段: "虚线") -> "虚线":
-        """对标 seg.end_bi：当前段内最后一个与段方向相同的笔。
-
-        段.基础序列包含两段笔（当前段 + 后一段开头），不能直接用 [-1]/[-2]。
-        必须用 分割序列 获取「前」——仅当前段的笔。
-        """
-        前, _, _, _ = 线段.分割序列(段)
-        for 筆 in reversed(前):
-            if 筆.方向 == 段.方向:
-                return 筆
-        return 前[-1]  # 理论上不会到这里，前[-1] 总是同向
-
-    # ================================================================
-    # BSP 创建 / 去重 — 对标 add_bs
-    # ================================================================
-
-    @staticmethod
-    def _创建BSP(obs: "观察者", 类型: "买卖点类型", 笔: "虚线", 关联T1: "Optional[BSP点]" = None, 特征字典: dict = None):
-        """对标 add_bs：创建或追加 BSP 类型（支持一笔多类型叠加）。"""
-        is_buy = 笔.方向.是否向下()
-        if 笔.序号 in obs.BSP字典:
-            exist_bsp = obs.BSP字典[笔.序号]
-            assert exist_bsp.是否买点 == is_buy, f"买卖方向冲突: {exist_bsp.类型字符串} vs {类型.value}"
-            exist_bsp.添加类型(类型, 关联T1)
-            return exist_bsp
-
-        bsp = BSP点(笔=笔, 是否买点=is_buy, 类型=类型, 关联T1=关联T1, 特征字典=特征字典)
-        obs.BSP字典[笔.序号] = bsp
-        return bsp
-
-    # ================================================================
-    # T1 / T1P — 对标 cal_seg_bs1point → treat_bsp1 / treat_pz_bsp1
-    # ================================================================
-
-    @staticmethod
-    def _计算线段BSP1(obs: "观察者", 已确认线段: "List[虚线]") -> "List[BSP点]":
-        """一类买卖点（T1中枢突破背离）和一类盘整买卖点（T1P）。对标 cal_seg_bs1point。"""
-        结果: "List[BSP点]" = []
-        配置 = obs.配置
-        来源 = 配置.买卖点_中枢来源
-        笔序列 = obs.笔序列
-
-        for 段 in 已确认线段:
-            if not 段.基础序列 or len(段.基础序列) < 3:
-                continue
-
-            is_buy = 段.方向.是否向下()
-            if not is_buy and not 段.方向.是否向上():
-                continue
-
-            段末笔 = 买卖点识别器._段末同向笔(段)
-
-            中枢序列 = 买卖点识别器._取线段内部中枢序列(段, 来源)
-
-            # 确定触发条件 — 对标 cal_single_bs1point
-            goto_T1 = False
-            相关中枢 = None
-            if 中枢序列:
-                相关中枢 = 中枢序列[-1]  # zs_lst[-1]
-                if len(相关中枢) >= 3:  # not is_one_bi_zs
-                    进入笔全局索引 = 买卖点识别器._全局索引(相关中枢[0], 笔序列)
-                    if 进入笔全局索引 > 0:
-                        进入笔 = 笔序列[进入笔全局索引 - 1]
-                        段末笔全局索引 = 买卖点识别器._全局索引(段末笔, 笔序列)
-                        中枢末笔 = 相关中枢[-1]
-                        中枢末笔全局索引 = 买卖点识别器._全局索引(中枢末笔, 笔序列)
-                        bi_out = 笔序列[中枢末笔全局索引 + 1] if 中枢末笔全局索引 >= 0 and 中枢末笔全局索引 + 1 < len(笔序列) else None
-                        中枢到达段末 = (bi_out is not None and bi_out.序号 >= 段末笔.序号) or 中枢末笔.序号 >= 段末笔.序号
-                        if 中枢到达段末 and 段末笔.序号 - 进入笔.序号 > 2:
-                            goto_T1 = True
-
-            if goto_T1 and 相关中枢 is not None:
-                # ---- T1 路径（对标 treat_bsp1）----
-                进入笔全局索引 = 买卖点识别器._全局索引(相关中枢[0], 笔序列)
-                进入笔 = 笔序列[进入笔全局索引 - 1]
-
-                # 突破检查 — 对标 end_bi_break
-                if is_buy:
-                    if not (段末笔.低 < 相关中枢.低):
-                        continue
-                else:
-                    if not (段末笔.高 > 相关中枢.高):
-                        continue
-
-                # 可选峰值条件 — 对标 out_bi_is_peak
-                if 配置.买卖点_峰值条件:
-                    if is_buy:
-                        if not all(笔.低 >= 段末笔.低 for 笔 in 相关中枢 if 笔.序号 <= 段末笔.序号):
-                            continue
-                    else:
-                        if not all(笔.高 <= 段末笔.高 for 笔 in 相关中枢 if 笔.序号 <= 段末笔.序号):
-                            continue
-
-                # MACD背离 — 对标 is_divergence
-                进入指标 = 买卖点识别器._计算MACD指标(进入笔, obs.普通K线序列, 配置.买卖点_计算方式)
-                离开指标 = 买卖点识别器._计算MACD指标(段末笔, obs.普通K线序列, 配置.买卖点_计算方式)
-                if not (离开指标 <= 配置.买卖点_背离率 * 进入指标):
-                    continue
-
-                类型 = 买卖点类型.T1买 if is_buy else 买卖点类型.T1卖
-                bsp = 买卖点识别器._创建BSP(obs, 类型=类型, 笔=段末笔, 特征字典={"divergence_rate": 离开指标 / (进入指标 + 1e-7)})
-                结果.append(bsp)
-                买卖点识别器._BSP1字典.setdefault(obs.标识, {})[段末笔.序号] = bsp
-
-            else:
-                # ---- T1P 盘整背离路径（对标 treat_pz_bsp1）----
-                离开笔 = 段末笔
-                段末笔全局索引 = 买卖点识别器._全局索引(段末笔, 笔序列)
-                if 段末笔全局索引 < 2:
-                    continue
-                进入笔 = 笔序列[段末笔全局索引 - 2]
-
-                if 离开笔.方向 != 段.方向:
-                    continue
-
-                # 创新低/高检查 — 对标 treat_pz_bsp1
-                if is_buy:
-                    if 离开笔.低 > 进入笔.低:
-                        continue
-                else:
-                    if 离开笔.高 < 进入笔.高:
-                        continue
-
-                # MACD背离 — 对标 in_metric vs out_metric
-                进入指标 = 买卖点识别器._计算MACD指标(进入笔, obs.普通K线序列, 配置.买卖点_计算方式)
-                离开指标 = 买卖点识别器._计算MACD指标(离开笔, obs.普通K线序列, 配置.买卖点_计算方式)
-                if not (离开指标 <= 配置.买卖点_背离率 * 进入指标):
-                    continue
-
-                类型 = 买卖点类型.T1P买 if is_buy else 买卖点类型.T1P卖
-                bsp = 买卖点识别器._创建BSP(obs, 类型=类型, 笔=离开笔, 特征字典={"divergence_rate": 离开指标 / (进入指标 + 1e-7)})
-                结果.append(bsp)
-                买卖点识别器._BSP1字典.setdefault(obs.标识, {})[段末笔.序号] = bsp
-
-        return 结果
-
-    # ================================================================
-    # T2 / T2S — 对标 treat_bsp2 / treat_bsp2s
-    # ================================================================
-
-    @staticmethod
-    def _处理BSP2(obs: "观察者", T1列表: "List[BSP点]", 已确认线段: "List[虚线]") -> "List[BSP点]":
-        """二类买卖点（T2回调确认）和二类特殊买卖点（T2S多级次二类）。"""
-        结果: "List[BSP点]" = []
-        配置 = obs.配置
-        阈值 = 配置.买卖点_T2_回调阈值
-        最大层级 = 配置.买卖点_T2S_最大层级
-        笔序列 = obs.笔序列
-
-        for bsp1 in T1列表:
-            is_buy = bsp1.是否买点
-            bsp1_笔 = bsp1.笔
-
-            bsp1_笔全局索引 = 买卖点识别器._全局索引(bsp1_笔, 笔序列)
-            if bsp1_笔全局索引 < 0:
-                continue
-
-            # 对标：break_bi = bi_list[bsp1_bi.idx + 1]; bsp2_bi = bi_list[bsp1_bi.idx + 2]
-            if bsp1_笔全局索引 + 2 >= len(笔序列):
-                continue
-            突破笔 = 笔序列[bsp1_笔全局索引 + 1]
-            回调笔 = 笔序列[bsp1_笔全局索引 + 2]
-
-            # 对标：bsp2_bi.amp() / break_bi.amp() <= max_bs2_rate
-            突破振幅 = 买卖点识别器._笔振幅(突破笔)
-            if 突破振幅 == 0:
-                continue
-            回调率 = 买卖点识别器._笔振幅(回调笔) / 突破振幅
-
-            if 回调率 <= 阈值:
-                # ---- T2 成立 ----
-                类型 = 买卖点类型.T2买 if is_buy else 买卖点类型.T2卖
-                bsp = 买卖点识别器._创建BSP(obs, 类型=类型, 笔=回调笔, 关联T1=bsp1)
-                结果.append(bsp)
-                continue
-
-            # ---- T2S 多级次二类（对标 treat_bsp2s）----
-            if 最大层级 is None or 最大层级 <= 0:
-                continue
-
-            # 对标：初始重叠检查
-            if not 买卖点识别器._有重叠(回调笔.低, 回调笔.高, 突破笔.低, 突破笔.高):
-                continue
-
-            重叠区低 = max(回调笔.低, 突破笔.低) if is_buy else 回调笔.低
-            重叠区高 = min(回调笔.高, 突破笔.高) if not is_buy else 回调笔.高
-
-            bias = 2  # 对标：从 bsp2_bi.idx + 2 开始，步进 2
-            while 回调笔.序号 + bias < len(笔序列):
-                bsp2s_笔 = 笔序列[买卖点识别器._全局索引(回调笔, 笔序列) + bias]
-
-                if 最大层级 is not None and bias // 2 > 最大层级:
-                    break
-
-                # 对标：首次重叠建立 _low/_high，之后检查
-                if bias == 2:
-                    if not 买卖点识别器._有重叠(回调笔.低, 回调笔.高, bsp2s_笔.低, bsp2s_笔.高):
-                        break
-                    重叠区低 = max(回调笔.低, bsp2s_笔.低)
-                    重叠区高 = min(回调笔.高, bsp2s_笔.高)
-                else:
-                    if not 买卖点识别器._有重叠(重叠区低, 重叠区高, bsp2s_笔.低, bsp2s_笔.高):
-                        break
-
-                # 对标：bsp2s_break_bsp1 = 不能突破突破笔极值
-                if is_buy and bsp2s_笔.低 < 突破笔.低:
-                    break
-                if not is_buy and bsp2s_笔.高 > 突破笔.高:
-                    break
-
-                # 对标：回调率检查
-                bsp2s_回调率 = abs(bsp2s_笔.武.分型特征值 - 突破笔.武.分型特征值) / 突破振幅
-                if bsp2s_回调率 > 阈值:
-                    break
-
-                # T2S成立
-                重叠区低 = max(重叠区低, bsp2s_笔.低)
-                重叠区高 = min(重叠区高, bsp2s_笔.高)
-
-                类型 = 买卖点类型.T2S买 if is_buy else 买卖点类型.T2S卖
-                bsp = 买卖点识别器._创建BSP(obs, 类型=类型, 笔=bsp2s_笔, 关联T1=bsp1)
-                结果.append(bsp)
-
-                bias += 2  # 对标：每次+2（同方向笔）
-
-        return 结果
-
-    # ================================================================
-    # T3A / T3B — 对标 cal_seg_bs3point → treat_bsp3_after / treat_bsp3_before
-    # ================================================================
-
-    @staticmethod
-    def _计算线段BSP3(obs: "观察者", T1列表: "List[BSP点]", 已确认线段: "List[虚线]") -> None:
-        """三类买卖点：T3A（后方回踩）和T3B（前方反抽）。"""
-        配置 = obs.配置
-        来源 = 配置.买卖点_中枢来源
-        笔序列 = obs.笔序列
-
-        for 段 in 已确认线段:
-            seg_idx = obs.线段序列.index(段) if 段 in obs.线段序列 else -1
-            is_buy = 段.方向.是否向下()
-
-            # ================================================================
-            # T3A：后段中枢回踩 — 对标 treat_bsp3_after
-            # ================================================================
-            if seg_idx >= 0 and seg_idx + 1 < len(obs.线段序列):
-                # 对标：if BSP_CONF.bsp3_follow_1 and bsp1_bi.idx not in bsp_store_flat_dict → skip
-                bsp1_笔 = 买卖点识别器._段末同向笔(段)
-                if not 配置.买卖点_依赖T1 or bsp1_笔.序号 in 买卖点识别器._BSP1字典.get(obs.标识, {}):
-                    后段 = obs.线段序列[seg_idx + 1]
-                    后段内部中枢 = 买卖点识别器._取线段内部中枢序列(后段, 来源)
-
-                    # 对标：first_zs = next_seg.get_first_multi_bi_zs()
-                    for 中枢_candidate in 后段内部中枢:
-                        if len(中枢_candidate) < 3:
-                            continue
-                        中枢末笔全局索引 = 买卖点识别器._全局索引(中枢_candidate[-1], 笔序列)
-                        bi_out = 笔序列[中枢末笔全局索引 + 1] if 中枢末笔全局索引 >= 0 and 中枢末笔全局索引 + 1 < len(笔序列) else None
-                        if bi_out is None or 买卖点识别器._全局索引(bi_out, 笔序列) + 1 >= len(笔序列):
-                            continue
-
-                        bsp3_笔 = 笔序列[买卖点识别器._全局索引(bi_out, 笔序列) + 1]
-
-                        # 对标：bsp3_bi.dir == next_seg.dir → break
-                        if bsp3_笔.方向 == 后段.方向:
-                            break
-
-                        # 对标：bsp3_back2zs(bsp3_bi, zs)
-                        if is_buy:
-                            if bsp3_笔.低 < 中枢_candidate.高:
-                                continue
-                        else:
-                            if bsp3_笔.高 > 中枢_candidate.低:
-                                continue
-
-                        # 对标：bs3_peak 检查
-                        if 配置.买卖点_峰值条件:
-                            if is_buy:
-                                if not (bsp3_笔.高 >= 中枢_candidate.高高):
-                                    continue
-                            else:
-                                if not (bsp3_笔.低 <= 中枢_candidate.低低):
-                                    continue
-
-                        类型 = 买卖点类型.T3A买 if is_buy else 买卖点类型.T3A卖
-                        bsp1 = 买卖点识别器._BSP1字典.get(obs.标识, {}).get(bsp1_笔.序号)
-                        买卖点识别器._创建BSP(obs, 类型=类型, 笔=bsp3_笔, 关联T1=bsp1)
-                        break  # 对标：找到一个就跳出
-
-            # ================================================================
-            # T3B：前序买卖点位置向前搜索 — 对标 treat_bsp3_before
-            # ================================================================
-            段末笔 = 买卖点识别器._段末同向笔(段)
-            段内部中枢 = 买卖点识别器._取线段内部中枢序列(段, 来源)
-            cmp_中枢 = 买卖点识别器._找多笔中枢(段内部中枢)
-            if cmp_中枢 is None:
-                continue
-
-            # 对标：if BSP_CONF.bsp3_follow_1 and bsp1_bi.idx not in bsp_store_flat_dict → skip
-            if 配置.买卖点_依赖T1 and 段末笔.序号 not in 买卖点识别器._BSP1字典.get(obs.标识, {}):
-                continue
-
-            bsp1_全局索引 = 买卖点识别器._全局索引(段末笔, 笔序列)
-            if bsp1_全局索引 < 0:
-                continue
-
-            # 对标：bsp3_peak check on cmp_zs
-            # 对标：从 bsp1_bi.idx+2 开始，步进 2
-            for offset in range(2, len(笔序列) - bsp1_全局索引, 2):
-                bsp3_笔全局索引 = bsp1_全局索引 + offset
-                if bsp3_笔全局索引 >= len(笔序列):
-                    break
-                bsp3_笔 = 笔序列[bsp3_笔全局索引]
-
-                # 对标：bsp3_back2zs(bsp3_bi, cmp_zs)
-                if is_buy:
-                    if bsp3_笔.低 < cmp_中枢.高:
-                        continue
-                else:
-                    if bsp3_笔.高 > cmp_中枢.低:
-                        continue
-
-                类型 = 买卖点类型.T3B买 if is_buy else 买卖点类型.T3B卖
-                bsp1 = 买卖点识别器._BSP1字典.get(obs.标识, {}).get(段末笔.序号)
-                买卖点识别器._创建BSP(obs, 类型=类型, 笔=bsp3_笔, 关联T1=bsp1)
-                break  # 对标：找到一个就跳出
-
-
 class 指令:
     增: Final[str] = "APPEND"
     改: Final[str] = "MODIFY"
@@ -823,18 +355,17 @@ class 观察者(观察者):
         self.数据队列: queue.Queue = 数据队列
         super().__init__(符号, 周期, 配置)
         self.__终止时间戳: Optional[datetime] = 转化为时间戳(self.配置.手动终止) if self.配置.手动终止 else None
-
-    def 识别买卖点(self):
-        pass
+        self.买卖点字典 = dict()
 
     @final
     def 增加原始K线(self, 普K: K线):
         if self.__终止时间戳 and 普K.时间戳 > self.__终止时间戳:
             return
 
-        super().增加原始K线(普K)
         if self.配置.推送K线:
             self.报信(普K, 指令.添加("RawBar"), sys._getframe().f_lineno, 周期=普K.周期)
+
+        super().增加原始K线(普K)
 
         try:
             self.数据队列 and self.数据队列.put((普K.时间戳, 普K.开盘价, 普K.高, 普K.低, 普K.收盘价, 普K.成交量, 0))
@@ -843,8 +374,6 @@ class 观察者(观察者):
             try:
                 self.图表刷新()
                 self.识别买卖点()
-                # 买卖点识别器.计算(self)
-                # self.标注买卖点()
             except:
                 print("~~~~~~~~~~~~~~", self.当前K线)
                 traceback.print_exc()
@@ -867,25 +396,11 @@ class 观察者(观察者):
 
     def 重置基础序列(self):
         self.买卖点字典 = dict()
-        self.BSP字典: Dict[int, "BSP点"] = dict()
-        self._买卖点最后确认线段索引: int = -1
-        买卖点识别器._最后确认位置.pop(self.标识, None)
-        买卖点识别器._BSP1字典.pop(self.标识, None)
-        self._已标注BSP序号: set = set()
         super().重置基础序列()
 
     def 读取任意数据(self, 魔法, **魔法参数):
         魔法(**魔法参数)
         return self
-
-    def 加载本地数据(self, 文件路径: str):
-        self.重置基础序列()
-        with open(文件路径, "rb") as f:
-            buffer = f.read()
-            size = struct.calcsize(">6d")
-            for i in range(len(buffer) // size):
-                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], self.周期)
-                self.增加原始K线(k线)
 
     def 静态重新分析(self):
         self.买卖点字典 = dict()
@@ -932,50 +447,25 @@ class 观察者(观察者):
         if 当前买卖点.买卖点K线.时间戳 not in 活跃时间戳序列:
             买卖点序列.add(当前买卖点)
             当前买卖点.买卖点K线.买卖点信息.add(当前买卖点.备注)
+            self.报信(当前买卖点, 指令.添加(当前买卖点.备注), sys._getframe().f_lineno)
 
     def 图表刷新(self):
-        # ===================== 笔（你原来的写法） =====================
-        for 筆 in self.笔序列[-3:]:
-            self.报信(筆, 指令.添加(筆.标识), 0)
+        def 报信(序列):
+            for 对象 in 序列[-3:]:
+                self.报信(对象, 指令.添加(对象.标识), 0)
 
-        # ===================== 笔中枢 =====================
-        for 中枢对象 in self.笔_中枢序列[-3:]:
-            self.报信(中枢对象, 指令.添加(中枢对象.标识), 0)
+        报信(self.笔序列)
+        报信(self.笔_中枢序列)
 
-        # ===================== 线段、中枢 =====================
-        for 线段对象 in self.线段序列[-3:]:
-            self.报信(线段对象, 指令.添加(线段对象.标识), 0)
-
-        for 中枢对象 in self.中枢序列[-3:]:
-            self.报信(中枢对象, 指令.添加(中枢对象.标识), 0)
-
-        # ===================== 扩展线段、扩展中枢 =====================
-        for 线段对象 in self.扩展线段序列[-3:]:
-            self.报信(线段对象, 指令.添加(线段对象.标识), 0)
-
-        for 中枢对象 in self.扩展中枢序列[-3:]:
-            self.报信(中枢对象, 指令.添加(中枢对象.标识), 0)
-
-        # ===================== 扩展线段(线段级)、扩展中枢(线段级) =====================
-        for 线段对象 in self.扩展线段序列_线段[-3:]:
-            self.报信(线段对象, 指令.添加(线段对象.标识), 0)
-
-        for 中枢对象 in self.扩展中枢序列_线段[-3:]:
-            self.报信(中枢对象, 指令.添加(中枢对象.标识), 0)
-
-        # ===================== 线段线段、线段中枢 =====================
-        for 线段对象 in self.线段_线段序列[-3:]:
-            self.报信(线段对象, 指令.添加(线段对象.标识), 0)
-
-        for 中枢对象 in self.线段_中枢序列[-3:]:
-            self.报信(中枢对象, 指令.添加(中枢对象.标识), 0)
-
-        # ===================== 扩展线段(扩展级)、扩展中枢(扩展级) =====================
-        for 线段对象 in self.扩展线段序列_扩展线段[-3:]:
-            self.报信(线段对象, 指令.添加(线段对象.标识), 0)
-
-        for 中枢对象 in self.扩展中枢序列_扩展线段[-3:]:
-            self.报信(中枢对象, 指令.添加(中枢对象.标识), 0)
+        for i in range(self.线段分析层次):
+            报信(self.线段序列组[i])
+            报信(self.中枢序列组[i])
+        for i in range(self.扩展线段分析层次):
+            报信(self.扩展线段序列组[i])
+            报信(self.扩展中枢序列组[i])
+        for i in range(self.混合扩展线段分析层次):
+            报信(self.混合扩展线段序列组[i])
+            报信(self.混合扩展中枢序列组[i])
 
         # self.将图表数据固化到本地()
 
@@ -1020,23 +510,6 @@ class 观察者(观察者):
                 "text": text,
                 "title": 对象.备注.split("_")[0],
                 "showLabel": False if 对象.偏移 <= 1 else True,
-            }
-
-        if type(对象) is BSP点:
-            message["type"] = "shape"
-            message["cmd"] = 命令.指令.upper()
-            message["id"] = f"BSP_{id(对象)}"
-            message["name"] = "arrow_down" if not 对象.是否买点 else "arrow_up"
-            k线 = 对象.K线单元
-            message["points"] = [{"time": int(k线.时间戳), "price": k线.分型特征值}]
-            arrowColor = "#FF2800" if not 对象.是否买点 else "#00FF22"
-            text = f"{对象.类型字符串}, {对象.特征字典.get('divergence_rate', '')}"
-            message["overrides"] = {
-                "color": "#FFA500",
-                "arrowColor": "#FFA500",
-                "text": text,
-                "title": 对象.类型字符串,
-                "showLabel": True,
             }
 
         if type(对象) is 虚线 and 对象.标识 == "笔" and not self.配置.推送笔:
@@ -1084,8 +557,8 @@ class 观察者(观察者):
             message["name"] = "trend_line" if type(对象) is not 中枢 else "rectangle"
             if 命令.指令 != 指令.删:
                 message["points"] = [
-                    {"time": int(缠论K线.时间戳对齐(self.缠论K线序列, 对象.文.中)), "price": 对象.文.分型特征值 if type(对象) is not 中枢 else 对象.高},
-                    {"time": int(缠论K线.时间戳对齐(self.缠论K线序列, 对象.武.中)), "price": 对象.武.分型特征值 if type(对象) is not 中枢 else 对象.低},
+                    {"time": int(缠论K线.时间戳对齐(self.基础缠K序列, 对象.文.中)), "price": 对象.文.分型特征值 if type(对象) is not 中枢 else 对象.高},
+                    {"time": int(缠论K线.时间戳对齐(self.基础缠K序列, 对象.武.中)), "price": 对象.武.分型特征值 if type(对象) is not 中枢 else 对象.低},
                 ]
                 linewidths = {"笔": 1, "线段": 2, "走势": 3, "线段特征": 2}
                 message["overrides"] = {
@@ -1106,6 +579,9 @@ class 观察者(观察者):
 
                 if type(对象) is not 线段特征:
                     message["overrides"]["text"] = f"{对象.标识} {对象.序号} 周期:{self.周期} {getattr(对象, '四象', '')} {getattr(对象, '特征序列状态', '')} {getattr(对象, '级别', '')} {getattr(对象, '备注', '')}"
+
+                if type(对象) is 中枢:
+                    message["overrides"]["text"] = f"{对象.标识} {对象.序号} 周期:{self.周期} 基础序列数量: {len(对象.基础序列)}"
 
                 if 对象.标识 in ("线段", "线段<线段>"):
                     message["overrides"]["text"] = f"{对象.标识} {对象.序号} 周期:{self.周期} {线段.四象(对象)} {线段.特征序列状态(对象)} {getattr(对象, '级别', '')} {getattr(对象, '备注', '')}"
@@ -1133,17 +609,6 @@ class 观察者(观察者):
             asyncio.ensure_future(self.数据通道.send_text(json.dumps(message)))
         return
 
-    def 标注买卖点(self):
-        """将 BSP字典 中的买卖点推送到图表。与旧的 添加买卖点/报信 独立。"""
-        if not self.配置.图表展示 or self.数据通道 is None:
-            return
-        已标注 = getattr(self, "_已标注BSP序号", set())
-        for 笔序号, bsp in self.BSP字典.items():
-            if 笔序号 in 已标注:
-                continue
-            已标注.add(笔序号)
-            self.报信(bsp, 指令.添加(bsp.备注), sys._getframe().f_lineno)
-
     def 将图表数据固化到本地(self, static_shapes=None):
         template_path = "./templates/static.html"
         # 初始化 Jinja2 环境，模板目录为当前目录
@@ -1170,7 +635,6 @@ class 观察者(观察者):
             全部 = []
             for o in self.买卖点字典.values():
                 全部.extend(o)
-            全部.extend(self.BSP字典.values())
 
             for 对象 in 全部:
                 if type(对象) in (笔, 线段, 中枢, 线段特征):
@@ -1234,23 +698,6 @@ class 观察者(观察者):
                     static_shapes.append(message)
                     continue
 
-                if type(对象) is BSP点:
-                    message = dict()
-                    message["type"] = "shape"
-                    message["id"] = f"BSP_{id(对象)}"
-                    message["shapeType"] = "arrow_down" if not 对象.是否买点 else "arrow_up"
-                    k线 = 对象.K线单元
-                    message["points"] = [{"time": int(k线.时间戳), "price": k线.分型特征值}]
-                    arrowColor = "#FF2800" if not 对象.是否买点 else "#00FF22"
-                    text = f"{对象.类型字符串}"
-                    message["overrides"] = {
-                        "color": "#FFA500",
-                        "arrowColor": arrowColor,
-                        "text": text,
-                        "title": 对象.类型字符串,
-                        "showLabel": True,
-                    }
-                    static_shapes.append(message)
                 else:
                     print(type(对象), 对象)
         for item in static_shapes:
@@ -1284,7 +731,7 @@ class 观察者(观察者):
             buffer = f.read()
             size = struct.calcsize(">6d")
             for i in range(len(buffer) // size):
-                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], int(周期))
+                k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], int(周期), 符号)
                 实例.增加原始K线(k线)
 
         return 实例
@@ -1858,7 +1305,7 @@ def 测试_随机生成(symbol: str = "btcusd", limit: int = 5000, freq: Support
     def 魔法():
         随机生成实例 = 观察者(symbol + "_gen", 周期=int(freq), 数据通道=ws, 配置=配置)
         dt = datetime(2008, 8, 8)
-        原始K线 = K线.创建普K("随机", dt, 8888.55, 10000.00, 9000.22, 9527.33, 888, 0, int(freq))
+        原始K线 = K线.创建普K("随机", int(dt.timestamp()), 8888.55, 10000.00, 9000.22, 9527.33, 888, 0, int(freq))
         随机生成实例.增加原始K线(原始K线)
         for 方向 in 从序列中机选(
             int(limit),
@@ -1910,7 +1357,7 @@ class Bitstamp:
             for bar in data["data"]["ohlc"]:
                 K = K线.创建普K(
                     观察员.符号,
-                    转化为时间戳(int(bar["timestamp"])),
+                    int(bar["timestamp"]),
                     float(bar["open"]),
                     float(bar["high"]),
                     float(bar["low"]),
@@ -2779,6 +2226,7 @@ if __name__ == "__main__":
             本地随机 = random.Random(os.urandom(64))
             配置 = 随机配置(本地随机)
             print(f"[线程{线程编号:02d}] 开始 ...")
+            print(f"[线程{线程编号:02d}] ", 配置.to_dict())
             测试函数 = 测试_随机生成(symbol="btcusd", limit=10000, freq=时间周期.分(5), ws=None, 配置=配置)
             结果 = 测试函数()  # 实际执行
             print(f"[线程{线程编号:02d}] 完成 | 笔序列长度: {len(结果.笔序列)}")
@@ -2786,6 +2234,7 @@ if __name__ == "__main__":
             print(f"[线程{线程编号:02d}] 异常: {e}")
             traceback.print_exc()
 
+    start = datetime.now()
     # 创建并启动 50 个线程
     线程列表 = []
     for i in range(1, 51):
@@ -2797,4 +2246,4 @@ if __name__ == "__main__":
     for 线程 in 线程列表:
         线程.join()
 
-    print("\n全部 50 个随机回测线程已完成。")
+    print("\n全部 50 个随机回测线程已完成。", datetime.now() - start)

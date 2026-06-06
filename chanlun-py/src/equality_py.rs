@@ -538,89 +538,75 @@ fn 中枢相等(
     B: &Bound<'_, PyAny>,
     浮点容差: f64,
 ) -> PyResult<(bool, String)> {
-    with_cache!(
-        C_HUB,
-        4096,
-        (
-            A.as_ptr() as usize,
-            B.as_ptr() as usize,
-            浮点容差.to_bits() as i64
-        ),
-        {
-            if let (Ok(a), Ok(b)) = (
-                A.cast::<crate::algorithm_py::中枢Py>(),
-                B.cast::<crate::algorithm_py::中枢Py>(),
-            ) {
-                return Ok(a.borrow().inner.相等(&b.borrow().inner, 浮点容差));
+    if let (Ok(a), Ok(b)) = (
+        A.cast::<crate::algorithm_py::中枢Py>(),
+        B.cast::<crate::algorithm_py::中枢Py>(),
+    ) {
+        return Ok(a.borrow().inner.相等(&b.borrow().inner, 浮点容差));
+    }
+    let a标识 = 尝试获取标识(A);
+    let b标识 = 尝试获取标识(B);
+    let 标签 = format!("中枢校验[A标识={a标识},B标识={b标识}]");
+    for &字段 in &[
+        "序号",
+        "标识",
+        "级别",
+        "基础序列",
+        "第三买卖线",
+        "本级_第三买卖线",
+    ] {
+        let (a有, b有) = (A.hasattr(字段)?, B.hasattr(字段)?);
+        if a有 && !b有 {
+            return Ok((false, format!("{标签}: [{字段}] A存在 B缺失属性")));
+        }
+        if !a有 && b有 {
+            return Ok((false, format!("{标签}: [{字段}] B存在 A缺失属性")));
+        }
+        if !a有 && !b有 {
+            continue;
+        }
+        let valA = A.getattr(字段)?;
+        let valB = B.getattr(字段)?;
+
+        if 字段 == "基础序列" {
+            let len_a: usize = valA.len()?;
+            let len_b: usize = valB.len()?;
+            if len_a != len_b {
+                return Ok((
+                    false,
+                    format!("{标签}: [基础序列] 长度不一致 A={len_a},B={len_b}"),
+                ));
             }
-            let a标识 = 尝试获取标识(A);
-            let b标识 = 尝试获取标识(B);
-            let 标签 = format!("中枢校验[A标识={a标识},B标识={b标识}]");
-            for &字段 in &[
-                "序号",
-                "标识",
-                "级别",
-                "基础序列",
-                "第三买卖线",
-                "本级_第三买卖线",
-            ] {
-                let (a有, b有) = (A.hasattr(字段)?, B.hasattr(字段)?);
-                if a有 && !b有 {
-                    return Ok((false, format!("{标签}: [{字段}] A存在 B缺失属性")));
+            for idx in 0..len_a {
+                let itemA = valA.get_item(idx)?;
+                let itemB = valB.get_item(idx)?;
+                let (eq, msg) = 虚线相等(&itemA, &itemB, 浮点容差)?;
+                if !eq {
+                    return Ok((false, format!("{标签}: 基础序列[{idx}]虚线异常 >> {msg}")));
                 }
-                if !a有 && b有 {
-                    return Ok((false, format!("{标签}: [{字段}] B存在 A缺失属性")));
-                }
-                if !a有 && !b有 {
+            }
+        } else if 字段 == "第三买卖线" || 字段 == "本级_第三买卖线" {
+            if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
+                if !r.0 {
+                    return Ok((false, r.1));
+                } else {
                     continue;
                 }
-                let valA = A.getattr(字段)?;
-                let valB = B.getattr(字段)?;
-
-                if 字段 == "基础序列" {
-                    let len_a: usize = valA.len()?;
-                    let len_b: usize = valB.len()?;
-                    if len_a != len_b {
-                        return Ok((
-                            false,
-                            format!("{标签}: [基础序列] 长度不一致 A={len_a},B={len_b}"),
-                        ));
-                    }
-                    for idx in 0..len_a {
-                        let itemA = valA.get_item(idx)?;
-                        let itemB = valB.get_item(idx)?;
-                        let (eq, msg) = 虚线相等(&itemA, &itemB, 浮点容差)?;
-                        if !eq {
-                            return Ok((
-                                false,
-                                format!("{标签}: 基础序列[{idx}]虚线异常 >> {msg}"),
-                            ));
-                        }
-                    }
-                } else if 字段 == "第三买卖线" || 字段 == "本级_第三买卖线" {
-                    if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
-                        if !r.0 {
-                            return Ok((false, r.1));
-                        } else {
-                            continue;
-                        }
-                    }
-                    let (eq, msg) = 虚线相等(&valA, &valB, 浮点容差)?;
-                    if !eq {
-                        return Ok((false, format!("{标签}: [{字段}]子虚线异常 >> {msg}")));
-                    }
-                } else {
-                    let eq: bool = valA.eq(&valB)?;
-                    if !eq {
-                        let ra = valA.repr()?.extract::<String>().unwrap_or_default();
-                        let rb = valB.repr()?.extract::<String>().unwrap_or_default();
-                        return Ok((false, format!("{标签}: [{字段}] 数值不等 A={ra},B={rb}")));
-                    }
-                }
             }
-            Ok((true, format!("{标签}: 基础序列+第三买卖线全部校验一致")))
+            let (eq, msg) = 虚线相等(&valA, &valB, 浮点容差)?;
+            if !eq {
+                return Ok((false, format!("{标签}: [{字段}]子虚线异常 >> {msg}")));
+            }
+        } else {
+            let eq: bool = valA.eq(&valB)?;
+            if !eq {
+                let ra = valA.repr()?.extract::<String>().unwrap_or_default();
+                let rb = valB.repr()?.extract::<String>().unwrap_or_default();
+                return Ok((false, format!("{标签}: [{字段}] 数值不等 A={ra},B={rb}")));
+            }
         }
-    )
+    }
+    Ok((true, format!("{标签}: 基础序列+第三买卖线全部校验一致")))
 }
 
 // ========== 虚线相等 ==========
@@ -632,168 +618,154 @@ fn 虚线相等(
     B: &Bound<'_, PyAny>,
     浮点容差: f64,
 ) -> PyResult<(bool, String)> {
-    with_cache!(
-        C_DASH,
-        4096,
-        (
-            A.as_ptr() as usize,
-            B.as_ptr() as usize,
-            浮点容差.to_bits() as i64
-        ),
-        {
-            if let (Ok(a), Ok(b)) = (
-                A.cast::<crate::structure_py::虚线Py>(),
-                B.cast::<crate::structure_py::虚线Py>(),
-            ) {
-                return Ok(a.borrow().inner.相等(&b.borrow().inner, 浮点容差));
-            }
-            let a标识 = 尝试获取标识(A);
-            let b标识 = 尝试获取标识(B);
-            let 标签 = format!("虚线校验[A标识={a标识},B标识={b标识}]");
-            let 比对字段 = [
-                "标识",
-                "序号",
-                "级别",
-                "文",
-                "武",
-                "有效性",
-                "基础序列",
-                "特征序列",
-                "实_中枢序列",
-                "虚_中枢序列",
-                "合_中枢序列",
-                "确认K线",
-                "模式",
-                "_特征序列_显示",
-                "前一缺口",
-                "前一结束位置",
-                "短路修正",
-            ];
-            for &字段 in &比对字段 {
-                let (a有, b有) = (A.hasattr(字段)?, B.hasattr(字段)?);
-                if a有 && !b有 {
-                    return Ok((false, format!("{标签}: [{字段}] A存在属性 B缺失属性")));
-                }
-                if !a有 && b有 {
-                    return Ok((false, format!("{标签}: [{字段}] B存在属性 A缺失属性")));
-                }
-                if !a有 && !b有 {
+    if let (Ok(a), Ok(b)) = (
+        A.cast::<crate::structure_py::虚线Py>(),
+        B.cast::<crate::structure_py::虚线Py>(),
+    ) {
+        return Ok(a.borrow().inner.相等(&b.borrow().inner, 浮点容差));
+    }
+    let a标识 = 尝试获取标识(A);
+    let b标识 = 尝试获取标识(B);
+    let 标签 = format!("虚线校验[A标识={a标识},B标识={b标识}]");
+    let 比对字段 = [
+        "标识",
+        "序号",
+        "级别",
+        "文",
+        "武",
+        "有效性",
+        "基础序列",
+        "特征序列",
+        "实_中枢序列",
+        "虚_中枢序列",
+        "合_中枢序列",
+        "确认K线",
+        "模式",
+        "_特征序列_显示",
+        "前一缺口",
+        "前一结束位置",
+        "短路修正",
+    ];
+    for &字段 in &比对字段 {
+        let (a有, b有) = (A.hasattr(字段)?, B.hasattr(字段)?);
+        if a有 && !b有 {
+            return Ok((false, format!("{标签}: [{字段}] A存在属性 B缺失属性")));
+        }
+        if !a有 && b有 {
+            return Ok((false, format!("{标签}: [{字段}] B存在属性 A缺失属性")));
+        }
+        if !a有 && !b有 {
+            continue;
+        }
+        let valA = A.getattr(字段)?;
+        let valB = B.getattr(字段)?;
+
+        // 文/武：分型
+        if 字段 == "文" || 字段 == "武" {
+            if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
+                if !r.0 {
+                    return Ok((false, r.1));
+                } else {
                     continue;
                 }
-                let valA = A.getattr(字段)?;
-                let valB = B.getattr(字段)?;
-
-                // 文/武：分型
-                if 字段 == "文" || 字段 == "武" {
-                    if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
-                        if !r.0 {
-                            return Ok((false, r.1));
-                        } else {
-                            continue;
-                        }
-                    }
-                    let (eq, msg) = 分型相等(&valA, &valB, 浮点容差)?;
-                    if !eq {
-                        return Ok((false, format!("{标签}: [{字段}]子分型异常 >> {msg}")));
-                    }
-                }
-                // 前一缺口
-                else if 字段 == "前一缺口" {
-                    if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
-                        if !r.0 {
-                            return Ok((false, r.1));
-                        } else {
-                            continue;
-                        }
-                    }
-                    let (eq, msg) = 缺口相等(&valA, &valB, 浮点容差)?;
-                    if !eq {
-                        return Ok((false, format!("{标签}: [前一缺口]子缺口异常 >> {msg}")));
-                    }
-                }
-                // 前一结束位置
-                else if 字段 == "前一结束位置" {
-                    if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
-                        if !r.0 {
-                            return Ok((false, r.1));
-                        } else {
-                            continue;
-                        }
-                    }
-                    let (eq, msg) = 虚线相等(&valA, &valB, 浮点容差)?;
-                    if !eq {
-                        return Ok((false, format!("{标签}: [前一结束位置]异常 >> {msg}")));
-                    }
-                }
-                // 确认K线
-                else if 字段 == "确认K线" {
-                    if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
-                        if !r.0 {
-                            return Ok((false, r.1));
-                        } else {
-                            continue;
-                        }
-                    }
-                    let (eq, msg) = 缠论K线相等(&valA, &valB, 浮点容差)?;
-                    if !eq {
-                        return Ok((false, format!("{标签}: [确认K线]子缠论K线异常 >> {msg}")));
-                    }
-                }
-                // 各类列表
-                else if 字段 == "基础序列"
-                    || 字段 == "实_中枢序列"
-                    || 字段 == "虚_中枢序列"
-                    || 字段 == "合_中枢序列"
-                    || 字段 == "特征序列"
-                {
-                    let len_a: usize = valA.len()?;
-                    let len_b: usize = valB.len()?;
-                    if len_a != len_b {
-                        return Ok((
-                            false,
-                            format!("{标签}: [{字段}]列表长度不一致 A={len_a},B={len_b}"),
-                        ));
-                    }
-                    for idx in 0..len_a {
-                        let itemA = valA.get_item(idx)?;
-                        let itemB = valB.get_item(idx)?;
-                        if let Some(r) =
-                            检查空值一致(&itemA, &itemB, &format!("{字段}[{idx}]"), &标签)
-                        {
-                            if !r.0 {
-                                return Ok((false, r.1));
-                            } else {
-                                continue;
-                            }
-                        }
-                        let (eq, msg) = if 字段 == "基础序列" {
-                            虚线相等(&itemA, &itemB, 浮点容差)?
-                        } else if 字段.contains("中枢") {
-                            中枢相等(&itemA, &itemB, 浮点容差)?
-                        } else {
-                            线段特征相等(&itemA, &itemB, 浮点容差)?
-                        };
-                        if !eq {
-                            return Ok((
-                                false,
-                                format!("{标签}: [{字段}][{idx}]子项异常 >> {msg}"),
-                            ));
-                        }
-                    }
-                }
-                // 普通字段
-                else {
-                    let eq: bool = valA.eq(&valB)?;
-                    if !eq {
-                        let ra = valA.repr()?.extract::<String>().unwrap_or_default();
-                        let rb = valB.repr()?.extract::<String>().unwrap_or_default();
-                        return Ok((false, format!("{标签}: [{字段}]数值不等 A={ra},B={rb}")));
-                    }
+            }
+            let (eq, msg) = 分型相等(&valA, &valB, 浮点容差)?;
+            if !eq {
+                return Ok((false, format!("{标签}: [{字段}]子分型异常 >> {msg}")));
+            }
+        }
+        // 前一缺口
+        else if 字段 == "前一缺口" {
+            if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
+                if !r.0 {
+                    return Ok((false, r.1));
+                } else {
+                    continue;
                 }
             }
-            Ok((true, format!("{标签}: 全字段所有嵌套子结构校验一致")))
+            let (eq, msg) = 缺口相等(&valA, &valB, 浮点容差)?;
+            if !eq {
+                return Ok((false, format!("{标签}: [前一缺口]子缺口异常 >> {msg}")));
+            }
         }
-    )
+        // 前一结束位置
+        else if 字段 == "前一结束位置" {
+            if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
+                if !r.0 {
+                    return Ok((false, r.1));
+                } else {
+                    continue;
+                }
+            }
+            let (eq, msg) = 虚线相等(&valA, &valB, 浮点容差)?;
+            if !eq {
+                return Ok((false, format!("{标签}: [前一结束位置]异常 >> {msg}")));
+            }
+        }
+        // 确认K线
+        else if 字段 == "确认K线" {
+            if let Some(r) = 检查空值一致(&valA, &valB, 字段, &标签) {
+                if !r.0 {
+                    return Ok((false, r.1));
+                } else {
+                    continue;
+                }
+            }
+            let (eq, msg) = 缠论K线相等(&valA, &valB, 浮点容差)?;
+            if !eq {
+                return Ok((false, format!("{标签}: [确认K线]子缠论K线异常 >> {msg}")));
+            }
+        }
+        // 各类列表
+        else if 字段 == "基础序列"
+            || 字段 == "实_中枢序列"
+            || 字段 == "虚_中枢序列"
+            || 字段 == "合_中枢序列"
+            || 字段 == "特征序列"
+        {
+            let len_a: usize = valA.len()?;
+            let len_b: usize = valB.len()?;
+            if len_a != len_b {
+                return Ok((
+                    false,
+                    format!("{标签}: [{字段}]列表长度不一致 A={len_a},B={len_b}"),
+                ));
+            }
+            for idx in 0..len_a {
+                let itemA = valA.get_item(idx)?;
+                let itemB = valB.get_item(idx)?;
+                if let Some(r) =
+                    检查空值一致(&itemA, &itemB, &format!("{字段}[{idx}]"), &标签)
+                {
+                    if !r.0 {
+                        return Ok((false, r.1));
+                    } else {
+                        continue;
+                    }
+                }
+                let (eq, msg) = if 字段 == "基础序列" {
+                    虚线相等(&itemA, &itemB, 浮点容差)?
+                } else if 字段.contains("中枢") {
+                    中枢相等(&itemA, &itemB, 浮点容差)?
+                } else {
+                    线段特征相等(&itemA, &itemB, 浮点容差)?
+                };
+                if !eq {
+                    return Ok((false, format!("{标签}: [{字段}][{idx}]子项异常 >> {msg}")));
+                }
+            }
+        }
+        // 普通字段
+        else {
+            let eq: bool = valA.eq(&valB)?;
+            if !eq {
+                let ra = valA.repr()?.extract::<String>().unwrap_or_default();
+                let rb = valB.repr()?.extract::<String>().unwrap_or_default();
+                return Ok((false, format!("{标签}: [{字段}]数值不等 A={ra},B={rb}")));
+            }
+        }
+    }
+    Ok((true, format!("{标签}: 全字段所有嵌套子结构校验一致")))
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
