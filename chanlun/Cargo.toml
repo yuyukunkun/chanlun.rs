@@ -1,6 +1,6 @@
 [package]
 name = "chanlun"
-version = "26.6.1"
+version = "26.6.2"
 edition = "2024"
 license = "MIT"
 description = "基于缠论（缠中说禅）理论的量化技术分析核心库，支持流式数据处理和多周期联立分析。"

@@ -23,7 +23,7 @@
  */
 
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyType};
+use pyo3::types::{PyBytes, PyDict, PyList, PyType};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -663,25 +663,30 @@ impl 缠论K线Py {
 
     #[classmethod]
     /// 分析K线，执行指标计算+包含处理+分型判定
+    /// 缠K序列/普K序列 原地修改（与 chan.py 行为一致）
+    /// :return: (状态, 分型|None)
     fn 分析(
         _cls: &Bound<'_, PyType>,
         当前K线: &Bound<'_, K线Py>,
-        缠K序列: Vec<Py<Self>>,
-        普K序列: Vec<Py<K线Py>>,
+        缠K序列: &Bound<'_, PyList>,
+        普K序列: &Bound<'_, PyList>,
         配置: &Bound<'_, 缠论配置Py>,
         py: Python<'_>,
     ) -> PyResult<(String, Option<Py<PyAny>>)> {
         let ck_inner = (*当前K线.borrow().inner).clone();
         let config = 配置.borrow().to_rust_config(py)?;
 
-        let mut ck_seq: Vec<_> = 缠K序列
-            .iter()
-            .map(|k| std::sync::Arc::clone(&k.bind(py).borrow().inner))
-            .collect();
-        let mut bar_seq: Vec<_> = 普K序列
-            .iter()
-            .map(|k| k.bind(py).borrow().inner.clone())
-            .collect();
+        // 从 Python 列表提取
+        let mut ck_seq = Vec::with_capacity(缠K序列.len());
+        for item in 缠K序列.iter() {
+            let ck: PyRef<'_, Self> = item.extract()?;
+            ck_seq.push(std::sync::Arc::clone(&ck.inner));
+        }
+        let mut bar_seq = Vec::with_capacity(普K序列.len());
+        for item in 普K序列.iter() {
+            let bar: PyRef<'_, K线Py> = item.extract()?;
+            bar_seq.push(bar.inner.clone());
+        }
 
         let (status, fractal) = chanlun::kline::chan_kline::缠论K线::分析(
             ck_inner,
@@ -689,6 +694,16 @@ impl 缠论K线Py {
             &mut bar_seq,
             &config,
         );
+
+        // 写回 Python 列表（clear + extend）
+        缠K序列.call_method0("clear")?;
+        for k in ck_seq {
+            缠K序列.call_method1("append", (chan_kline_to_py(py, k),))?;
+        }
+        普K序列.call_method0("clear")?;
+        for k in bar_seq {
+            普K序列.call_method1("append", (bar_to_py(py, k),))?;
+        }
 
         Ok((status, fractal.map(|f| fractal_to_py(py, f).into_any())))
     }

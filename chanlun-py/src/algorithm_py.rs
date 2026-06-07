@@ -25,7 +25,7 @@
 use crate::kline_py::chan_kline_to_py;
 use crate::structure_py::{dashed_to_py, fractal_to_py};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyType};
+use pyo3::types::{PyDict, PyList, PyType};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -308,11 +308,13 @@ impl 笔Py {
     #[classmethod]
     #[pyo3(signature = (当前分型, 分型序列, 笔序列, 缠K序列, 普K序列, 递归层次, 配置))]
     /// 笔划分核心递归算法
+    /// 分型序列/笔序列 原地修改（与 chan.py 行为一致）
+    /// :return: 递归层次
     fn 分析(
         _cls: &Bound<'_, PyType>,
         当前分型: Option<&Bound<'_, 分型Py>>,
-        分型序列: Vec<Py<分型Py>>,
-        笔序列: Vec<Py<虚线Py>>,
+        分型序列: &Bound<'_, PyList>,
+        笔序列: &Bound<'_, PyList>,
         缠K序列: Vec<Py<crate::kline_py::缠论K线Py>>,
         普K序列: Vec<Py<K线Py>>,
         递归层次: i64,
@@ -321,14 +323,19 @@ impl 笔Py {
     ) -> PyResult<i64> {
         let _ = 递归层次; // Python API 兼容参数，核心从0开始计数
         let 当前分型_rc = 当前分型.map(|f| Arc::clone(&f.borrow().inner));
-        let mut fr_seq: Vec<Arc<chanlun::structure::fractal_obj::分型>> = 分型序列
-            .iter()
-            .map(|f| Arc::clone(&f.bind(py).borrow().inner))
-            .collect();
-        let mut bi_seq: Vec<Arc<chanlun::structure::dash_line::虚线>> = 笔序列
-            .iter()
-            .map(|d| Arc::clone(&d.bind(py).borrow().inner))
-            .collect();
+
+        // 从 Python 列表提取
+        let mut fr_seq = Vec::with_capacity(分型序列.len());
+        for item in 分型序列.iter() {
+            let f: PyRef<'_, 分型Py> = item.extract()?;
+            fr_seq.push(Arc::clone(&f.inner));
+        }
+        let mut bi_seq = Vec::with_capacity(笔序列.len());
+        for item in 笔序列.iter() {
+            let d: PyRef<'_, 虚线Py> = item.extract()?;
+            bi_seq.push(Arc::clone(&d.inner));
+        }
+
         let ck_list: Vec<Arc<chanlun::kline::chan_kline::缠论K线>> = 缠K序列
             .iter()
             .map(|k| Arc::clone(&k.bind(py).borrow().inner))
@@ -338,8 +345,8 @@ impl 笔Py {
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         let config = 配置.borrow().to_rust_config(py)?;
-        match 当前分型_rc {
-            Some(fr) => Ok(chanlun::algorithm::bi::笔::分析(
+        let depth = match 当前分型_rc {
+            Some(fr) => chanlun::algorithm::bi::笔::分析(
                 fr,
                 &mut fr_seq,
                 &mut bi_seq,
@@ -347,9 +354,21 @@ impl 笔Py {
                 &bar_list,
                 递归层次,
                 &config,
-            )),
-            None => Ok(递归层次),
+            ),
+            None => 递归层次,
+        };
+
+        // 写回 Python 列表
+        分型序列.call_method0("clear")?;
+        for f in fr_seq {
+            分型序列.call_method1("append", (fractal_to_py(py, f),))?;
         }
+        笔序列.call_method0("clear")?;
+        for d in bi_seq {
+            笔序列.call_method1("append", (dashed_to_py(py, d),))?;
+        }
+
+        Ok(depth)
     }
 
     #[classmethod]
@@ -502,11 +521,13 @@ impl 线段Py {
     }
 
     #[classmethod]
+    #[pyo3(signature = (笔序列, 线段序列, 配置, 层级 = 0, 关系序列 = None))]
     /// 线段划分核心递归算法
+    /// 线段序列 原地修改（与 chan.py 行为一致）
     fn 分析(
         _cls: &Bound<'_, PyType>,
         笔序列: Vec<Py<虚线Py>>,
-        线段序列: Vec<Py<虚线Py>>,
+        线段序列: &Bound<'_, PyList>,
         配置: &Bound<'_, 缠论配置Py>,
         层级: i64,
         关系序列: Option<Vec<相对方向Py>>,
@@ -516,10 +537,13 @@ impl 线段Py {
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
             .collect();
-        let mut seg_seq: Vec<Arc<chanlun::structure::dash_line::虚线>> = 线段序列
-            .iter()
-            .map(|d| Arc::clone(&d.bind(py).borrow().inner))
-            .collect();
+
+        let mut seg_seq = Vec::with_capacity(线段序列.len());
+        for item in 线段序列.iter() {
+            let d: PyRef<'_, 虚线Py> = item.extract()?;
+            seg_seq.push(Arc::clone(&d.inner));
+        }
+
         let config = 配置.borrow().to_rust_config(py)?;
         let default_rel = vec![
             chanlun::types::相对方向::向上,
@@ -535,15 +559,22 @@ impl 线段Py {
             层级,
             &rel_list,
         );
+
+        // 写回 Python 列表
+        线段序列.call_method0("clear")?;
+        for d in seg_seq {
+            线段序列.call_method1("append", (dashed_to_py(py, d),))?;
+        }
         Ok(())
     }
 
     #[classmethod]
     /// 即同级别分析
+    /// 线段序列 原地修改（与 chan.py 行为一致）
     fn 扩展分析(
         _cls: &Bound<'_, PyType>,
         虚线序列: Vec<Py<虚线Py>>,
-        线段序列: Vec<Py<虚线Py>>,
+        线段序列: &Bound<'_, PyList>,
         配置: &Bound<'_, 缠论配置Py>,
         py: Python<'_>,
     ) -> PyResult<()> {
@@ -551,12 +582,21 @@ impl 线段Py {
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
             .collect();
-        let mut seg_seq: Vec<Arc<chanlun::structure::dash_line::虚线>> = 线段序列
-            .iter()
-            .map(|d| Arc::clone(&d.bind(py).borrow().inner))
-            .collect();
+
+        let mut seg_seq = Vec::with_capacity(线段序列.len());
+        for item in 线段序列.iter() {
+            let d: PyRef<'_, 虚线Py> = item.extract()?;
+            seg_seq.push(Arc::clone(&d.inner));
+        }
+
         let config = 配置.borrow().to_rust_config(py)?;
         chanlun::algorithm::segment::线段::扩展分析(&dash_list, &mut seg_seq, &config);
+
+        // 写回 Python 列表
+        线段序列.call_method0("clear")?;
+        for d in seg_seq {
+            线段序列.call_method1("append", (dashed_to_py(py, d),))?;
+        }
         Ok(())
     }
 
@@ -792,18 +832,26 @@ impl 中枢Py {
     }
 
     /// 当基础序列>=9时，从中枢中提取扩展线段中枢
+    /// 扩展中枢 原地修改（与 chan.py 行为一致）
     fn 获取扩展中枢(
         &self,
-        扩展中枢: Vec<Py<Self>>,
+        扩展中枢: &Bound<'_, PyList>,
         配置: &Bound<'_, crate::config_py::缠论配置Py>,
         py: Python<'_>,
     ) -> PyResult<()> {
-        let mut hub_seq: Vec<Arc<chanlun::algorithm::hub::中枢>> = 扩展中枢
-            .iter()
-            .map(|h| Arc::clone(&h.bind(py).borrow().inner))
-            .collect();
+        let mut hub_seq = Vec::with_capacity(扩展中枢.len());
+        for item in 扩展中枢.iter() {
+            let h: PyRef<'_, 中枢Py> = item.extract()?;
+            hub_seq.push(Arc::clone(&h.inner));
+        }
         let config = 配置.borrow().to_rust_config(配置.py())?;
         self.inner.获取扩展中枢(&mut hub_seq, &config);
+
+        // 写回 Python 列表
+        扩展中枢.call_method0("clear")?;
+        for h in hub_seq {
+            扩展中枢.call_method1("append", (hub_to_py(py, h),))?;
+        }
         Ok(())
     }
 
@@ -889,10 +937,11 @@ impl 中枢Py {
     #[classmethod]
     #[pyo3(signature = (虚线序列, 中枢序列, 跳过首部 = true, 标识 = "", 层级 = 0))]
     /// 中枢识别核心递归算法
+    /// 中枢序列 原地修改（与 chan.py 行为一致）
     fn 分析(
         _cls: &Bound<'_, PyType>,
         虚线序列: Vec<Py<虚线Py>>,
-        中枢序列: Vec<Py<Self>>,
+        中枢序列: &Bound<'_, PyList>,
         跳过首部: bool,
         标识: &str,
         层级: i64,
@@ -902,11 +951,20 @@ impl 中枢Py {
             .iter()
             .map(|d| Arc::clone(&d.bind(py).borrow().inner))
             .collect();
-        let mut hub_seq: Vec<Arc<chanlun::algorithm::hub::中枢>> = 中枢序列
-            .iter()
-            .map(|h| Arc::clone(&h.bind(py).borrow().inner))
-            .collect();
+
+        let mut hub_seq = Vec::with_capacity(中枢序列.len());
+        for item in 中枢序列.iter() {
+            let h: PyRef<'_, 中枢Py> = item.extract()?;
+            hub_seq.push(Arc::clone(&h.inner));
+        }
+
         chanlun::algorithm::hub::中枢::分析(&rc_list, &mut hub_seq, 跳过首部, 标识, 层级);
+
+        // 写回 Python 列表
+        中枢序列.call_method0("clear")?;
+        for h in hub_seq {
+            中枢序列.call_method1("append", (hub_to_py(py, h),))?;
+        }
         Ok(())
     }
 

@@ -508,13 +508,10 @@ class Test观察者子类化(PyO3SubclassMixin, unittest.TestCase):
                 return obs
 
         # 4. 读取数据文件（classmethod 重写
-        a = datetime.now()
         obs = Sub.读取数据文件(NB_PATH)
         self.assertIsInstance(obs, Sub)
         self.assertTrue(obs._custom_classmethod_flag)
         self.assertGreater(len(obs.普通K线序列), 0)
-        b = datetime.now()
-        print("读取数据文件 用时:", b - a)
 
         # 1. 加载本地数据
         obs.重置基础序列()
@@ -522,8 +519,6 @@ class Test观察者子类化(PyO3SubclassMixin, unittest.TestCase):
         self.assertTrue(obs._loaded)
         self.assertEqual(obs._load_count, 2)
         self.assertGreater(len(obs.普通K线序列), 0)
-        c = datetime.now()
-        print("加载本地数据 用时:", c - b)
 
         # 2. 静态重新分析（复用已加载数据的 obs）
         obs.重置基础序列()
@@ -531,8 +526,6 @@ class Test观察者子类化(PyO3SubclassMixin, unittest.TestCase):
         obs.静态重新分析()
         self.assertEqual(obs._reanalyzed, 1)
         self.assertGreaterEqual(len(obs.笔序列), 0)
-        d = datetime.now()
-        print("静态重新分析 用时:", d - c)
 
         # 3. 保存数据
         obs.重置基础序列()
@@ -544,8 +537,6 @@ class Test观察者子类化(PyO3SubclassMixin, unittest.TestCase):
 
         # 5. 重置次数
         self.assertEqual(obs._reload, 6)
-        e = datetime.now()
-        print("保存数据 用时:", e - d)
 
     def test_override_completely_no_super(self):
         k = self.make_data_item()
@@ -1952,6 +1943,212 @@ class TestApi一致性(ApiConsistencyMixin, unittest.TestCase):
 # ============================================================
 # main
 # ============================================================
+
+
+class Test导出函数双端等效(unittest.TestCase):
+    """验证: 序列修改类导出函数与 chan.py 行为一致 (就地修改 + 返回值等效)"""
+
+    _TEST_COUNT = 300  # 投喂 K 线数
+
+    @classmethod
+    def setUpClass(cls):
+        if not _has_nb():
+            raise unittest.SkipTest("需要 .nb 数据文件")
+        cls.bars = read_nb_bars(NB_PATH)
+
+    # ---- 辅助 ----
+
+    def _make_observers(self):
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs = chanlun.缠论配置()
+        cfg_rs.计算指标 = True
+        cfg_py = chan.缠论配置()
+        cfg_py.计算指标 = True
+
+        obs_rs = chanlun.观察者("btcusd", 300, cfg_rs)
+        obs_py = chan.观察者("btcusd", 300, cfg_py)
+
+        for i, (ts, o, h, l, c, v) in enumerate(self.bars[: self._TEST_COUNT]):
+            obs_rs.投喂原始数据(ts, o, h, l, c, v)
+            obs_py.投喂原始数据(ts, o, h, l, c, v)
+
+        return obs_rs, obs_py
+
+    # ================================================================
+    # 缠论K线.分析
+    # ================================================================
+
+    def test_缠论K线分析_等效(self):
+        """缠论K线.分析 双端行为一致 (返回值 + 序列长度)."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._make_observers()
+
+        ck_rs: list = []
+        bar_rs: list = []
+        ck_py: list = []
+        bar_py: list = []
+        mismatches = []
+
+        for k_rs, k_py in zip(obs_rs.普通K线序列[100:200], obs_py.普通K线序列[100:200]):
+            st_rs, fx_rs = chanlun.缠论K线.分析(k_rs, ck_rs, bar_rs, obs_rs.配置)
+            st_py, fx_py = chan.缠论K线.分析(k_py, ck_py, bar_py, obs_py.配置)
+
+            if st_rs != st_py:
+                mismatches.append(f"状态: R={st_rs} P={st_py}")
+            if (fx_rs is None) != (fx_py is None):
+                mismatches.append(f"分型None: R={fx_rs is None} P={fx_py is None}")
+
+        self.assertEqual(len(mismatches), 0, f"缠论K线.分析 不一致 ({len(mismatches)}):\n" + "\n".join(mismatches[:5]))
+        self.assertEqual(len(ck_rs), len(ck_py), f"缠K序列长度: R={len(ck_rs)} P={len(ck_py)}")
+        self.assertEqual(len(bar_rs), len(bar_py), f"普K序列长度: R={len(bar_rs)} P={len(bar_py)}")
+
+    # ================================================================
+    # 笔.分析
+    # ================================================================
+
+    def test_笔分析_等效(self):
+        """笔.分析 双端行为一致 (返回值 + 序列修改)."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._make_observers()
+
+        ck_rs = list(obs_rs.缠论K线序列)
+        ck_py = list(obs_py.缠论K线序列)
+        bar_rs = list(obs_rs.普通K线序列)
+        bar_py = list(obs_py.普通K线序列)
+
+        fr_rs: list = []
+        bi_rs: list = []
+        fr_py: list = []
+        bi_py: list = []
+        mismatches = []
+
+        for fx_rs, fx_py in zip(obs_rs.分型序列[2:], obs_py.分型序列[2:]):
+            d_rs = chanlun.笔.分析(fx_rs, fr_rs, bi_rs, ck_rs, bar_rs, 0, obs_rs.配置)
+            d_py = chan.笔.分析(fx_py, fr_py, bi_py, ck_py, bar_py, 0, obs_py.配置)
+
+            if d_rs != d_py:
+                mismatches.append(f"递归层次: R={d_rs} P={d_py}")
+
+        self.assertEqual(len(mismatches), 0, f"笔.分析 不一致 ({len(mismatches)}):\n" + "\n".join(mismatches[:3]))
+        self.assertEqual(len(fr_rs), len(fr_py), f"分型序列长度: R={len(fr_rs)} P={len(fr_py)}")
+        self.assertGreater(len(bi_rs), 0, "笔序列为空 (Rust)")
+        self.assertEqual(len(bi_rs), len(bi_py), f"笔序列长度: R={len(bi_rs)} P={len(bi_py)}")
+
+    # ================================================================
+    # 线段.分析
+    # ================================================================
+
+    def test_线段分析_等效(self):
+        """线段.分析 双端行为一致 (序列修改)."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._make_observers()
+
+        seg_rs = list(obs_rs.线段序列)
+        seg_py = list(obs_py.线段序列)
+
+        # 先用 chanlun.线段.分析 重新分析
+        bi_list_rs = list(obs_rs.笔序列)
+        bi_list_py = list(obs_py.笔序列)
+
+        # 重置线段序列
+        seg_rs.clear()
+        seg_py.clear()
+
+        chanlun.线段.分析(bi_list_rs, seg_rs, obs_rs.配置)
+        chan.线段.分析(bi_list_py, seg_py, obs_py.配置)
+
+        self.assertGreater(len(seg_rs), 0, "线段序列为空 (Rust)")
+        self.assertEqual(len(seg_rs), len(seg_py), f"线段序列长度: R={len(seg_rs)} P={len(seg_py)}")
+
+    # ================================================================
+    # 线段.扩展分析
+    # ================================================================
+
+    def test_线段扩展分析_等效(self):
+        """线段.扩展分析 双端行为一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._make_observers()
+
+        ext_rs = list(obs_rs.扩展线段序列)
+        ext_py = list(obs_py.扩展线段序列)
+
+        ext_rs.clear()
+        ext_py.clear()
+
+        bi_list_rs = list(obs_rs.笔序列)
+        bi_list_py = list(obs_py.笔序列)
+
+        chanlun.线段.扩展分析(bi_list_rs, ext_rs, obs_rs.配置)
+        chan.线段.扩展分析(bi_list_py, ext_py, obs_py.配置)
+
+        self.assertGreater(len(ext_rs), 0, "扩展线段序列为空 (Rust)")
+        self.assertEqual(len(ext_rs), len(ext_py), f"扩展线段: R={len(ext_rs)} P={len(ext_py)}")
+
+    # ================================================================
+    # 中枢.分析
+    # ================================================================
+
+    def test_中枢分析_等效(self):
+        """中枢.分析 双端行为一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._make_observers()
+
+        hub_rs: list = []
+        hub_py: list = []
+        bi_list_rs = list(obs_rs.笔序列)
+        bi_list_py = list(obs_py.笔序列)
+
+        chanlun.中枢.分析(bi_list_rs, hub_rs, True, "", 0)
+        chan.中枢.分析(bi_list_py, hub_py, True, "", 0)
+
+        self.assertGreater(len(hub_rs), 0, "笔中枢序列为空 (Rust)")
+        self.assertEqual(len(hub_rs), len(hub_py), f"笔中枢: R={len(hub_rs)} P={len(hub_py)}")
+
+    # ================================================================
+    # 中枢.获取扩展中枢
+    # ================================================================
+
+    def test_获取扩展中枢_等效(self):
+        """中枢.获取扩展中枢 双端行为一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._make_observers()
+
+        ext_hub_rs = list(obs_rs.扩展中枢序列)
+        ext_hub_py = list(obs_py.扩展中枢序列)
+
+        ext_hub_rs.clear()
+        ext_hub_py.clear()
+
+        # init with 笔中枢
+        bi_list_rs = list(obs_rs.笔序列)
+        bi_list_py = list(obs_py.笔序列)
+        chanlun.中枢.分析(bi_list_rs, ext_hub_rs, True, "", 0)
+        chan.中枢.分析(bi_list_py, ext_hub_py, True, "", 0)
+
+        # 若基础序列≥9，调用获取扩展中枢
+        for hub_rs, hub_py in zip(ext_hub_rs, ext_hub_py):
+            sub_rs: list = []
+            sub_py: list = []
+            hub_rs.获取扩展中枢(sub_rs, obs_rs.配置)
+            hub_py.获取扩展中枢(sub_py, obs_py.配置)
+            if len(sub_rs) != len(sub_py):
+                self.fail(f"获取扩展中枢 长度不一致: R={len(sub_rs)} P={len(sub_py)}")
+
+        # all passed (or vacuously true if no hubs with >=9 segments)
 
 
 if __name__ == "__main__":
