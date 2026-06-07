@@ -222,6 +222,6 @@ struct MACD面积 {
 
 impl MACD面积 {
     fn 总(&self) -> f64 {
-        self.阳 + self.阴
+        self.阳 + self.阴.abs()
     }
 }

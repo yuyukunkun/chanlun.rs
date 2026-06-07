@@ -58,6 +58,11 @@ def Nil(*args, **kwargs):
 def 获取模块版本():
     versions = {}
 
+    # 1.
+    try:
+        versions["chanlun"] = importlib.metadata.version("chanlun")
+    except importlib.metadata.PackageNotFoundError:
+        pass
     # 2.
     try:
         versions["fastapi"] = importlib.metadata.version("fastapi")
@@ -1994,65 +1999,53 @@ async def 处理图表消息(用户标识: str, 消息字典: Dict, websocket: W
                 待发送消息 = {}
                 if 数据类型 == "中枢<笔>":
                     待发送消息.update({"index": 序号, "data": str(观察员.笔_中枢序列[序号])})
-                if 数据类型 == "中枢<线段>":
-                    待发送消息.update({"index": 序号, "data": str(观察员.中枢序列[序号])})
-
-                if 数据类型 == "中枢<线段<线段>>":
-                    待发送消息.update({"index": 序号, "data": str(观察员.线段_中枢序列[序号])})
-
-                if 数据类型 == "中枢<扩展线段>":
-                    待发送消息.update({"index": 序号, "data": str(观察员.扩展中枢序列[序号])})
-                if 数据类型 == "中枢<扩展线段<线段>>":
-                    待发送消息.update({"index": 序号, "data": str(观察员.扩展中枢序列_线段[序号])})
-
                 if 数据类型 == "笔":
                     待发送消息.update({"index": 序号, "data": str(观察员.笔序列[序号])})
-                if 数据类型 == "线段":
-                    待发送消息.update({"index": 序号, "data": str(观察员.线段序列[序号])})
-                    段: 虚线 = 观察员.线段序列[序号]
-                    if 段._特征序列_显示:
-                        段._特征序列_显示 = False
-                        for 特征 in 段.特征序列:
-                            if 特征 is not None:
-                                观察员 and 观察员.报信(特征, 指令.删除(特征.标识), sys._getframe().f_lineno)
 
-                    else:
-                        段._特征序列_显示 = True
-                        序号 = 0
-                        for 特征 in 段.特征序列:
-                            if 特征 is not None:
-                                特征.序号 = 序号
-                                特征.标识 = f"{段.文.中.标识}:{段.文.中.周期}:{段.标识}_特征序列_{序号}:{段.序号}"
-                                观察员 and 观察员.报信(特征, 指令.添加(特征.标识), sys._getframe().f_lineno)
-                            序号 += 1
-                if 数据类型 == "扩展线段":
-                    待发送消息.update({"index": 序号, "data": str(观察员.扩展线段序列[序号])})
-                if 数据类型 == "扩展线段<线段>":
-                    待发送消息.update({"index": 序号, "data": str(观察员.扩展线段序列_线段[序号])})
+                if "中枢" in 数据类型 and 数据类型 != "中枢<笔>":
+                    for i in range(观察员.中枢分析层次):
+                        if 观察员.中枢序列组[i] and 观察员.中枢序列组[i][0].标识 == 数据类型:
+                            待发送消息.update({"index": 序号, "data": str(观察员.中枢序列组[i][序号])})
+                    for i in range(观察员.扩展中枢分析层次):
+                        if 观察员.扩展中枢序列组[i] and 观察员.扩展中枢序列组[i][0].标识 == 数据类型:
+                            待发送消息.update({"index": 序号, "data": str(观察员.扩展中枢序列组[i][序号])})
+                    for i in range(观察员.混合扩展中枢分析层次):
+                        if 观察员.混合扩展中枢序列组[i] and 观察员.混合扩展中枢序列组[i][0].标识 == 数据类型:
+                            待发送消息.update({"index": 序号, "data": str(观察员.混合扩展中枢序列组[i][序号])})
 
-                if 数据类型 == "线段<线段>":
-                    待发送消息.update({"index": 序号, "data": str(观察员.线段_线段序列[序号])})
-                    段 = 观察员.线段_线段序列[序号]
-                    if 段._特征序列_显示:
-                        段._特征序列_显示 = False
-                        for 特征 in 段.特征序列:
-                            if 特征 is not None:
-                                观察员 and 观察员.报信(特征, 指令.删除(特征.标识), sys._getframe().f_lineno)
+                elif "线段" in 数据类型 and 数据类型 != "笔":
+                    for i in range(观察员.线段分析层次):
+                        if 观察员.线段序列组[i] and 观察员.线段序列组[i][0].标识 == 数据类型:
+                            待发送消息.update({"index": 序号, "data": str(观察员.线段序列组[i][序号])})
+                            段 = 观察员.线段序列组[i][序号]
+                            if 段._特征序列_显示:
+                                段._特征序列_显示 = False
+                                for 特征 in 段.特征序列:
+                                    if 特征 is not None:
+                                        观察员 and 观察员.报信(特征, 指令.删除(特征.标识), sys._getframe().f_lineno)
 
-                    else:
-                        段._特征序列_显示 = True
-                        序号 = 0
-                        for 特征 in 段.特征序列:
-                            if 特征 is not None:
-                                特征.序号 = 序号
-                                特征.标识 = f"{段.文.右.标识}:{段.文.中.周期}:{段.标识}_特征序列_{序号}:{段.序号}"
-                                观察员 and 观察员.报信(特征, 指令.添加(特征.标识), sys._getframe().f_lineno)
-                            序号 += 1
+                            else:
+                                段._特征序列_显示 = True
+                                序号 = 0
+                                for 特征 in 段.特征序列:
+                                    if 特征 is not None:
+                                        特征.序号 = 序号
+                                        特征.标识 = f"{段.文.中.标识}:{段.文.中.周期}:{段.标识}_特征序列_{序号}:{段.序号}"
+                                        观察员 and 观察员.报信(特征, 指令.添加(特征.标识), sys._getframe().f_lineno)
+                                    序号 += 1
+
+                    for i in range(观察员.扩展线段分析层次):
+                        if 观察员.扩展线段序列组[i] and 观察员.扩展线段序列组[i][0].标识 == 数据类型:
+                            待发送消息.update({"index": 序号, "data": str(观察员.扩展线段序列组[i][序号])})
+                    for i in range(观察员.混合扩展线段分析层次):
+                        if 观察员.混合扩展线段序列组[i] and 观察员.混合扩展线段序列组[i][0].标识 == 数据类型:
+                            待发送消息.update({"index": 序号, "data": str(观察员.混合扩展线段序列组[i][序号])})
 
                 if "_" in 数据类型 and "中枢" in 数据类型:  # 线段_0_实_中枢<笔>
                     数据类型, 线序, 虚实合, 类型 = 数据类型.split("_")
 
                     段序号 = int(线序)
+
                     if 数据类型 == "线段":
                         段: 虚线 = 观察员.线段序列[段序号]
                         zs = getattr(段, f"{虚实合}_中枢序列")[序号]
@@ -2062,6 +2055,26 @@ async def 处理图表消息(用户标识: str, 消息字典: Dict, websocket: W
                         段: 虚线 = 观察员.线段_线段序列[段序号]
                         zs = getattr(段, f"{虚实合}_中枢序列")[序号]
                         待发送消息.update({"index": 序号, "data": str(zs)})
+
+                    for i in range(观察员.线段分析层次):
+                        if 观察员.线段序列组[i] and 观察员.线段序列组[i][0].标识 == 数据类型:
+                            段 = 观察员.线段序列组[i][段序号]
+                            zs = getattr(段, f"{虚实合}_中枢序列")[序号]
+                            待发送消息.update({"index": 序号, "data": str(zs)})
+
+                    for i in range(观察员.扩展线段分析层次):
+                        if 观察员.扩展线段序列组[i] and 观察员.扩展线段序列组[i][0].标识 == 数据类型:
+                            待发送消息.update({"index": 序号, "data": str(观察员.扩展线段序列组[i][序号])})
+                            段 = 观察员.扩展线段序列组[i][序号]
+                            zs = getattr(段, f"{虚实合}_中枢序列")[序号]
+                            待发送消息.update({"index": 序号, "data": str(zs)})
+
+                    for i in range(观察员.混合扩展线段分析层次):
+                        if 观察员.混合扩展线段序列组[i] and 观察员.混合扩展线段序列组[i][0].标识 == 数据类型:
+                            待发送消息.update({"index": 序号, "data": str(观察员.混合扩展线段序列组[i][序号])})
+                            段 = 观察员.混合扩展线段序列组[i][序号]
+                            zs = getattr(段, f"{虚实合}_中枢序列")[序号]
+                            待发送消息.update({"index": 序号, "data": str(zs)})
 
                 await 全局连接管理器.发送信息(用户标识, {"type": "query_result", "success": True, "data_type": 数据类型, "data": 待发送消息})
 

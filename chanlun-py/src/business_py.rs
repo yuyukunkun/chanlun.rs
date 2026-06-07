@@ -693,6 +693,7 @@ impl 买卖点Py {
 #[pyclass(name = "观察者", module = "chanlun._chanlun", subclass)]
 pub struct 观察者Py {
     pub(crate) inner: Option<Arc<RwLock<chanlun::business::observer::观察者>>>,
+    配置缓存: std::sync::Mutex<Option<Py<缠论配置Py>>>,
 }
 
 impl 观察者Py {
@@ -769,6 +770,7 @@ impl 观察者Py {
             inner: Some(chanlun::business::observer::观察者::new(
                 符号, 周期, config,
             )),
+            配置缓存: std::sync::Mutex::new(None),
         })
     }
 
@@ -821,8 +823,27 @@ impl 观察者Py {
     }
 
     #[getter]
-    fn 配置(&self) -> PyResult<缠论配置Py> {
-        缠论配置Py::from_rust_config(&self.obs().配置)
+    fn 配置(&self, py: Python<'_>) -> PyResult<Py<缠论配置Py>> {
+        let mut cache = self.配置缓存.lock().unwrap();
+        if let Some(ref cached) = *cache {
+            Ok(cached.clone_ref(py))
+        } else {
+            let cfg_py = 缠论配置Py::from_rust_config(&self.obs().配置)?;
+            let obj = Py::new(py, cfg_py)?;
+            *cache = Some(obj.clone_ref(py));
+            Ok(obj)
+        }
+    }
+
+    #[setter]
+    fn set_配置(&self, value: &Bound<'_, 缠论配置Py>) -> PyResult<()> {
+        let config = value.borrow().to_rust_config(value.py())?;
+        self.obs_mut().配置 = config;
+        self.配置缓存
+            .lock()
+            .unwrap()
+            .replace(value.clone().unbind());
+        Ok(())
     }
 
     /// 清空所有分析序列，重置为初始状态（内部实现）
@@ -847,6 +868,16 @@ impl 观察者Py {
 
     /// 核心入口 — 投喂一根原始K线，增量更新所有层级（公开分发器，支持子类重写）
     fn 增加原始K线(slf: &Bound<'_, Self>, 普K: &Bound<'_, K线Py>) -> PyResult<()> {
+        // 同步缓存的 Python 配置到 Rust 观察者（支持 obs.配置 直接修改）
+        {
+            let me = slf.borrow();
+            if let Some(ref cached) = *me.配置缓存.lock().unwrap() {
+                let py = slf.py();
+                if let Ok(config) = cached.bind(py).borrow().to_rust_config(py) {
+                    me.obs_mut().配置 = config;
+                }
+            }
+        }
         slf.call_method1("_增加原始K线", (普K,))?;
         Ok(())
     }
@@ -925,16 +956,16 @@ impl 观察者Py {
     }
 
     #[classmethod]
-    #[pyo3(signature = (观察员, 文件路径, 配置 = None))]
-    /// :param 观察员: 观察者实例
+    #[pyo3(signature = (文件路径, 配置 = None, 观察员 = None))]
     /// :param 文件路径: 数据文件路径 格式如: btcusd-300-1631772074-1632222374.nb
     /// :param 配置: 缠论配置
+    /// :param 观察员: 可选，已有观察者实例；不传则自动创建
     /// :return: 观察者实例
     fn 读取数据文件(
         _cls: &Bound<'_, PyType>,
-        观察员: &Bound<'_, Self>,
         文件路径: &str,
         配置: Option<&Bound<'_, 缠论配置Py>>,
+        观察员: Option<&Bound<'_, Self>>,
         py: Python<'_>,
     ) -> PyResult<Py<PyAny>> {
         let config = match 配置 {
@@ -960,19 +991,37 @@ impl 观察者Py {
             .parse()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("parse period: {}", e)))?;
 
-        // 设置观察员属性
-        {
-            let slf_ref = 观察员.borrow_mut();
-            let mut obs_mut = slf_ref.obs_mut();
-            obs_mut.符号 = 符号;
-            obs_mut.周期 = 周期;
-            obs_mut.配置 = config;
-        }
+        let obs_ref = match 观察员 {
+            Some(obs) => {
+                // 更新已有观察员属性
+                {
+                    let slf_ref = obs.borrow_mut();
+                    let mut obs_mut = slf_ref.obs_mut();
+                    obs_mut.符号 = 符号;
+                    obs_mut.周期 = 周期;
+                    obs_mut.配置 = config;
+                }
+                obs.clone()
+            }
+            None => {
+                // 创建新观察者：调用 cls(符号, 周期)，配置后续通过 obs_mut 设置
+                let obj = _cls.call1((符号.as_str(), 周期))?;
+                let obs: &Bound<'_, Self> = obj.cast().map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err("failed to create 观察者")
+                })?;
+                {
+                    let slf_ref = obs.borrow_mut();
+                    let mut obs_mut = slf_ref.obs_mut();
+                    obs_mut.配置 = config;
+                }
+                obs.clone()
+            }
+        };
 
-        // 调用加载本地数据
-        观察员.call_method1("加载本地数据", (文件路径,))?;
+        // 调用加载本地数据（通过 Python dispatch，支持子类重写）
+        obs_ref.call_method1("加载本地数据", (文件路径,))?;
 
-        Ok(观察员.clone().unbind().into())
+        Ok(obs_ref.unbind().into())
     }
 
     // ---- 序列 getters ----
@@ -1382,9 +1431,10 @@ impl 立体分析器Py {
     }
 
     fn 获取观察者(&self, 周期: i64) -> Option<观察者Py> {
-        self.inner
-            .获取观察者(周期)
-            .map(|rc| 观察者Py { inner: Some(rc) })
+        self.inner.获取观察者(周期).map(|rc| 观察者Py {
+            inner: Some(rc),
+            配置缓存: std::sync::Mutex::new(None),
+        })
     }
 
     /// 拆分各序列数据，单独存文件，文件名为对应变量名

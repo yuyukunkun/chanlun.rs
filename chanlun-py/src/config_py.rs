@@ -414,6 +414,8 @@ fn validate_field(
         (Value::Bool(_), Value::Bool(_)) => return Ok(()),
         (Value::Number(_), Value::Number(_)) => return Ok(()),
         (Value::String(_), Value::String(_)) => return Ok(()),
+        (Value::Array(_), Value::Array(_)) => return Ok(()),
+        (Value::Object(_), Value::Object(_)) => return Ok(()),
         _ => {}
     }
 
@@ -430,7 +432,9 @@ fn validate_field(
         Value::Bool(_) => "布尔",
         Value::Number(_) => "数值",
         Value::String(_) => "字符串",
-        _ => "其他",
+        Value::Array(_) => "数组",
+        Value::Object(_) => "字典",
+        Value::Null => "null",
     };
     Err(format!("类型不匹配（需要 {expected}，收到 {type_name}）"))
 }

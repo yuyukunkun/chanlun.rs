@@ -985,26 +985,17 @@ impl 指标计算器Py {
     /// 增量计算所有开启的指标，将结果写入 当前K线.指标
     #[staticmethod]
     fn 计算并挂载(
-        当前K线: &Bound<'_, crate::kline_py::K线Py>,
+        _当前K线: &Bound<'_, crate::kline_py::K线Py>,
         全序列: Vec<Py<crate::kline_py::K线Py>>,
         配置: &Bound<'_, crate::config_py::缠论配置Py>,
         py: Python<'_>,
     ) -> PyResult<()> {
         let config = 配置.borrow().to_rust_config(py)?;
-        // 全序列包含 当前K线 在末尾；Rust 计算并挂载 的 现有序列 不含当前K线
-        let 现有序列: Vec<Arc<chanlun::kline::bar::K线>> = if 全序列.len() > 1 {
-            全序列[..全序列.len() - 1]
-                .iter()
-                .map(|k| k.bind(py).borrow().inner.clone())
-                .collect()
-        } else {
-            Vec::new()
-        };
-        chanlun::indicators::指标计算器::计算并挂载(
-            &当前K线.borrow().inner,
-            &现有序列,
-            &config,
-        );
+        let 全序列_rust: Vec<Arc<chanlun::kline::bar::K线>> = 全序列
+            .iter()
+            .map(|k| k.bind(py).borrow().inner.clone())
+            .collect();
+        chanlun::indicators::指标计算器::计算并挂载(&全序列_rust, &config);
         Ok(())
     }
 }

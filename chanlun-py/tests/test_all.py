@@ -35,9 +35,9 @@ _PROJECT_ROOT = os.environ.get(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
 )
 
-NB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "btcusd-300-1761327300-1776327900.nb")
-_PY_REF_DIR = os.path.join(_PROJECT_ROOT, "Py_btcusd:300_1761327300_1776327900")
-_RUST_REF_DIR = os.path.join(_PROJECT_ROOT, "chanlun", "Rust_btcusd:300_1761327300_1776327900")
+NB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "btcusd-300-1777649100-1778398800.nb")
+_PY_REF_DIR = os.path.join(_PROJECT_ROOT, "Py_btcusd:300_1777649100_1778398800")
+_RUST_REF_DIR = os.path.join(_PROJECT_ROOT, "chanlun", "Rust_btcusd:300_1777649100_1778398800")
 
 # ---- 辅助函数 ----
 
@@ -502,7 +502,8 @@ class Test观察者子类化(PyO3SubclassMixin, unittest.TestCase):
 
             @classmethod
             def 读取数据文件(cls, 文件路径, 配置=None):
-                obs = super().读取数据文件(文件路径, 配置)
+                obs = cls("", 0)  # 创建子类实例，父类方法会覆盖符号/周期
+                chanlun.观察者.读取数据文件(文件路径, 配置, 观察员=obs)
                 obs._custom_classmethod_flag = True
                 return obs
 
@@ -519,7 +520,7 @@ class Test观察者子类化(PyO3SubclassMixin, unittest.TestCase):
         obs.重置基础序列()
         obs.加载本地数据(NB_PATH)
         self.assertTrue(obs._loaded)
-        self.assertEqual(obs._load_count, 1)
+        self.assertEqual(obs._load_count, 2)
         self.assertGreater(len(obs.普通K线序列), 0)
         c = datetime.now()
         print("加载本地数据 用时:", c - b)
@@ -542,7 +543,7 @@ class Test观察者子类化(PyO3SubclassMixin, unittest.TestCase):
             self.assertEqual(obs._save_root, tmpdir)
 
         # 5. 重置次数
-        self.assertEqual(obs._reload, 3)
+        self.assertEqual(obs._reload, 6)
         e = datetime.now()
         print("保存数据 用时:", e - d)
 
@@ -1046,6 +1047,730 @@ class Test整体身份(_Base身份, unittest.TestCase):
                         if ck.时间戳 == 右.时间戳:
                             self.assertIs(ck, 右)
                             break
+
+
+# ============================================================
+# 跨线程身份测试 — 验证全局缓存（非 thread_local）的跨线程一致性
+# ============================================================
+
+
+class Test跨线程身份(unittest.TestCase):
+    """跨线程 RC 身份一致性：全局缓存应在不同线程间共享同一 Python 对象."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.obs = create_observer(period=3600, n_bars=800)
+
+    def _run_in_thread(self, fn):
+        """在子线程中执行 fn，通过 queue 收集结果和异常."""
+        import threading
+
+        result = []
+        err = []
+
+        def wrapper():
+            try:
+                result.append(fn())
+            except Exception as e:
+                err.append(e)
+
+        t = threading.Thread(target=wrapper)
+        t.start()
+        t.join()
+        if err:
+            raise err[0]
+        return result[0]
+
+    # ---- 序列级别 ----
+
+    def test_缠K序列跨线程重复获取_is一致(self):
+        """缠论K线序列：从子线程重复获取，元素 is 一致."""
+        obs = self.obs
+
+        def check():
+            s1 = obs.缠论K线序列
+            s2 = obs.缠论K线序列
+            return [(s1[i] is s2[i], len(s1), len(s2)) for i in range(min(len(s1), len(s2), 20))]
+
+        results = self._run_in_thread(check)
+        for i, (ok, l1, l2) in enumerate(results):
+            self.assertTrue(ok, f"缠K序列[{i}] 跨线程 is 不一致")
+
+    def test_分型序列跨线程重复获取_is一致(self):
+        """分型序列：从子线程重复获取，元素 is 一致."""
+        obs = self.obs
+
+        def check():
+            s1 = obs.分型序列
+            s2 = obs.分型序列
+            return [(s1[i] is s2[i], len(s1)) for i in range(min(len(s1), len(s2), 20))]
+
+        results = self._run_in_thread(check)
+        for i, (ok, _) in enumerate(results):
+            self.assertTrue(ok, f"分型序列[{i}] 跨线程 is 不一致")
+
+    def test_笔序列跨线程重复获取_is一致(self):
+        """笔序列：从子线程重复获取，元素 is 一致."""
+        obs = self.obs
+
+        def check():
+            s1 = obs.笔序列
+            s2 = obs.笔序列
+            return [(s1[i] is s2[i], len(s1)) for i in range(min(len(s1), len(s2), 20))]
+
+        results = self._run_in_thread(check)
+        for i, (ok, _) in enumerate(results):
+            self.assertTrue(ok, f"笔序列[{i}] 跨线程 is 不一致")
+
+    def test_线段序列跨线程重复获取_is一致(self):
+        """线段序列：从子线程重复获取，元素 is 一致."""
+        obs = self.obs
+
+        def check():
+            s1 = obs.线段序列
+            s2 = obs.线段序列
+            return [(s1[i] is s2[i], len(s1)) for i in range(min(len(s1), len(s2), 20))]
+
+        results = self._run_in_thread(check)
+        for i, (ok, _) in enumerate(results):
+            self.assertTrue(ok, f"线段序列[{i}] 跨线程 is 不一致")
+
+    def test_中枢序列跨线程重复获取_is一致(self):
+        """中枢序列：从子线程重复获取，元素 is 一致."""
+        obs = self.obs
+
+        def check():
+            s1 = obs.中枢序列
+            s2 = obs.中枢序列
+            return [(s1[i] is s2[i], len(s1)) for i in range(min(len(s1), len(s2), 20))]
+
+        results = self._run_in_thread(check)
+        for i, (ok, _) in enumerate(results):
+            self.assertTrue(ok, f"中枢序列[{i}] 跨线程 is 不一致")
+
+    def test_普K序列跨线程重复获取_is一致(self):
+        """普通K线序列：从子线程重复获取，元素 is 一致."""
+        obs = self.obs
+
+        def check():
+            s1 = obs.普通K线序列
+            s2 = obs.普通K线序列
+            return [(s1[i] is s2[i], len(s1)) for i in range(min(len(s1), len(s2), 20))]
+
+        results = self._run_in_thread(check)
+        for i, (ok, _) in enumerate(results):
+            self.assertTrue(ok, f"普K序列[{i}] 跨线程 is 不一致")
+
+    # ---- 跨路径 ----
+
+    def test_跨线程分型中K线_is一致(self):
+        """子线程中 分型.中 is 缠论K线序列[同时间戳]."""
+        obs = self.obs
+
+        def check():
+            results = []
+            seq = obs.缠论K线序列
+            for fx in obs.分型序列[:10]:
+                中 = fx.中
+                found = False
+                for ck in seq:
+                    if ck.时间戳 == 中.时间戳:
+                        results.append((ck is 中, ck.时间戳))
+                        found = True
+                        break
+                if not found:
+                    results.append((None, 中.时间戳))
+            return results
+
+        results = self._run_in_thread(check)
+        for ok, ts in results:
+            self.assertIsNotNone(ok, f"分型.中 ts={ts} 在缠K序列中未找到")
+            self.assertTrue(ok, f"跨线程 分型.中 ts={ts} is 不一致")
+
+    def test_跨线程笔端点钟K_is一致(self):
+        """子线程中 笔.文中 is 缠论K线序列[同时间戳]."""
+        obs = self.obs
+
+        def check():
+            results = []
+            seq = obs.缠论K线序列
+            for bi in obs.笔序列[:10]:
+                for nm, ep in [("文", bi.文), ("武", bi.武)]:
+                    if ep is None:
+                        continue
+                    中 = ep.中
+                    for ck in seq:
+                        if ck.时间戳 == 中.时间戳:
+                            results.append((ck is 中, nm, ck.时间戳))
+                            break
+            return results
+
+        results = self._run_in_thread(check)
+        for ok, nm, ts in results:
+            self.assertTrue(ok, f"跨线程 笔.{nm}.中 ts={ts} is 不一致")
+
+    def test_跨线程中枢元件_is一致(self):
+        """子线程中 中枢.元件 中的虚线对象 is 线段序列[同索引]."""
+        obs = self.obs
+
+        def check():
+            results = []
+            for zs in obs.中枢序列[:5]:
+                for elem in zs.元件[:3]:
+                    results.append(elem is elem)  # 自我 is
+                    results.append(elem is not None)
+            return results
+
+        results = self._run_in_thread(check)
+        for ok in results:
+            self.assertTrue(ok)
+
+    # ---- list.index 基于 is ----
+
+    def test_跨线程list_index基于身份(self):
+        """子线程中 list.index(elem) 正常工作（依赖 __eq__ 基于 is）."""
+        obs = self.obs
+
+        def check():
+            results = []
+            for name, getter in [
+                ("缠论K线序列", lambda o: o.缠论K线序列),
+                ("分型序列", lambda o: o.分型序列),
+                ("笔序列", lambda o: o.笔序列),
+                ("线段序列", lambda o: o.线段序列),
+                ("中枢序列", lambda o: o.中枢序列),
+            ]:
+                seq = getter(obs)
+                if len(seq) >= 2:
+                    r0 = seq.index(seq[0]) == 0
+                    r1 = seq.index(seq[-1]) == len(seq) - 1
+                    results.append((name, r0, r1, len(seq)))
+            return results
+
+        results = self._run_in_thread(check)
+        for name, r0, r1, length in results:
+            self.assertTrue(r0, f"跨线程 {name}(len={length}): index(seq[0]) != 0")
+            self.assertTrue(r1, f"跨线程 {name}(len={length}): index(seq[-1]) != {length - 1}")
+
+    # ---- 主线程-子线程之间 ----
+
+    def test_主线程与子线程对象_is一致(self):
+        """主线程获取的对象与子线程获取的对象 is 相同."""
+        import threading
+
+        obs = self.obs
+
+        # 主线程先获取
+        seq_main = obs.缠论K线序列
+        fx_main = obs.分型序列
+        bi_main = obs.笔序列
+
+        err = []
+
+        def check():
+            try:
+                seq_thread = obs.缠论K线序列
+                for i in range(min(len(seq_main), 10)):
+                    if seq_main[i] is not seq_thread[i]:
+                        raise AssertionError(f"缠K[{i}] 主线程与子线程 is 不一致")
+                fx_thread = obs.分型序列
+                for i in range(min(len(fx_main), 10)):
+                    if fx_main[i] is not fx_thread[i]:
+                        raise AssertionError(f"分型[{i}] 主线程与子线程 is 不一致")
+                bi_thread = obs.笔序列
+                for i in range(min(len(bi_main), 10)):
+                    if bi_main[i] is not bi_thread[i]:
+                        raise AssertionError(f"笔[{i}] 主线程与子线程 is 不一致")
+            except Exception as e:
+                err.append(e)
+
+        t = threading.Thread(target=check)
+        t.start()
+        t.join()
+        if err:
+            raise err[0]
+
+    def test_跨线程getter稳定性(self):
+        """子线程中同一 getter 多次调用返回同一对象（如 分型.结构 等）."""
+        obs = self.obs
+
+        def check():
+            results = []
+            if obs.分型序列:
+                fx = obs.分型序列[0]
+                for name, getter in [
+                    ("分型.结构", lambda f: f.结构),
+                    ("分型.左", lambda f: f.左),
+                    ("分型.中", lambda f: f.中),
+                    ("分型.右", lambda f: f.右),
+                ]:
+                    v1 = getter(fx)
+                    v2 = getter(fx)
+                    results.append((name, v1 is v2 if v1 is not None else True))
+            return results
+
+        results = self._run_in_thread(check)
+        for name, ok in results:
+            self.assertTrue(ok, f"跨线程 {name}: 两次调用 is 不一致")
+
+    def test_多线程并发访问_is一致(self):
+        """两个子线程同时访问，各自拿到的对象与主线程 is 一致."""
+        import threading
+
+        obs = self.obs
+        errors = []
+
+        seq_main = obs.笔序列
+
+        def worker(thread_id):
+            try:
+                seq = obs.笔序列
+                for i in range(min(len(seq), 10)):
+                    if seq[i] is not seq_main[i]:
+                        errors.append(f"线程{thread_id} 笔[{i}] is 不一致")
+                    if seq[i] is not seq[i]:
+                        errors.append(f"线程{thread_id} 笔[{i}] 自我 is 失败")
+            except Exception as e:
+                errors.append(f"线程{thread_id}: {e}")
+
+        t1 = threading.Thread(target=worker, args=(1,))
+        t2 = threading.Thread(target=worker, args=(2,))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        self.assertEqual(len(errors), 0, "\n".join(errors))
+
+
+# ============================================================
+# 买卖意义 双端一致性测试
+# ============================================================
+
+
+class Test买卖意义双端对比(unittest.TestCase):
+    """运行时对比 Rust 绑定层 与 chan.py 的 虚线.买卖意义() 结果."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not _has_nb():
+            raise unittest.SkipTest("需要 .nb 数据文件")
+        cls.bars = read_nb_bars(NB_PATH)
+
+    def _build_observers(self, n_bars=2000):
+        """构建双端观察者并喂入相同数据."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs = chanlun.缠论配置()
+        obs_rs = chanlun.观察者("btcusd", 300, cfg_rs)
+
+        cfg_py = chan.缠论配置()
+        obs_py = chan.观察者("btcusd", 300, cfg_py)
+
+        for i, (ts, o, h, l, c, v) in enumerate(self.bars[:n_bars]):
+            k_rs = chanlun.K线.创建普K(f"k{i}", ts, o, h, l, c, v, i, 300)
+            k_py = chan.K线.创建普K(f"k{i}", ts, o, h, l, c, v, i, 300)
+            obs_rs.增加原始K线(k_rs)
+            obs_py.增加原始K线(k_py)
+
+        return obs_rs, obs_py
+
+    def test_笔买卖意义双端一致(self):
+        """笔序列的 买卖意义() 双端结果完全一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        n = min(len(obs_rs.笔序列), len(obs_py.笔序列))
+        self.assertGreater(n, 0, "笔序列为空")
+
+        mismatches = []
+        for i in range(n):
+            r = chanlun.虚线.买卖意义(obs_rs.笔序列[i], obs_rs)
+            p = chan.虚线.买卖意义(obs_py.笔序列[i], obs_py)
+            if r != p:
+                mismatches.append((i, r, p, obs_rs.笔序列[i].获取数据文本(), obs_py.笔序列[i].获取数据文本()))
+
+        self.assertEqual(len(mismatches), 0, f"笔买卖意义 不一致 ({len(mismatches)}/{n}):\n" + "\n".join(f"  [{i}] R={r} P={p}\n    R文本={rt}\n    P文本={pt}" for i, r, p, rt, pt in mismatches[:3]))
+
+    def test_线段买卖意义双端一致(self):
+        """线段序列的 买卖意义() 双端结果完全一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        n = min(len(obs_rs.线段序列), len(obs_py.线段序列))
+        self.assertGreater(n, 0, "线段序列为空")
+
+        mismatches = []
+        for i in range(n):
+            r = chanlun.虚线.买卖意义(obs_rs.线段序列[i], obs_rs)
+            p = chan.虚线.买卖意义(obs_py.线段序列[i], obs_py)
+            if r != p:
+                mismatches.append((i, r, p, obs_rs.线段序列[i].获取数据文本(), obs_py.线段序列[i].获取数据文本()))
+
+        self.assertEqual(len(mismatches), 0, f"线段买卖意义 不一致 ({len(mismatches)}/{n}):\n" + "\n".join(f"  [{i}] R={r} P={p}\n    R文本={rt}\n    P文本={pt}" for i, r, p, rt, pt in mismatches[:3]))
+
+    def test_笔序列长度一致(self):
+        """双端笔序列数量一致."""
+        obs_rs, obs_py = self._build_observers()
+        self.assertGreater(len(obs_rs.笔序列), 0)
+        self.assertEqual(len(obs_rs.笔序列), len(obs_py.笔序列), f"笔数量: Rust={len(obs_rs.笔序列)} Py={len(obs_py.笔序列)}")
+
+    def test_线段序列长度一致(self):
+        """双端线段序列数量一致."""
+        obs_rs, obs_py = self._build_observers()
+        self.assertGreater(len(obs_rs.线段序列), 0)
+        self.assertEqual(len(obs_rs.线段序列), len(obs_py.线段序列), f"线段数量: Rust={len(obs_rs.线段序列)} Py={len(obs_py.线段序列)}")
+
+    def test_中枢序列长度一致(self):
+        """双端中枢序列数量一致."""
+        obs_rs, obs_py = self._build_observers()
+        self.assertGreater(len(obs_rs.中枢序列), 0)
+        self.assertEqual(len(obs_rs.中枢序列), len(obs_py.中枢序列), f"中枢数量: Rust={len(obs_rs.中枢序列)} Py={len(obs_py.中枢序列)}")
+
+    # ---- MACD趋向背驰 ----
+
+    def test_笔MACD趋向背驰双端一致(self):
+        """笔的 K线序列 MACD趋向背驰 双端结果完全一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        mismatches = []
+        for bi_rs, bi_py in zip(obs_rs.笔序列, obs_py.笔序列):
+            k_seq_rs = chanlun.K线.截取(
+                obs_rs.普通K线序列,
+                bi_rs.文.中.标的K线,
+                bi_rs.武.中.标的K线,
+            )
+            k_seq_py = chan.K线.截取(
+                obs_py.普通K线序列,
+                bi_py.文.中.标的K线,
+                bi_py.武.中.标的K线,
+            )
+            r = chanlun.虚线.计算K线序列MACD趋向背驰(k_seq_rs, bi_rs.方向)
+            p = chan.虚线.计算K线序列MACD趋向背驰(k_seq_py, bi_py.方向)
+            if r != list(p):
+                mismatches.append((bi_rs.文.时间戳, bi_rs.武.时间戳, list(r), list(p)))
+
+        self.assertEqual(len(mismatches), 0, f"笔MACD趋向背驰 不一致 ({len(mismatches)}):\n" + "\n".join(f"  [{ts_w},{ts_wu}] R={r} P={p}" for ts_w, ts_wu, r, p in mismatches[:5]))
+
+    def test_线段MACD趋向背驰双端一致(self):
+        """线段的 K线序列 MACD趋向背驰 双端结果完全一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        mismatches = []
+        for seg_rs, seg_py in zip(obs_rs.线段序列, obs_py.线段序列):
+            k_seq_rs = chanlun.K线.截取(
+                obs_rs.普通K线序列,
+                seg_rs.文.中.标的K线,
+                seg_rs.武.中.标的K线,
+            )
+            k_seq_py = chan.K线.截取(
+                obs_py.普通K线序列,
+                seg_py.文.中.标的K线,
+                seg_py.武.中.标的K线,
+            )
+            r = chanlun.虚线.计算K线序列MACD趋向背驰(k_seq_rs, seg_rs.方向)
+            p = chan.虚线.计算K线序列MACD趋向背驰(k_seq_py, seg_py.方向)
+            if r != list(p):
+                mismatches.append((seg_rs.文.时间戳, seg_rs.武.时间戳, list(r), list(p)))
+
+        self.assertEqual(len(mismatches), 0, f"线段MACD趋向背驰 不一致 ({len(mismatches)}):\n" + "\n".join(f"  [{ts_w},{ts_wu}] R={r} P={p}" for ts_w, ts_wu, r, p in mismatches[:5]))
+
+    # ---- 统计MACD行为 ----
+
+    def test_笔统计MACD行为双端一致(self):
+        """笔的 统计MACD行为() 双端结果完全一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        mismatches = []
+        for bi_rs, bi_py in zip(obs_rs.笔序列, obs_py.笔序列):
+            k_seq_rs = chanlun.K线.截取(
+                obs_rs.普通K线序列,
+                bi_rs.文.中.标的K线,
+                bi_rs.武.中.标的K线,
+            )
+            k_seq_py = chan.K线.截取(
+                obs_py.普通K线序列,
+                bi_py.文.中.标的K线,
+                bi_py.武.中.标的K线,
+            )
+            r = chanlun.虚线.统计MACD行为(k_seq_rs)
+            p = chan.虚线.统计MACD行为(k_seq_py)
+            if r != p:
+                mismatches.append((bi_rs.文.时间戳, bi_rs.武.时间戳, r, p))
+
+        self.assertEqual(len(mismatches), 0, f"笔统计MACD行为 不一致 ({len(mismatches)}):\n" + "\n".join(f"  [{ts_w},{ts_wu}] R={r} P={p}" for ts_w, ts_wu, r, p in mismatches[:5]))
+
+    def test_线段统计MACD行为双端一致(self):
+        """线段的 统计MACD行为() 双端结果完全一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        mismatches = []
+        for seg_rs, seg_py in zip(obs_rs.线段序列, obs_py.线段序列):
+            k_seq_rs = chanlun.K线.截取(
+                obs_rs.普通K线序列,
+                seg_rs.文.中.标的K线,
+                seg_rs.武.中.标的K线,
+            )
+            k_seq_py = chan.K线.截取(
+                obs_py.普通K线序列,
+                seg_py.文.中.标的K线,
+                seg_py.武.中.标的K线,
+            )
+            r = chanlun.虚线.统计MACD行为(k_seq_rs)
+            p = chan.虚线.统计MACD行为(k_seq_py)
+            if r != p:
+                mismatches.append((seg_rs.文.时间戳, seg_rs.武.时间戳, r, p))
+
+        self.assertEqual(len(mismatches), 0, f"线段统计MACD行为 不一致 ({len(mismatches)}):\n" + "\n".join(f"  [{ts_w},{ts_wu}] R={r} P={p}" for ts_w, ts_wu, r, p in mismatches[:5]))
+
+    # ---- 获取所有停顿位置 ----
+
+    def test_笔获取所有停顿位置双端一致(self):
+        """笔的 获取所有停顿位置() 双端结果一致（通过虚线相等 逐项比对）."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        mismatches = []
+        for bi_rs, bi_py in zip(obs_rs.笔序列, obs_py.笔序列):
+            r = chanlun.笔.获取所有停顿位置(bi_rs, obs_rs)
+            p = chan.笔.获取所有停顿位置(bi_py, obs_py)
+            if len(r) != len(p):
+                mismatches.append((f"len R={len(r)} P={len(p)}", [x.获取数据文本() for x in r], [x.获取数据文本() for x in p]))
+            else:
+                for a, b in zip(r, p):
+                    eq, msg = chanlun.虚线相等(a, b)
+                    if not eq:
+                        mismatches.append((msg, [x.获取数据文本() for x in r], [x.获取数据文本() for x in p]))
+                        break
+
+        self.assertEqual(len(mismatches), 0, f"笔获取所有停顿位置 不一致 ({len(mismatches)}):\n" + "\n".join(f"  {tag}\n    R={rl}\n    P={pl}" for tag, rl, pl in mismatches[:3]))
+
+    def test_线段获取所有停顿位置双端一致(self):
+        """线段的 获取所有停顿位置() 双端结果一致（通过虚线相等 逐项比对）."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        mismatches = []
+        for seg_rs, seg_py in zip(obs_rs.线段序列, obs_py.线段序列):
+            r = chanlun.线段.获取所有停顿位置(seg_rs, obs_rs)
+            p = chan.线段.获取所有停顿位置(seg_py, obs_py)
+            if len(r) != len(p):
+                mismatches.append((f"len R={len(r)} P={len(p)}", [x.获取数据文本() for x in r], [x.获取数据文本() for x in p]))
+            else:
+                for a, b in zip(r, p):
+                    eq, msg = chanlun.虚线相等(a, b)
+                    if not eq:
+                        mismatches.append((msg, [x.获取数据文本() for x in r], [x.获取数据文本() for x in p]))
+                        break
+
+        self.assertEqual(len(mismatches), 0, f"线段获取所有停顿位置 不一致 ({len(mismatches)}):\n" + "\n".join(f"  {tag}\n    R={rl}\n    P={pl}" for tag, rl, pl in mismatches[:3]))
+
+    # ---- 判断线段内部是否背驰 ----
+
+    def test_判断线段内部是否背驰双端一致(self):
+        """线段的 判断线段内部是否背驰() 双端结果完全一致."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        n = min(len(obs_rs.线段序列), len(obs_py.线段序列))
+        self.assertGreater(n, 0, "线段序列为空")
+
+        mismatches = []
+        for i in range(n):
+            r = chanlun.线段.判断线段内部是否背驰(obs_rs.线段序列[i], obs_rs)
+            p = chan.线段.判断线段内部是否背驰(obs_py.线段序列[i], obs_py)
+            if r != p:
+                mismatches.append((i, r, p, obs_rs.线段序列[i].获取数据文本(), obs_py.线段序列[i].获取数据文本()))
+
+        self.assertEqual(len(mismatches), 0, f"判断线段内部是否背驰 不一致 ({len(mismatches)}/{n}):\n" + "\n".join(f"  [{i}] R={r} P={p}\n    R文本={rt}\n    P文本={pt}" for i, r, p, rt, pt in mismatches[:3]))
+
+    # ---- 是否背驰过 ----
+
+    # ---- 获取内部中枢序列 ----
+
+    def test_线段获取内部中枢序列双端一致(self):
+        """线段的 获取内部中枢序列() 双端结果完全一致（通过 中枢相等 逐项比对）."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        n = min(len(obs_rs.线段序列), len(obs_py.线段序列))
+        self.assertGreater(n, 0, "线段序列为空")
+
+        mismatches = []
+        for i in range(n):
+            seg_rs = obs_rs.线段序列[i]
+            seg_py = obs_py.线段序列[i]
+            r = chanlun.线段.获取内部中枢序列(seg_rs, obs_rs.配置)
+            p = chan.线段.获取内部中枢序列(seg_py, obs_py.配置)
+            if len(r) != len(p):
+                mismatches.append((i, f"tuple len R={len(r)} P={len(p)}"))
+            else:
+                for k, (hr, hp) in enumerate(zip(r, p)):
+                    if len(hr) != len(hp):
+                        mismatches.append((i, f"{['实', '虚', '合'][k]} len R={len(hr)} P={len(hp)}"))
+                        break
+                    for j, (ha, hb) in enumerate(zip(hr, hp)):
+                        eq, msg = chanlun.中枢相等(ha, hb)
+                        if not eq:
+                            mismatches.append((i, f"{['实', '虚', '合'][k]}[{j}]: {msg}"))
+                            break
+
+        self.assertEqual(len(mismatches), 0, f"线段获取内部中枢序列 不一致 ({len(mismatches)}/{n}):\n" + "\n".join(f"  Seg[{i}]: {detail}" for i, detail in mismatches[:5]))
+
+    # ---- 是否背驰过 ----
+
+    def test_线段是否背驰过双端一致(self):
+        """线段的 是否背驰过() 双端结果一致（通过 缠论K线相等 逐项比对）."""
+        import chanlun
+        from chanlun import chan
+
+        obs_rs, obs_py = self._build_observers()
+        n = min(len(obs_rs.线段序列), len(obs_py.线段序列))
+        self.assertGreater(n, 0, "线段序列为空")
+
+        mismatches = []
+        for i in range(n):
+            r = chanlun.线段.是否背驰过(obs_rs.线段序列[i], obs_rs)
+            p = chan.线段.是否背驰过(obs_py.线段序列[i], obs_py)
+            if len(r) != len(p):
+                mismatches.append((i, f"len R={len(r)} P={len(p)}", obs_rs.线段序列[i].获取数据文本()))
+            else:
+                for a, b in zip(r, p):
+                    eq, msg = chanlun.缠论K线相等(a, b)
+                    if not eq:
+                        mismatches.append((i, msg, obs_rs.线段序列[i].获取数据文本()))
+                        break
+
+        self.assertEqual(len(mismatches), 0, f"线段是否背驰过 不一致 ({len(mismatches)}/{n}):\n" + "\n".join(f"  [{i}] {detail}\n    段={txt[:120]}" for i, detail, txt in mismatches[:3]))
+
+
+# ============================================================
+# 指标挂载测试
+# ============================================================
+
+
+class Test指标挂载(unittest.TestCase):
+    """指标计算与动态挂载回填测试."""
+
+    @staticmethod
+    def _make_k(i: int, ts_base: int = 1771675200, period: int = 300):
+        """创建一根模拟K线."""
+        return chanlun.K线.创建普K(
+            "btcusd",
+            ts_base + i * period,
+            50000.0 + i,
+            51000.0 + i,
+            49000.0 + i,
+            50500.0 + i,
+            100.0 + i,
+            i,
+            period,
+        )
+
+    def test_基本指标计算(self):
+        """每根K线都应有默认指标值."""
+        cfg = chanlun.缠论配置()
+        obs = chanlun.观察者("btcusd", 300, cfg)
+        for i in range(50):
+            obs.增加原始K线(self._make_k(i))
+
+        for k in obs.普通K线序列:
+            self.assertIn("macd", k.指标)
+            self.assertIn("rsi", k.指标)
+            self.assertIn("kdj", k.指标)
+
+    def test_动态MACD参数回填(self):
+        """中途修改 obs.配置 添加 MACD 变体后，历史K线应被回填."""
+        cfg = chanlun.缠论配置()
+        obs = chanlun.观察者("btcusd", 300, cfg)
+
+        for i in range(100):
+            if i == 50:
+                obs.配置.MACD_参数列表 = [
+                    ("macd", 12, 26, 9),
+                    ("macd_10_20_7", 10, 20, 7),
+                ]
+            obs.增加原始K线(self._make_k(i))
+
+        for k in obs.普通K线序列:
+            self.assertIn("macd_10_20_7", k.指标)
+
+    def test_多指标同时回填(self):
+        """同时修改 MACD + RSI + KDJ 参数，验证全部回填."""
+        cfg = chanlun.缠论配置()
+        obs = chanlun.观察者("btcusd", 300, cfg)
+
+        for i in range(80):
+            if i == 40:
+                obs.配置.MACD_参数列表 = [("macd", 12, 26, 9), ("macd_fast", 5, 13, 5)]
+                obs.配置.RSI_周期列表 = [("rsi", 14), ("rsi_7", 7)]
+                obs.配置.KDJ_参数列表 = [("kdj", 9, 3, 3), ("kdj_5", 5, 2, 2)]
+            obs.增加原始K线(self._make_k(i))
+
+        for k in obs.普通K线序列:
+            self.assertIn("macd_fast", k.指标)
+            self.assertIn("rsi_7", k.指标)
+            self.assertIn("kdj_5", k.指标)
+
+    def test_回填后增量计算一致(self):
+        """回填后的指标值应与从头计算一致."""
+        cfg_full = chanlun.缠论配置()
+        cfg_full.MACD_参数列表 = [("macd", 12, 26, 9), ("macd_extra", 8, 16, 6)]
+        obs_full = chanlun.观察者("btcusd", 300, cfg_full)
+
+        cfg_late = chanlun.缠论配置()
+        obs_late = chanlun.观察者("btcusd", 300, cfg_late)
+
+        for i in range(100):
+            if i == 50:
+                obs_late.配置.MACD_参数列表 = [("macd", 12, 26, 9), ("macd_extra", 8, 16, 6)]
+            obs_full.增加原始K线(self._make_k(i))
+            obs_late.增加原始K线(self._make_k(i))
+
+        seq_full = obs_full.普通K线序列
+        seq_late = obs_late.普通K线序列
+        self.assertEqual(len(seq_full), len(seq_late))
+
+        for i in range(len(seq_full)):
+            macd_full = seq_full[i].指标["macd_extra"]
+            macd_late = seq_late[i].指标["macd_extra"]
+            self.assertEqual(macd_full.DIF, macd_late.DIF)
+            self.assertEqual(macd_full.DEA, macd_late.DEA)
+
+    def test_同时间戳更新后指标重算(self):
+        """同时间戳K线更新后，指标应基于新值重新计算."""
+        cfg = chanlun.缠论配置()
+        obs = chanlun.观察者("btcusd", 300, cfg)
+
+        ts = 1771675200
+        k1 = chanlun.K线.创建普K("btcusd", ts, 50000, 51000, 49000, 50500, 100, 0, 300)
+        obs.增加原始K线(k1)
+
+        k2 = chanlun.K线.创建普K("btcusd", ts + 300, 50500, 52000, 50000, 51500, 200, 1, 300)
+        obs.增加原始K线(k2)
+        macd_before = obs.普通K线序列[-1].指标["macd"].DIF
+
+        # 同时间戳，不同收盘价
+        k2_upd = chanlun.K线.创建普K("btcusd", ts + 300, 50500, 53000, 49000, 52500, 300, 1, 300)
+        obs.增加原始K线(k2_upd)
+        macd_after = obs.普通K线序列[-1].指标["macd"].DIF
+
+        self.assertNotEqual(macd_before, macd_after)
 
 
 # ============================================================

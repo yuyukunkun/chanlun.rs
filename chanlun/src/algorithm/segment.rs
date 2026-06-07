@@ -32,9 +32,8 @@ use crate::structure::dash_line::虚线;
 use crate::structure::fractal_obj::分型;
 use crate::structure::segment_feat::线段特征;
 use crate::types::{分型结构, 相对方向, 缺口};
-use cached::stores::LruCache;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, LazyLock, Mutex};
 use tracing::warn;
 
 /// 线段 — 从笔生成线段的算法集合（静态方法命名空间）
@@ -47,10 +46,6 @@ type 分割结果 = (
     Option<Arc<虚线>>,
 );
 type 中枢序列组 = (Vec<Arc<中枢>>, Vec<Arc<中枢>>, Vec<Arc<中枢>>);
-
-/// 线段内部背驰判断缓存 — 仿照 dash_line.rs 的 买卖意义缓存 模式
-static 线段背驰缓存: LazyLock<Mutex<LruCache<(usize, usize), bool>>> =
-    LazyLock::new(|| Mutex::new(LruCache::with_size(128)));
 
 impl 线段 {
     // ================================================================
@@ -1691,22 +1686,7 @@ impl 线段 {
     ///
     /// 分析线段的内部中枢和MACD柱分段，判断是否发生内部背驰
     pub fn 判断线段内部是否背驰(当前段: &虚线, 观察员: &观察者) -> bool {
-        let key = (
-            当前段 as *const 虚线 as usize,
-            观察员 as *const 观察者 as usize,
-        );
-        {
-            let mut cache = 线段背驰缓存.lock().unwrap();
-            if let Some(val) = cached::Cached::cache_get(&mut *cache, &key) {
-                return *val;
-            }
-        }
-
-        let result = Self::判断线段内部是否背驰_impl(当前段, 观察员);
-
-        let mut cache = 线段背驰缓存.lock().unwrap();
-        cached::Cached::cache_set(&mut *cache, key, result);
-        result
+        Self::判断线段内部是否背驰_impl(当前段, 观察员)
     }
 
     fn 判断线段内部是否背驰_impl(当前段: &虚线, 观察员: &观察者) -> bool {
