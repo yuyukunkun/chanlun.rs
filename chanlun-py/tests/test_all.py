@@ -1765,6 +1765,83 @@ class Test指标挂载(unittest.TestCase):
 
 
 # ============================================================
+# 线段分析层次 = 0 时不崩溃
+# ============================================================
+
+
+class Test线段分析层次为零(unittest.TestCase):
+    """验证 线段分析层次=0 时，各处理方法不会越界崩溃."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not _has_nb():
+            raise unittest.SkipTest("需要 .nb 数据文件")
+
+    def test_处理数据_不崩溃(self):
+        """投喂K线时 线段分析层次=0 → 跳过所有线段/扩展线段/混合扩展线段分析，不应崩溃."""
+        import chanlun
+        from chanlun import chan
+
+        # — Rust 侧 —
+        cfg_rs = chanlun.缠论配置()
+        obs_rs = chanlun.观察者("btcusd", 300, cfg_rs)
+        obs_rs.线段分析层次 = 0
+        obs_rs.重置基础序列()
+
+        for ts, o, h, l, c, v in read_nb_bars(NB_PATH)[:500]:
+            obs_rs.投喂原始数据(ts, o, h, l, c, v)
+
+        self.assertGreater(len(obs_rs.缠论K线序列), 0, "缠K序列应有数据")
+        self.assertGreater(len(obs_rs.分型序列), 0, "分型序列应有数据")
+        self.assertEqual(len(obs_rs.线段序列组), 0, "线段序列组应为空")
+        self.assertTrue(all(len(s) == 0 for s in obs_rs.混合扩展线段序列组), "混合扩展线段序列组所有条目应为空")
+
+        # — Python 侧 (chan.py) —
+        cfg_py = chan.缠论配置()
+        obs_py = chan.观察者("btcusd", 300, cfg_py)
+        obs_py.线段分析层次 = 0
+        obs_py.重置基础序列()
+
+        for ts, o, h, l, c, v in read_nb_bars(NB_PATH)[:500]:
+            obs_py.投喂原始数据(ts, o, h, l, c, v)
+
+        self.assertGreater(len(obs_py.缠论K线序列), 0, "chan.py 缠K序列应有数据")
+        self.assertGreater(len(obs_py.分型序列), 0, "chan.py 分型序列应有数据")
+        self.assertEqual(len(obs_py.线段序列组), 0, "chan.py 线段序列组应为空")
+
+    def test_静态重新分析_不崩溃(self):
+        """静态重新分析时 线段分析层次=0 → 跳过所有线段分析，不应崩溃."""
+        import chanlun
+        from chanlun import chan
+
+        # — Rust 侧 —
+        cfg_rs = chanlun.缠论配置()
+        obs_rs = chanlun.观察者("btcusd", 300, cfg_rs)
+        for ts, o, h, l, c, v in read_nb_bars(NB_PATH)[:300]:
+            obs_rs.投喂原始数据(ts, o, h, l, c, v)
+
+        self.assertGreater(len(obs_rs.线段序列组), 0, "正常初始化后应有线段")
+
+        obs_rs.线段分析层次 = 0
+        obs_rs.静态重新分析()
+        self.assertEqual(len(obs_rs.线段序列组), 0, "静态重新分析后线段序列组应为空")
+        self.assertGreater(len(obs_rs.分型序列), 0, "静态重新分析后分型序列应有数据")
+
+        # — Python 侧 (chan.py) —
+        cfg_py = chan.缠论配置()
+        obs_py = chan.观察者("btcusd", 300, cfg_py)
+        for ts, o, h, l, c, v in read_nb_bars(NB_PATH)[:300]:
+            obs_py.投喂原始数据(ts, o, h, l, c, v)
+
+        self.assertGreater(len(obs_py.线段序列组), 0, "chan.py 正常初始化后应有线段")
+
+        obs_py.线段分析层次 = 0
+        obs_py.静态重新分析()
+        self.assertEqual(len(obs_py.线段序列组), 0, "chan.py 静态重新分析后线段序列组应为空")
+        self.assertGreater(len(obs_py.分型序列), 0, "chan.py 静态重新分析后分型序列应有数据")
+
+
+# ============================================================
 # 集成对比测试
 # ============================================================
 

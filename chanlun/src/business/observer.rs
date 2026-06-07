@@ -322,7 +322,8 @@ impl 观察者 {
         }
 
         // Step 6: 混合扩展线段分析 — 3 级递归 (源 = 线段序列组[i])
-        for i in 0..self.混合扩展线段分析层次 {
+        // NOTE: 当 线段分析层次=0 时 线段序列组 为空，用 min 避免越界
+        for i in 0..self.混合扩展线段分析层次.min(self.线段序列组.len()) {
             let 源序列 = self.线段序列组[i].clone();
             线段::扩展分析(&源序列, &mut self.混合扩展线段序列组[i], &self.配置);
             中枢::分析(
@@ -422,7 +423,7 @@ impl 观察者 {
             );
         }
 
-        for i in 0..self.混合扩展线段分析层次 {
+        for i in 0..self.混合扩展线段分析层次.min(self.线段序列组.len()) {
             let 源序列 = self.线段序列组[i].clone();
             线段::扩展分析(&源序列, &mut self.混合扩展线段序列组[i], &self.配置);
             中枢::分析(
@@ -1134,5 +1135,75 @@ mod tests {
         let (符号, 周期) = handle.join().unwrap();
         assert_eq!(符号, "ethusd");
         assert_eq!(周期, 7200);
+    }
+
+    #[test]
+    fn test_处理数据_线段分析层次为零_不崩溃() {
+        let mut config = 缠论配置::default();
+        config.加载文件路径 = test_data_path();
+        let obs = 观察者::new("btcusd".into(), 300, config);
+        let mut obs_w = obs.write().unwrap();
+        obs_w.线段分析层次 = 0;
+        obs_w.重置基础序列();
+        drop(obs_w);
+
+        // 逐根投喂K线，不应因 线段分析层次=0 而 panic
+        let data = std::fs::read(test_data_path()).unwrap();
+        let size = 48;
+        for i in 0..(data.len() / size).min(500) {
+            let offset = i * size;
+            if let Some(k线) = K线::from_bytes(&data[offset..offset + size], 300, "btcusd") {
+                obs.write().unwrap().增加原始K线(k线);
+            }
+        }
+
+        let obs_r = obs.read().unwrap();
+        assert!(obs_r.缠论K线序列.len() > 0, "缠K序列应有数据");
+        assert!(obs_r.分型序列.len() > 0, "分型序列应有数据");
+        assert!(obs_r.线段序列组.is_empty(), "线段序列组应为空");
+        // 混合扩展线段序列组 有 3 个空 Vec（因为 混合扩展线段分析层次 仍是 3），
+        // 但所有条目应为空（min(3, 0) = 0，循环未执行）
+        assert!(
+            obs_r.混合扩展线段序列组.iter().all(|s| s.is_empty()),
+            "混合扩展线段序列组所有条目应为空"
+        );
+        info!(
+            "线段分析层次=0 处理数据 OK: {} 缠K, {} 分型, {} 笔",
+            obs_r.缠论K线序列.len(),
+            obs_r.分型序列.len(),
+            obs_r.笔序列.len()
+        );
+    }
+
+    #[test]
+    fn test_静态重新分析_线段分析层次为零_不崩溃() {
+        let mut config = 缠论配置::default();
+        config.加载文件路径 = test_data_path();
+        let obs = 观察者::new("btcusd".into(), 300, config);
+
+        // 先正常投喂数据
+        obs.write()
+            .unwrap()
+            .读取数据文件(&test_data_path(), Default::default())
+            .unwrap();
+
+        // 设为0后执行静态重新分析，不应 panic
+        let mut obs_w = obs.write().unwrap();
+        obs_w.线段分析层次 = 0;
+        obs_w.静态重新分析();
+        drop(obs_w);
+
+        let obs_r = obs.read().unwrap();
+        assert!(obs_r.分型序列.len() > 0, "静态重新分析后分型序列应有数据");
+        assert!(obs_r.线段序列组.is_empty(), "线段序列组应为空");
+        assert!(
+            obs_r.混合扩展线段序列组.iter().all(|s| s.is_empty()),
+            "混合扩展线段序列组所有条目应为空"
+        );
+        info!(
+            "线段分析层次=0 静态重新分析 OK: {} 分型, {} 笔",
+            obs_r.分型序列.len(),
+            obs_r.笔序列.len()
+        );
     }
 }

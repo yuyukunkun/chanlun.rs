@@ -53,7 +53,7 @@ from typing import (
 )
 from collections.abc import Sequence
 
-from chanlun.termcolor import colored
+from termcolor import colored
 
 from loguru import logger
 
@@ -6383,7 +6383,7 @@ class 观察者:
             线段.扩展分析(self.扩展线段序列组[i - 1], self.扩展线段序列组[i], self.配置)
             中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
 
-        for i in range(self.混合扩展线段分析层次):
+        for i in range(min(self.混合扩展线段分析层次, len(self.线段序列组))):
             线段.扩展分析(self.线段序列组[i], self.混合扩展线段序列组[i], self.配置)
             中枢.分析(self.混合扩展线段序列组[i], self.混合扩展中枢序列组[i], True, "", 0)
 
@@ -6429,7 +6429,7 @@ class 观察者:
         for i in range(self.扩展线段分析层次):
             保存序列(self.扩展线段序列组[i])
             保存序列(self.扩展中枢序列组[i])
-        for i in range(self.线段分析层次):
+        for i in range(self.混合扩展线段分析层次):
             保存序列(self.混合扩展线段序列组[i])
             保存序列(self.混合扩展中枢序列组[i])
 
@@ -6487,7 +6487,7 @@ class 观察者:
             线段.扩展分析(self.扩展线段序列组[i - 1], self.扩展线段序列组[i], self.配置)
             中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
 
-        for i in range(self.混合扩展线段分析层次):
+        for i in range(min(self.混合扩展线段分析层次, len(self.线段序列组))):
             线段.扩展分析(self.线段序列组[i], self.混合扩展线段序列组[i], self.配置)
             中枢.分析(self.混合扩展线段序列组[i], self.混合扩展中枢序列组[i], True, "", 0)
 
@@ -6771,7 +6771,7 @@ class 立体分析器:
     def 测试_保存数据(self, root: str = None):
         """拆分各序列数据，单独存文件。
 
-        :param root: 保存根目录，默认取脚本所在目录
+        :param root: 保存根目录，默认系统临时目录
         :return: 数据保存目录路径
         """
         # 生成存储根目录
