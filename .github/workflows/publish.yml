@@ -1,5 +1,8 @@
 name: 构建发布
 
+permissions:
+  contents: read
+
 on:
   push:
     tags:
