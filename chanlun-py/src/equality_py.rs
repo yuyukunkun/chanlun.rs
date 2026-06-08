@@ -23,6 +23,9 @@
  */
 
 use std::num::NonZeroUsize;
+
+use crate::business_py::立体分析器Py;
+use crate::business_py::观察者Py;
 use std::sync::Mutex;
 
 use lru::LruCache;
@@ -768,6 +771,47 @@ fn 虚线相等(
     Ok((true, format!("{标签}: 全字段所有嵌套子结构校验一致")))
 }
 
+// ========== 观察者相等 ==========
+
+#[pyfunction]
+fn 观察者相等(
+    a: &Bound<'_, 观察者Py>,
+    b: &Bound<'_, 观察者Py>,
+    浮点容差: Option<f64>,
+) -> PyResult<(bool, String)> {
+    let 容差 = 浮点容差.unwrap_or(1e-9);
+    let arc_a = a
+        .borrow()
+        .inner
+        .clone()
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("观察者A 内部为空"))?;
+    let arc_b = b
+        .borrow()
+        .inner
+        .clone()
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("观察者B 内部为空"))?;
+    let obs_a = arc_a.read().unwrap();
+    let obs_b = arc_b.read().unwrap();
+    Ok(obs_a.相等(&obs_b, 容差))
+}
+
+// ========== 立体分析器相等 ==========
+
+#[pyfunction]
+fn 立体分析器相等(
+    a: &Bound<'_, 立体分析器Py>,
+    b: &Bound<'_, 立体分析器Py>,
+    浮点容差: Option<f64>,
+) -> PyResult<(bool, String)> {
+    let 容差 = 浮点容差.unwrap_or(1e-9);
+    let result = {
+        let ref_a = a.borrow();
+        let ref_b = b.borrow();
+        ref_a.inner.相等(&ref_b.inner, 容差)
+    };
+    Ok(result)
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(K线相等, m)?)?;
     m.add_function(wrap_pyfunction!(缠论K线相等, m)?)?;
@@ -776,5 +820,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(线段特征相等, m)?)?;
     m.add_function(wrap_pyfunction!(中枢相等, m)?)?;
     m.add_function(wrap_pyfunction!(虚线相等, m)?)?;
+    m.add_function(wrap_pyfunction!(观察者相等, m)?)?;
+    m.add_function(wrap_pyfunction!(立体分析器相等, m)?)?;
     Ok(())
 }

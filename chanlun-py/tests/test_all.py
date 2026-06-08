@@ -2228,5 +2228,288 @@ class Test导出函数双端等效(unittest.TestCase):
         # all passed (or vacuously true if no hubs with >=9 segments)
 
 
+class TestK线合成器(unittest.TestCase):
+    """K线合成器 模块测试."""
+
+    def test_构造(self):
+        """K线合成器 初始状态."""
+        import chanlun
+
+        s = chanlun.K线合成器("btcusd", [60, 300])
+        self.assertEqual(s.标识, "btcusd")
+        self.assertEqual(s.周期组, [60, 300])
+        self.assertIsNone(s.获取当前K线(60))
+        self.assertIsNone(s.获取当前K线(300))
+
+    def test_投喂单周期(self):
+        """投喂单周期K线."""
+        import chanlun
+
+        s = chanlun.K线合成器("btcusd", [300])
+        bar = chanlun.K线.创建普K("btcusd", 300, 100, 110, 90, 105, 1000, 0, 60)
+        s.投喂K线(bar)
+
+        cur = s.获取当前K线(300)
+        self.assertIsNotNone(cur)
+        self.assertEqual(cur.周期, 300)
+        self.assertAlmostEqual(cur.高, 110)
+
+    def test_投喂多周期(self):
+        """投喂生成多周期K线."""
+        import chanlun
+
+        s = chanlun.K线合成器("btcusd", [60, 300])
+        bar = chanlun.K线.创建普K("btcusd", 60, 100, 110, 90, 105, 1000, 0, 60)
+        s.投喂K线(bar)
+
+        self.assertIsNotNone(s.获取当前K线(60))
+        self.assertIsNotNone(s.获取当前K线(300))
+
+    def test_便捷投喂(self):
+        """便捷投喂方法."""
+        import chanlun
+
+        s = chanlun.K线合成器("btcusd", [300])
+        s.投喂(1218124800, 100, 110, 90, 105, 1000)
+
+        cur = s.获取当前K线(300)
+        self.assertIsNotNone(cur)
+
+
+class TestK线合成器双端一致(unittest.TestCase):
+    """K线合成器 Rust vs chan.py 运行时行为一致 — 每步对比."""
+
+    _TEST_COUNT = 200
+
+    @classmethod
+    def setUpClass(cls):
+        if not _has_nb():
+            raise unittest.SkipTest("需要 .nb 数据文件")
+        cls.bars = read_nb_bars(NB_PATH, cls._TEST_COUNT)
+
+    def _make_synthesizers(self):
+        import chanlun
+        from chanlun import chan
+
+        return chanlun.K线合成器("btcusd", [60, 300]), chan.K线合成器("btcusd", [60, 300])
+
+    def test_合成K线逐笔OHLC一致(self):
+        """每投喂一根K线后，大周期当前K线OHLC双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        s_rs, s_py = self._make_synthesizers()
+        mismatches = []
+
+        for i, (ts, o, h, l, c, v) in enumerate(self.bars):
+            bar_rs = chanlun.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 60)
+            bar_py = chan.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 60)
+            s_rs.投喂K线(bar_rs)
+            s_py.投喂K线(bar_py)
+
+            cur_rs = s_rs.获取当前K线(300)
+            cur_py = s_py.获取当前K线(300)
+            if cur_rs is None and cur_py is None:
+                continue
+            if (cur_rs is None) != (cur_py is None):
+                mismatches.append(f"#{i} ts={ts}: R={cur_rs} P={cur_py}")
+                continue
+            if abs(cur_rs.高 - cur_py.高) > 1e-6 or abs(cur_rs.低 - cur_py.低) > 1e-6 or abs(cur_rs.开盘价 - cur_py.开盘价) > 1e-6 or abs(cur_rs.收盘价 - cur_py.收盘价) > 1e-6:
+                mismatches.append(f"#{i} ts={ts}: R(o={cur_rs.开盘价} h={cur_rs.高} l={cur_rs.低} c={cur_rs.收盘价}) P(o={cur_py.开盘价} h={cur_py.高} l={cur_py.低} c={cur_py.收盘价})")
+
+        self.assertEqual(len(mismatches), 0, f"合成K线不一致 ({len(mismatches)}处):\n" + "\n".join(mismatches[:10]))
+
+    def test_合成K线逐笔时间戳一致(self):
+        """每投喂一根K线后，大周期当前K线时间戳双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        s_rs, s_py = self._make_synthesizers()
+        mismatches = []
+
+        for i, (ts, o, h, l, c, v) in enumerate(self.bars):
+            bar_rs = chanlun.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 60)
+            bar_py = chan.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 60)
+            s_rs.投喂K线(bar_rs)
+            s_py.投喂K线(bar_py)
+
+            cur_rs = s_rs.获取当前K线(300)
+            cur_py = s_py.获取当前K线(300)
+            if cur_rs is None and cur_py is None:
+                continue
+            if (cur_rs is None) != (cur_py is None):
+                mismatches.append(f"#{i} ts={ts}: R={cur_rs} P={cur_py}")
+                continue
+            if int(cur_rs.时间戳) != int(cur_py.时间戳):
+                mismatches.append(f"#{i}: R={int(cur_rs.时间戳)} P={int(cur_py.时间戳)}")
+
+        self.assertEqual(len(mismatches), 0, f"时间戳不一致 ({len(mismatches)}处):\n" + "\n".join(mismatches[:10]))
+
+
+class Test立体分析器(unittest.TestCase):
+    """立体分析器 模块测试."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not _has_nb():
+            raise unittest.SkipTest("需要 .nb 数据文件")
+        cls.bars = read_nb_bars(NB_PATH)  # [:300]
+
+    def test_构造(self):
+        """立体分析器 构造."""
+        import chanlun
+
+        cfg = chanlun.缠论配置()
+        ma = chanlun.立体分析器("btcusd", [60, 300], cfg)
+        self.assertEqual(ma.周期组, [60, 300])
+
+    def test_单体分析器(self):
+        """单体分析器字典包含各周期观察者."""
+        import chanlun
+
+        cfg = chanlun.缠论配置()
+        ma = chanlun.立体分析器("btcusd", [60, 300], cfg)
+
+        d = ma._单体分析器
+        self.assertIn(60, d)
+        self.assertIn(300, d)
+        self.assertEqual(d[60].周期, 60)
+        self.assertEqual(d[300].周期, 300)
+
+    def test_投喂K线生成各级别数据(self):
+        """投喂K线后各周期有分析数据."""
+        import chanlun
+
+        cfg = chanlun.缠论配置()
+        ma = chanlun.立体分析器("btcusd", [300, 300 * 5], cfg)
+
+        for ts, o, h, l, c, v in self.bars:
+            bar = chanlun.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            ma.投喂K线(bar)
+
+        obs_300 = ma._单体分析器[300]
+        self.assertGreater(len(obs_300.缠论K线序列), 0, "300周期无缠K")
+        self.assertGreater(len(obs_300.普通K线序列), 0, "300周期无普K")
+
+
+class Test立体分析器双端一致(unittest.TestCase):
+    """立体分析器 Rust vs chan.py 运行时行为一致 — 每步对比 + 数据内容对比."""
+
+    _TEST_COUNT = 500
+
+    @classmethod
+    def setUpClass(cls):
+        if not _has_nb():
+            raise unittest.SkipTest("需要 .nb 数据文件")
+        cls.bars = read_nb_bars(NB_PATH, cls._TEST_COUNT)
+
+    def _make_analyzers(self):
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs = chanlun.缠论配置()
+        cfg_py = chan.缠论配置()
+        return (chanlun.立体分析器("btcusd", [300, 300 * 5], cfg_rs), chan.立体分析器("btcusd", [300, 300 * 5], cfg_py))
+
+    def test_立体分析逐笔笔序列增长一致(self):
+        """每投喂K线后，各周期笔序列长度双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        ma_rs, ma_py = self._make_analyzers()
+        mismatches = []
+
+        for i, (ts, o, h, l, c, v) in enumerate(self.bars):
+            bar_rs = chanlun.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            bar_py = chan.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            ma_rs.投喂K线(bar_rs)
+            ma_py.投喂K线(bar_py)
+
+            for period in [300, 300 * 5]:
+                obs_rs = ma_rs._单体分析器[period]
+                obs_py = ma_py._单体分析器[period]
+                if len(obs_rs.笔序列) != len(obs_py.笔序列):
+                    mismatches.append(f"#{i} ts={ts} 周期{period}: R笔={len(obs_rs.笔序列)} P笔={len(obs_py.笔序列)}")
+                if len(obs_rs.分型序列) != len(obs_py.分型序列):
+                    mismatches.append(f"#{i} ts={ts} 周期{period}: R分型={len(obs_rs.分型序列)} P分型={len(obs_py.分型序列)}")
+                eq, msg = chan.观察者相等(obs_py, obs_rs)
+                self.assertTrue(eq, msg)
+
+        self.assertEqual(len(mismatches), 0, f"立体分析不一致 ({len(mismatches)}处):\n" + "\n".join(mismatches[:10]))
+
+    def test_立体分析逐笔缠K序列增长一致(self):
+        """每投喂K线后，各周期缠论K线序列长度双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        ma_rs, ma_py = self._make_analyzers()
+        mismatches = []
+
+        for i, (ts, o, h, l, c, v) in enumerate(self.bars):
+            bar_rs = chanlun.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            bar_py = chan.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            ma_rs.投喂K线(bar_rs)
+            ma_py.投喂K线(bar_py)
+
+            for period in [300, 300 * 5]:
+                obs_rs = ma_rs._单体分析器[period]
+                obs_py = ma_py._单体分析器[period]
+                if len(obs_rs.缠论K线序列) != len(obs_py.缠论K线序列):
+                    mismatches.append(f"#{i} ts={ts} 周期{period}: R缠K={len(obs_rs.缠论K线序列)} P缠K={len(obs_py.缠论K线序列)}")
+
+        self.assertEqual(len(mismatches), 0, f"缠K序列不一致 ({len(mismatches)}处):\n" + "\n".join(mismatches[:10]))
+
+    def test_立体分析逐笔线段序列增长一致(self):
+        """每投喂K线后，显示周期线段序列长度双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        ma_rs, ma_py = self._make_analyzers()
+        mismatches = []
+
+        for i, (ts, o, h, l, c, v) in enumerate(self.bars):
+            bar_rs = chanlun.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            bar_py = chan.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            ma_rs.投喂K线(bar_rs)
+            ma_py.投喂K线(bar_py)
+
+            obs_rs = ma_rs._单体分析器[300 * 5]
+            obs_py = ma_py._单体分析器[300 * 5]
+            if len(obs_rs.线段序列) != len(obs_py.线段序列):
+                mismatches.append(f"#{i} ts={ts}: R线段={len(obs_rs.线段序列)} P线段={len(obs_py.线段序列)}")
+
+        self.assertEqual(len(mismatches), 0, f"线段序列不一致 ({len(mismatches)}处):\n" + "\n".join(mismatches[:10]))
+
+    def test_立体分析器相等(self):
+        """立体分析后 chan.立体分析器相等 全量数据对比一致."""
+        import chanlun
+        from chanlun import chan
+
+        ma_rs, ma_py = self._make_analyzers()
+        for ts, o, h, l, c, v in self.bars:
+            bar_rs = chanlun.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            bar_py = chan.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            ma_rs.投喂K线(bar_rs)
+            ma_py.投喂K线(bar_py)
+
+        eq, msg = chan.立体分析器相等(ma_rs, ma_py)
+        self.assertTrue(eq, msg)
+
+    def test_立体分析观察者相等(self):
+        """立体分析后主周期 chan.观察者相等 全量数据对比一致."""
+        import chanlun
+        from chanlun import chan
+
+        ma_rs, ma_py = self._make_analyzers()
+        for ts, o, h, l, c, v in self.bars:
+            bar_rs = chanlun.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            bar_py = chan.K线.创建普K("btcusd", ts, o, h, l, c, v, 0, 300)
+            ma_rs.投喂K线(bar_rs)
+            ma_py.投喂K线(bar_py)
+
+        eq, msg = chan.观察者相等(ma_rs._单体分析器[300 * 5], ma_py._单体分析器[300 * 5])
+        self.assertTrue(eq, msg)
+
+
 if __name__ == "__main__":
     unittest.main()

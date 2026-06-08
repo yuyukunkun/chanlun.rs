@@ -34,6 +34,7 @@ import os
 import struct
 import sys
 import tempfile
+import datetime as datetime_module
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -48,12 +49,10 @@ from typing import (
     Dict,
     Any,
     Union,
+    Sequence,
     Callable,
     Set,
 )
-from collections.abc import Sequence
-
-from termcolor import colored
 
 from loguru import logger
 
@@ -96,6 +95,8 @@ __all__ = [
     "线段特征相等",
     "中枢相等",
     "虚线相等",
+    "观察者相等",
+    "立体分析器相等",
 ]
 
 # 日志级别映射: 名称 → loguru 级别名
@@ -444,6 +445,84 @@ def 虚线相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
                 return False, f"{标签}: [{字段}]数值不等 A={repr(valA)},B={repr(valB)}"
 
     return True, f"{标签}：全字段、所有嵌套子结构校验全部一致"
+
+
+def 观察者相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
+    """观察者：全量序列逐项比对（笔/线段/中枢等），双端一致性验证专用。
+
+    :param A: 观察者 A (Rust binding)
+    :param B: 观察者 B (chan.py)
+    :param 浮点容差: 浮点容差
+    :return: (一致, 详情)
+    """
+    标签 = f"观察者校验[A={A.标识},B={B.标识}]"
+
+    # 基础序列长度
+    if len(A.缠论K线序列) != len(B.缠论K线序列):
+        return False, f"{标签}: 缠K序列长度不一致 A={len(A.缠论K线序列)},B={len(B.缠论K线序列)}"
+    if len(A.分型序列) != len(B.分型序列):
+        return False, f"{标签}: 分型序列长度不一致 A={len(A.分型序列)},B={len(B.分型序列)}"
+    if len(A.笔序列) != len(B.笔序列):
+        return False, f"{标签}: 笔序列长度不一致 A={len(A.笔序列)},B={len(B.笔序列)}"
+
+    # 笔序列逐项虚线相等
+    for i, (a笔, b笔) in enumerate(zip(A.笔序列, B.笔序列)):
+        eq, msg = 虚线相等(a笔, b笔, 浮点容差)
+        if not eq:
+            return False, f"{标签}: 笔#{i}不一致 >> {msg}"
+
+    # 笔中枢逐项
+    if len(A.笔_中枢序列) != len(B.笔_中枢序列):
+        return False, f"{标签}: 笔中枢序列长度不一致 A={len(A.笔_中枢序列)},B={len(B.笔_中枢序列)}"
+    for i, (a中, b中) in enumerate(zip(A.笔_中枢序列, B.笔_中枢序列)):
+        eq, msg = 中枢相等(a中, b中, 浮点容差)
+        if not eq:
+            return False, f"{标签}: 笔中枢#{i}不一致 >> {msg}"
+
+    # 线段序列组逐层比对
+    for level in range(A.线段分析层次):
+        a_segs = A.线段序列组[level]
+        b_segs = B.线段序列组[level]
+        if len(a_segs) != len(b_segs):
+            return False, f"{标签}: 线段序列组[{level}]长度不一致 A={len(a_segs)},B={len(b_segs)}"
+        for i, (a_seg, b_seg) in enumerate(zip(a_segs, b_segs)):
+            eq, msg = 虚线相等(a_seg, b_seg, 浮点容差)
+            if not eq:
+                return False, f"{标签}: 线段序列组[{level}]#{i}不一致 >> {msg}"
+        a_hubs = A.中枢序列组[level]
+        b_hubs = B.中枢序列组[level]
+        if len(a_hubs) != len(b_hubs):
+            return False, f"{标签}: 中枢序列组[{level}]长度不一致 A={len(a_hubs)},B={len(b_hubs)}"
+        for i, (a_hub, b_hub) in enumerate(zip(a_hubs, b_hubs)):
+            eq, msg = 中枢相等(a_hub, b_hub, 浮点容差)
+            if not eq:
+                return False, f"{标签}: 中枢序列组[{level}]#{i}不一致 >> {msg}"
+
+    return True, f"{标签}：全量序列、所有嵌套子结构校验全部一致"
+
+
+def 立体分析器相等(A, B, 浮点容差: float = 1e-9) -> tuple[bool, str]:
+    """立体分析器：各周期观察者全量比对，双端一致性验证专用。
+
+    :param A: 立体分析器 A (Rust binding)
+    :param B: 立体分析器 B (chan.py)
+    :param 浮点容差: 浮点容差
+    :return: (一致, 详情)
+    """
+    标签 = f"立体分析器校验[A={A.周期组},B={B.周期组}]"
+
+    if A.周期组 != B.周期组:
+        return False, f"{标签}: 周期组不一致 A={A.周期组},B={B.周期组}"
+
+    for 周期 in A.周期组:
+        a_obs = A.单体分析器[周期] if hasattr(A, "单体分析器") else A._单体分析器[周期]
+        b_obs = B.单体分析器[周期] if hasattr(B, "单体分析器") else B._单体分析器[周期]
+
+        eq, msg = 观察者相等(a_obs, b_obs, 浮点容差)
+        if not eq:
+            return False, f"{标签}: 周期{周期} >> {msg}"
+
+    return True, f"{标签}：所有周期观察者全量校验全部一致"
 
 
 class 买卖点类型(str, Enum):
@@ -2847,7 +2926,7 @@ class K线:
             标识=标识,
             序号=序号,
             周期=周期,
-            时间戳=时间戳 if isinstance(时间戳, datetime) else 转化为时间戳(时间戳),  # 注意此处只为兼容Rust绑定
+            时间戳=时间戳 if isinstance(时间戳, datetime_module.datetime) else 转化为时间戳(时间戳),  # 注意此处只为兼容Rust绑定
             开盘价=开盘价,
             最高价=最高价,
             最低价=最低价,
@@ -4527,12 +4606,12 @@ class 线段特征:
 
     def __str__(self):
         if not len(self):
-            return colored(f"{self.标识}<{self.线段方向}, 空>", "green")
+            return f"{self.标识}<{self.线段方向}, 空>"
         return f"{self.标识}<{self.线段方向}, {self.文}, {self.武}, {len(self)}>"
 
     def __repr__(self):
         if not len(self):
-            return colored(f"{self.标识}<{self.线段方向}, 空>", "green")
+            return f"{self.标识}<{self.线段方向}, 空>"
         return f"{self.标识}<{self.线段方向}, {self.文}, {self.武}, {len(self)}>"
 
     @property
@@ -5131,7 +5210,7 @@ class 线段:
             raise RuntimeError(f"线段._向序列中添加[{行号}], 之前线段[-1] not in 待添加虚线!", 之前线段)
 
         待添加线段.序号 = 之前线段.序号 + 1
-        待添加线段.前一缺口 = 线段.获取缺口(之前线段)
+        待添加线段.前一缺口 = 线段.获取缺口(之前线段) if not 之前线段.短路修正 else None
         待添加线段.前一结束位置 = 之前线段.基础序列[-1]
 
         if 线段.四象(之前线段) in ("老阴", "老阳"):
@@ -5160,7 +5239,7 @@ class 线段:
         if 右 is not None:
             结构 = 分型结构.分析(左, 中, 右, True, True)
             if 结构 in (分型结构.顶, 分型结构.底) and not 相对方向.分析(左.高, 左.低, 中.高, 中.低).是否缺口():
-                logger.warning(f"{colored(f'[警告<{行号}>]:', 'yellow')} {colored('线段._从序列中删除 发现分型完毕, 且特征序列无缺口', 'red')} {待弹出线段}")
+                logger.warning(f"警告<{行号}>] 线段._从序列中删除 发现分型完毕, 且特征序列无缺口 {待弹出线段}")
 
         线段序列.pop()
         待弹出线段.前一结束位置 = None
@@ -5255,7 +5334,7 @@ class 线段:
             return False
 
         # 执行修正
-        logger.warning(f"{colored(f'[警告<{sys._getframe().f_lineno}, {层级}>]:', 'yellow')} {colored('线段.修复贯穿伤', 'red')} {贯穿伤} {基础序列}")  # 异常弹出
+        logger.warning(f"[警告<{sys._getframe().f_lineno}, {层级}>]: {当前线段.标识}.修复贯穿伤, 序号:{当前线段.序号} {贯穿伤} {基础序列}")  # 异常弹出
 
         基础序列 = 当前线段.基础序列[:]
         线段._弹出线段(线段序列, 当前线段, 配置, f"{sys._getframe().f_lineno}, {层级}")
@@ -5609,7 +5688,7 @@ class 线段:
                 线段._弹出扩展线段(线段序列, 当前线段, sys._getframe().f_lineno)
                 return 线段递归扩展分析(虚线序列, 线段序列, 配置)
 
-        线段._武终(当前线段, sys._getframe().f_lineno)
+        线段._武终(当前线段, sys._getframe().f_lineno)  # TODO 添加错误处理机制
         if 当前线段.基础序列[-1].序号 + 3 > 虚线序列[-1].序号:
             return None
 
@@ -6359,33 +6438,33 @@ class 观察者:
         if 当前分型 is None:
             return
 
-        笔.分析(当前分型, self.分型序列, self.笔序列, self.缠论K线序列, self.普通K线序列, 0, self.配置)
+        self.配置.分析笔 and 笔.分析(当前分型, self.分型序列, self.笔序列, self.缠论K线序列, self.普通K线序列, 0, self.配置)
         if not self.分型序列:
             return
 
-        中枢.分析(self.笔序列, self.笔_中枢序列, True, "", 0)
+        self.配置.分析笔中枢 and 中枢.分析(self.笔序列, self.笔_中枢序列, True, "", 0)
         if not self.笔序列:
             return
 
         for i in range(self.线段分析层次):
             if i == 0:
-                线段.分析(self.笔序列, self.线段序列组[i], self.配置)
-                中枢.分析(self.线段序列组[i], self.中枢序列组[i], True, "", 0)
+                self.配置.分析线段 and 线段.分析(self.笔序列, self.线段序列组[i], self.配置)
+                self.配置.分析线段中枢 and 中枢.分析(self.线段序列组[i], self.中枢序列组[i], True, "", 0)
                 continue
-            线段.分析(self.线段序列组[i - 1], self.线段序列组[i], self.配置)
-            中枢.分析(self.线段序列组[i], self.中枢序列组[i], True, "", 0)
+            self.配置.分析线段 and 线段.分析(self.线段序列组[i - 1], self.线段序列组[i], self.配置)
+            self.配置.分析线段中枢 and 中枢.分析(self.线段序列组[i], self.中枢序列组[i], True, "", 0)
 
         for i in range(self.扩展线段分析层次):
             if i == 0:
-                线段.扩展分析(self.笔序列, self.扩展线段序列组[i], self.配置)
-                中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
+                self.配置.分析扩展线段 and 线段.扩展分析(self.笔序列, self.扩展线段序列组[i], self.配置)
+                self.配置.分析线段中枢 and 中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
                 continue
-            线段.扩展分析(self.扩展线段序列组[i - 1], self.扩展线段序列组[i], self.配置)
-            中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
+            self.配置.分析扩展线段 and 线段.扩展分析(self.扩展线段序列组[i - 1], self.扩展线段序列组[i], self.配置)
+            self.配置.分析线段中枢 and 中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
 
         for i in range(min(self.混合扩展线段分析层次, len(self.线段序列组))):
-            线段.扩展分析(self.线段序列组[i], self.混合扩展线段序列组[i], self.配置)
-            中枢.分析(self.混合扩展线段序列组[i], self.混合扩展中枢序列组[i], True, "", 0)
+            self.配置.分析扩展线段 and 线段.扩展分析(self.线段序列组[i], self.混合扩展线段序列组[i], self.配置)
+            self.配置.分析线段中枢 and 中枢.分析(self.混合扩展线段序列组[i], self.混合扩展中枢序列组[i], True, "", 0)
 
     def 测试_保存数据(self, root: str = None) -> str:
         """拆分各序列数据，单独存文件，文件名为对应变量名
@@ -6467,29 +6546,31 @@ class 观察者:
 
         for i in range(1, len(self.缠论K线序列) - 1):
             当前分型 = 分型(self.缠论K线序列[i - 1], self.缠论K线序列[i], self.缠论K线序列[i + 1])
-            笔.分析(当前分型, self.分型序列, self.笔序列, self.缠论K线序列, self.普通K线序列, 0, self.配置)
+            self.配置.分析笔 and 笔.分析(当前分型, self.分型序列, self.笔序列, self.缠论K线序列, self.普通K线序列, 0, self.配置)
 
-        中枢.分析(self.笔序列, self.笔_中枢序列, True, "", 0)
+        if not self.笔序列:
+            return
+        self.配置.分析笔中枢 and 中枢.分析(self.笔序列, self.笔_中枢序列, True, "", 0)
 
         for i in range(self.线段分析层次):
             if i == 0:
-                线段.分析(self.笔序列, self.线段序列组[i], self.配置)
-                中枢.分析(self.线段序列组[i], self.中枢序列组[i], True, "", 0)
+                self.配置.分析线段 and 线段.分析(self.笔序列, self.线段序列组[i], self.配置)
+                self.配置.分析线段中枢 and 中枢.分析(self.线段序列组[i], self.中枢序列组[i], True, "", 0)
                 continue
-            线段.分析(self.线段序列组[i - 1], self.线段序列组[i], self.配置)
-            中枢.分析(self.线段序列组[i], self.中枢序列组[i], True, "", 0)
+            self.配置.分析线段 and 线段.分析(self.线段序列组[i - 1], self.线段序列组[i], self.配置)
+            self.配置.分析线段中枢 and 中枢.分析(self.线段序列组[i], self.中枢序列组[i], True, "", 0)
 
         for i in range(self.扩展线段分析层次):
             if i == 0:
-                线段.扩展分析(self.笔序列, self.扩展线段序列组[i], self.配置)
-                中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
+                self.配置.分析扩展线段 and 线段.扩展分析(self.笔序列, self.扩展线段序列组[i], self.配置)
+                self.配置.分析线段中枢 and 中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
                 continue
-            线段.扩展分析(self.扩展线段序列组[i - 1], self.扩展线段序列组[i], self.配置)
-            中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
+            self.配置.分析扩展线段 and 线段.扩展分析(self.扩展线段序列组[i - 1], self.扩展线段序列组[i], self.配置)
+            self.配置.分析线段中枢 and 中枢.分析(self.扩展线段序列组[i], self.扩展中枢序列组[i], True, "", 0)
 
         for i in range(min(self.混合扩展线段分析层次, len(self.线段序列组))):
-            线段.扩展分析(self.线段序列组[i], self.混合扩展线段序列组[i], self.配置)
-            中枢.分析(self.混合扩展线段序列组[i], self.混合扩展中枢序列组[i], True, "", 0)
+            self.配置.分析扩展线段 and 线段.扩展分析(self.线段序列组[i], self.混合扩展线段序列组[i], self.配置)
+            self.配置.分析线段中枢 and 中枢.分析(self.混合扩展线段序列组[i], self.混合扩展中枢序列组[i], True, "", 0)
 
     def 加载本地数据(self, 文件路径: str):
         """重置基础序列后加载数据文件
@@ -6511,6 +6592,14 @@ class 观察者:
         :param 观察员: 可选，已有观察者实例；不传则自动创建
         :return: 观察者实例
         """
+        if "_err-" in str(文件路径) and os.path.exists(str(文件路径).replace(".nb", ".json")):
+            异常配置 = 缠论配置.加载配置(str(文件路径).replace(".nb", ".json"))
+            差异 = 缠论配置().对比(异常配置)
+            传入差异 = 缠论配置().对比(配置)
+            传入差异.update(差异)
+            配置 = 缠论配置(**传入差异)
+            print("加载异常配置+传入差异", 传入差异)
+
         name = Path(文件路径).name.split(".")[0]
         符号, 周期, 起始时间戳, 结束时间戳 = name.split("-")
         if 观察员 is None:
@@ -6842,6 +6931,8 @@ def 测试_指标挂载(配置: 缠论配置):
     符号, 周期, 起始时间戳, 结束时间戳 = name.split("-")
     周期 = int(周期)
     观察员 = 观察者(符号, 周期, 配置)
+    观察员.线段分析层次 = 0
+    观察员.重置基础序列()
 
     def 魔法():
         启动时间 = datetime.now()

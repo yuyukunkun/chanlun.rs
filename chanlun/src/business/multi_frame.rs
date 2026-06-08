@@ -32,18 +32,15 @@ use std::sync::RwLock;
 use tracing::{error, info};
 
 /// 立体分析器 — 多周期协调器
-///
-/// 包含一个K线合成器和每周期一个观察者。
-/// 输入最小周期K线，合成大周期后分发到对应观察者。
 pub struct 立体分析器 {
     pub 周期组: Vec<i64>,
     输入周期: i64,
-    K线合成器: K线合成器,
-    单体分析器: HashMap<i64, Arc<RwLock<观察者>>>,
+    pub K线合成器: K线合成器,
+    pub 单体分析器: HashMap<i64, Arc<RwLock<观察者>>>,
 }
 
 impl 立体分析器 {
-    /// 创建立体分析器，自动创建K线合成器 + 每周期一个观察者
+    /// 创建立体分析器 — 对应 Python 立体分析器.__init__
     pub fn new(
         符号: String,
         周期组: Vec<i64>,
@@ -58,9 +55,7 @@ impl 立体分析器 {
         let 默认配置 = 配置.unwrap_or_default();
         let 配置组 = 配置组.unwrap_or_default();
 
-        let K线合成器 = K线合成器::new(符号.clone(), 周期组.clone());
-
-        let mut 单体分析器 = HashMap::new();
+        let mut 单体分析器: HashMap<i64, Arc<RwLock<观察者>>> = HashMap::new();
         for &周期 in &周期组 {
             let mut 当前配置 = 配置组
                 .get(&周期)
@@ -101,6 +96,18 @@ impl 立体分析器 {
             }
         }
 
+        // 对应 Python: K线合成器(符号, 周期组, self.__K线回调)
+        let 单体分析器_回调 = 单体分析器.clone();
+        let K线合成器 = K线合成器::new(
+            符号.clone(),
+            周期组.clone(),
+            Some(Box::new(
+                move |_信号类型: String, _标识: String, 周期: i64, 完成K线: K线| {
+                    立体分析器::__K线回调_调度(&单体分析器_回调, 周期, 完成K线);
+                },
+            )),
+        );
+
         Self {
             周期组,
             输入周期,
@@ -109,8 +116,28 @@ impl 立体分析器 {
         }
     }
 
-    /// 投喂K线 — 统一入口，接收最小周期K线
-    /// 匹配 Python __K线回调：合成器完成K线时喂给观察者
+    /// __K线回调 — 对应 Python 立体分析器.__K线回调
+    fn __K线回调(&self, _信号类型: String, _标识: String, 周期: i64, 完成K线: K线) {
+        if let Some(观察员) = self.单体分析器.get(&周期) {
+            let mut obs = 观察员.write().unwrap();
+            obs.增加原始K线(完成K线);
+            // 对应 Python: if 当前K线 := self._K线合成器.获取当前K线(周期)
+            // _完成K线刚清空当前K线，获取当前K线返回 None，所以这里不添加
+        }
+    }
+
+    /// 静态调度版本 — 用于回调闭包
+    fn __K线回调_调度(
+        单体分析器: &HashMap<i64, Arc<RwLock<观察者>>>,
+        周期: i64,
+        完成K线: K线,
+    ) {
+        if let Some(观察员) = 单体分析器.get(&周期) {
+            观察员.write().unwrap().增加原始K线(完成K线);
+        }
+    }
+
+    /// 投喂K线 — 对应 Python 立体分析器.投喂K线
     pub fn 投喂K线(&mut self, 普K: K线) {
         if 普K.周期 != self.输入周期 {
             panic!(
@@ -118,19 +145,7 @@ impl 立体分析器 {
                 普K.周期, self.输入周期
             );
         }
-
-        // Feed to synthesizer, get completion events
-        let 完成事件 = self.K线合成器.投喂K线(普K);
-
-        // Dispatch on completion events (matching Python's __K线回调)
-        for (周期, 完成K线) in 完成事件 {
-            if let Some(观察员) = self.单体分析器.get(&周期) {
-                观察员.write().unwrap().增加原始K线(完成K线);
-                if let Some(当前K线) = self.K线合成器.获取当前K线(周期) {
-                    观察员.write().unwrap().增加原始K线(当前K线.clone());
-                }
-            }
-        }
+        self.K线合成器.投喂K线(普K);
     }
 
     /// 获取指定周期的观察者
@@ -138,8 +153,7 @@ impl 立体分析器 {
         self.单体分析器.get(&周期).cloned()
     }
 
-    /// 测试_保存数据 — 多级别数据拆分保存
-    /// 创建父目录 PyM_{标识}_{起始时间}_{结束时间}，各周期观察者保存到子目录
+    /// 测试_保存数据 — 对应 Python 立体分析器.测试_保存数据
     pub fn 测试_保存数据(&self, root: Option<&str>) {
         let 根目录 = match root {
             Some(r) => std::path::PathBuf::from(r),
@@ -163,7 +177,6 @@ impl 立体分析器 {
             .get(&self.输入周期)
             .map(|o| o.read().unwrap().符号.clone())
             .unwrap_or_default();
-
         let 周期 = self
             .单体分析器
             .get(&self.输入周期)
@@ -188,5 +201,31 @@ impl 立体分析器 {
         }
 
         info!("多级别数据拆分保存完成，目录：{}", 保存路径.display());
+    }
+
+    /// 相等 — 各周期观察者全量比对，对应 Python `立体分析器相等`
+    pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
+        let 标签 = format!("立体分析器校验[A={:?},B={:?}]", self.周期组, other.周期组);
+
+        if self.周期组 != other.周期组 {
+            return (false, format!("{标签}: 周期组不一致"));
+        }
+
+        for 周期 in &self.周期组 {
+            let a_obs = match self.单体分析器.get(周期) {
+                Some(o) => o.read().unwrap(),
+                None => return (false, format!("{标签}: 周期{周期} 观察者不存在 (A)")),
+            };
+            let b_obs = match other.单体分析器.get(周期) {
+                Some(o) => o.read().unwrap(),
+                None => return (false, format!("{标签}: 周期{周期} 观察者不存在 (B)")),
+            };
+            let (eq, msg) = a_obs.相等(&b_obs, 浮点容差);
+            if !eq {
+                return (false, format!("{标签}: 周期{周期} >> {msg}"));
+            }
+        }
+
+        (true, format!("{标签}：所有周期观察者全量校验全部一致"))
     }
 }

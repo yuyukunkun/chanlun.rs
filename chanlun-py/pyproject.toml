@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "chanlun"
-version = "2606.44"
+version = "2606.45"
 description = "缠论技术分析库 — Rust 高性能实现"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE", content-type = "text/plain" }
@@ -28,6 +28,7 @@ classifiers = [
 requires-python = ">=3.9"
 dependencies = [
     "termcolor>=3.0",
+    "parse>=1.2",
     "loguru>=0.6",
     "backtrader==1.9.78.123",
 ]

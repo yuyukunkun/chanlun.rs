@@ -261,78 +261,103 @@ impl 观察者 {
             None => return,
         };
 
-        // Step 2: 笔分析（无条件）
-        笔::分析(
-            当前分型,
-            &mut self.分型序列,
-            &mut self.笔序列,
-            &self.缠论K线序列,
-            &self.普通K线序列,
-            0,
-            &self.配置,
-        );
+        // Step 2: 笔分析
+        if self.配置.分析笔 {
+            笔::分析(
+                当前分型,
+                &mut self.分型序列,
+                &mut self.笔序列,
+                &self.缠论K线序列,
+                &self.普通K线序列,
+                0,
+                &self.配置,
+            );
+        }
         if self.分型序列.is_empty() {
             return;
         }
 
-        // Step 3: 笔中枢分析（无条件）
-        中枢::分析(&self.笔序列, &mut self.笔_中枢序列, true, "", 0);
+        // Step 3: 笔中枢分析
+        if self.配置.分析笔中枢 {
+            中枢::分析(&self.笔序列, &mut self.笔_中枢序列, true, "", 0);
+        }
         if self.笔序列.is_empty() {
             return;
         }
 
         // Step 4: 线段分析 — 3 级递归
-        for i in 0..self.线段分析层次 {
-            if i == 0 {
-                线段::分析(
-                    &self.笔序列,
-                    &mut self.线段序列组[i],
-                    &self.配置,
-                    0,
-                    &[相对方向::向上, 相对方向::向下],
-                );
-            } else {
-                let 源序列 = self.线段序列组[i - 1].clone();
-                线段::分析(
-                    &源序列,
-                    &mut self.线段序列组[i],
-                    &self.配置,
-                    0,
-                    &[相对方向::向上, 相对方向::向下],
-                );
+        if self.配置.分析线段 || self.配置.分析线段中枢 {
+            for i in 0..self.线段分析层次 {
+                if i == 0 {
+                    if self.配置.分析线段 {
+                        线段::分析(
+                            &self.笔序列,
+                            &mut self.线段序列组[i],
+                            &self.配置,
+                            0,
+                            &[相对方向::向上, 相对方向::向下],
+                        );
+                    }
+                } else {
+                    if self.配置.分析线段 {
+                        let 源序列 = self.线段序列组[i - 1].clone();
+                        线段::分析(
+                            &源序列,
+                            &mut self.线段序列组[i],
+                            &self.配置,
+                            0,
+                            &[相对方向::向上, 相对方向::向下],
+                        );
+                    }
+                }
+                if self.配置.分析线段中枢 {
+                    中枢::分析(&self.线段序列组[i], &mut self.中枢序列组[i], true, "", 0);
+                }
             }
-            中枢::分析(&self.线段序列组[i], &mut self.中枢序列组[i], true, "", 0);
         }
 
         // Step 5: 扩展线段分析 — 3 级递归
-        for i in 0..self.扩展线段分析层次 {
-            if i == 0 {
-                线段::扩展分析(&self.笔序列, &mut self.扩展线段序列组[i], &self.配置);
-            } else {
-                let 源序列 = self.扩展线段序列组[i - 1].clone();
-                线段::扩展分析(&源序列, &mut self.扩展线段序列组[i], &self.配置);
+        if self.配置.分析扩展线段 || self.配置.分析线段中枢 {
+            for i in 0..self.扩展线段分析层次 {
+                if i == 0 {
+                    if self.配置.分析扩展线段 {
+                        线段::扩展分析(&self.笔序列, &mut self.扩展线段序列组[i], &self.配置);
+                    }
+                } else {
+                    if self.配置.分析扩展线段 {
+                        let 源序列 = self.扩展线段序列组[i - 1].clone();
+                        线段::扩展分析(&源序列, &mut self.扩展线段序列组[i], &self.配置);
+                    }
+                }
+                if self.配置.分析线段中枢 {
+                    中枢::分析(
+                        &self.扩展线段序列组[i],
+                        &mut self.扩展中枢序列组[i],
+                        true,
+                        "",
+                        0,
+                    );
+                }
             }
-            中枢::分析(
-                &self.扩展线段序列组[i],
-                &mut self.扩展中枢序列组[i],
-                true,
-                "",
-                0,
-            );
         }
 
-        // Step 6: 混合扩展线段分析 — 3 级递归 (源 = 线段序列组[i])
-        // NOTE: 当 线段分析层次=0 时 线段序列组 为空，用 min 避免越界
-        for i in 0..self.混合扩展线段分析层次.min(self.线段序列组.len()) {
-            let 源序列 = self.线段序列组[i].clone();
-            线段::扩展分析(&源序列, &mut self.混合扩展线段序列组[i], &self.配置);
-            中枢::分析(
-                &self.混合扩展线段序列组[i],
-                &mut self.混合扩展中枢序列组[i],
-                true,
-                "",
-                0,
-            );
+        // Step 6: 混合扩展线段分析 — 3 级递归
+        if self.配置.分析扩展线段 || self.配置.分析线段中枢 {
+            for i in 0..self.混合扩展线段分析层次.min(self.线段序列组.len()) {
+                if self.配置.分析扩展线段 {
+                    let 源序列 = self.线段序列组[i].clone();
+                    线段::扩展分析(&源序列, &mut self.混合扩展线段序列组[i], &self.配置);
+                }
+                if self.配置.分析线段中枢 {
+                    中枢::分析(
+                        &self.混合扩展线段序列组[i],
+                        &mut self.混合扩展中枢序列组[i],
+                        true,
+                        "",
+                        0,
+                    );
+                }
+            }
         }
     }
 
@@ -366,73 +391,103 @@ impl 观察者 {
             self.混合扩展中枢序列组.push(Vec::new());
         }
 
-        for i in 1..self.缠论K线序列.len() - 1 {
-            let 当前分型 = 分型::new(
-                Some(Arc::clone(&self.缠论K线序列[i - 1])),
-                Arc::clone(&self.缠论K线序列[i]),
-                Some(Arc::clone(&self.缠论K线序列[i + 1])),
-            );
-            笔::分析(
-                Arc::new(当前分型),
-                &mut self.分型序列,
-                &mut self.笔序列,
-                &self.缠论K线序列,
-                &self.普通K线序列,
-                0,
-                &self.配置,
-            );
-        }
-
-        中枢::分析(&self.笔序列, &mut self.笔_中枢序列, true, "", 0);
-
-        for i in 0..self.线段分析层次 {
-            if i == 0 {
-                线段::分析(
-                    &self.笔序列,
-                    &mut self.线段序列组[i],
-                    &self.配置,
-                    0,
-                    &[相对方向::向上, 相对方向::向下],
+        if self.配置.分析笔 {
+            for i in 1..self.缠论K线序列.len() - 1 {
+                let 当前分型 = 分型::new(
+                    Some(Arc::clone(&self.缠论K线序列[i - 1])),
+                    Arc::clone(&self.缠论K线序列[i]),
+                    Some(Arc::clone(&self.缠论K线序列[i + 1])),
                 );
-            } else {
-                let 源序列 = self.线段序列组[i - 1].clone();
-                线段::分析(
-                    &源序列,
-                    &mut self.线段序列组[i],
-                    &self.配置,
+                笔::分析(
+                    Arc::new(当前分型),
+                    &mut self.分型序列,
+                    &mut self.笔序列,
+                    &self.缠论K线序列,
+                    &self.普通K线序列,
                     0,
-                    &[相对方向::向上, 相对方向::向下],
+                    &self.配置,
                 );
             }
-            中枢::分析(&self.线段序列组[i], &mut self.中枢序列组[i], true, "", 0);
         }
 
-        for i in 0..self.扩展线段分析层次 {
-            if i == 0 {
-                线段::扩展分析(&self.笔序列, &mut self.扩展线段序列组[i], &self.配置);
-            } else {
-                let 源序列 = self.扩展线段序列组[i - 1].clone();
-                线段::扩展分析(&源序列, &mut self.扩展线段序列组[i], &self.配置);
+        if self.笔序列.is_empty() {
+            return;
+        }
+
+        if self.配置.分析笔中枢 {
+            中枢::分析(&self.笔序列, &mut self.笔_中枢序列, true, "", 0);
+        }
+
+        if self.配置.分析线段 || self.配置.分析线段中枢 {
+            for i in 0..self.线段分析层次 {
+                if i == 0 {
+                    if self.配置.分析线段 {
+                        线段::分析(
+                            &self.笔序列,
+                            &mut self.线段序列组[i],
+                            &self.配置,
+                            0,
+                            &[相对方向::向上, 相对方向::向下],
+                        );
+                    }
+                } else {
+                    if self.配置.分析线段 {
+                        let 源序列 = self.线段序列组[i - 1].clone();
+                        线段::分析(
+                            &源序列,
+                            &mut self.线段序列组[i],
+                            &self.配置,
+                            0,
+                            &[相对方向::向上, 相对方向::向下],
+                        );
+                    }
+                }
+                if self.配置.分析线段中枢 {
+                    中枢::分析(&self.线段序列组[i], &mut self.中枢序列组[i], true, "", 0);
+                }
             }
-            中枢::分析(
-                &self.扩展线段序列组[i],
-                &mut self.扩展中枢序列组[i],
-                true,
-                "",
-                0,
-            );
         }
 
-        for i in 0..self.混合扩展线段分析层次.min(self.线段序列组.len()) {
-            let 源序列 = self.线段序列组[i].clone();
-            线段::扩展分析(&源序列, &mut self.混合扩展线段序列组[i], &self.配置);
-            中枢::分析(
-                &self.混合扩展线段序列组[i],
-                &mut self.混合扩展中枢序列组[i],
-                true,
-                "",
-                0,
-            );
+        if self.配置.分析扩展线段 || self.配置.分析线段中枢 {
+            for i in 0..self.扩展线段分析层次 {
+                if i == 0 {
+                    if self.配置.分析扩展线段 {
+                        线段::扩展分析(&self.笔序列, &mut self.扩展线段序列组[i], &self.配置);
+                    }
+                } else {
+                    if self.配置.分析扩展线段 {
+                        let 源序列 = self.扩展线段序列组[i - 1].clone();
+                        线段::扩展分析(&源序列, &mut self.扩展线段序列组[i], &self.配置);
+                    }
+                }
+                if self.配置.分析线段中枢 {
+                    中枢::分析(
+                        &self.扩展线段序列组[i],
+                        &mut self.扩展中枢序列组[i],
+                        true,
+                        "",
+                        0,
+                    );
+                }
+            }
+        }
+
+        if self.配置.分析扩展线段 || self.配置.分析线段中枢 {
+            for i in 0..self.混合扩展线段分析层次.min(self.线段序列组.len()) {
+                if self.配置.分析扩展线段 {
+                    let 源序列 = self.线段序列组[i].clone();
+                    线段::扩展分析(&源序列, &mut self.混合扩展线段序列组[i], &self.配置);
+                }
+                if self.配置.分析线段中枢 {
+                    中枢::分析(
+                        &self.混合扩展线段序列组[i],
+                        &mut self.混合扩展中枢序列组[i],
+                        true,
+                        "",
+                        0,
+                    );
+                }
+            }
         }
     }
 
@@ -581,6 +636,97 @@ impl 观察者 {
             .map_err(|e| format!("parse period: {}", e))?;
         self.配置 = 配置;
         self.加载本地数据(文件路径)
+    }
+
+    /// 相等 — 全量序列逐项比对，双端一致性验证，对应 Python `观察者相等`
+    pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
+        let 标签 = format!("观察者校验[A={},B={}]", self.标识(), other.标识());
+
+        if self.缠论K线序列.len() != other.缠论K线序列.len() {
+            return (
+                false,
+                format!(
+                    "{标签}: 缠K序列长度不一致 A={},B={}",
+                    self.缠论K线序列.len(),
+                    other.缠论K线序列.len()
+                ),
+            );
+        }
+        if self.分型序列.len() != other.分型序列.len() {
+            return (
+                false,
+                format!(
+                    "{标签}: 分型序列长度不一致 A={},B={}",
+                    self.分型序列.len(),
+                    other.分型序列.len()
+                ),
+            );
+        }
+        if self.笔序列.len() != other.笔序列.len() {
+            return (
+                false,
+                format!(
+                    "{标签}: 笔序列长度不一致 A={},B={}",
+                    self.笔序列.len(),
+                    other.笔序列.len()
+                ),
+            );
+        }
+
+        for (i, (a, b)) in self.笔序列.iter().zip(other.笔序列.iter()).enumerate() {
+            let (eq, msg) = a.相等(b, 浮点容差);
+            if !eq {
+                return (false, format!("{标签}: 笔#{i}不一致 >> {msg}"));
+            }
+        }
+
+        if self.笔_中枢序列.len() != other.笔_中枢序列.len() {
+            return (false, format!("{标签}: 笔中枢序列长度不一致"));
+        }
+        for (i, (a, b)) in self
+            .笔_中枢序列
+            .iter()
+            .zip(other.笔_中枢序列.iter())
+            .enumerate()
+        {
+            let (eq, msg) = a.相等(b, 浮点容差);
+            if !eq {
+                return (false, format!("{标签}: 笔中枢#{i}不一致 >> {msg}"));
+            }
+        }
+
+        for level in 0..self.线段分析层次.min(other.线段分析层次) {
+            let a_segs = &self.线段序列组[level];
+            let b_segs = &other.线段序列组[level];
+            if a_segs.len() != b_segs.len() {
+                return (false, format!("{标签}: 线段序列组[{level}]长度不一致"));
+            }
+            for (i, (a, b)) in a_segs.iter().zip(b_segs.iter()).enumerate() {
+                let (eq, msg) = a.相等(b, 浮点容差);
+                if !eq {
+                    return (
+                        false,
+                        format!("{标签}: 线段序列组[{level}]#{i}不一致 >> {msg}"),
+                    );
+                }
+            }
+            let a_hubs = &self.中枢序列组[level];
+            let b_hubs = &other.中枢序列组[level];
+            if a_hubs.len() != b_hubs.len() {
+                return (false, format!("{标签}: 中枢序列组[{level}]长度不一致"));
+            }
+            for (i, (a, b)) in a_hubs.iter().zip(b_hubs.iter()).enumerate() {
+                let (eq, msg) = a.相等(b, 浮点容差);
+                if !eq {
+                    return (
+                        false,
+                        format!("{标签}: 中枢序列组[{level}]#{i}不一致 >> {msg}"),
+                    );
+                }
+            }
+        }
+
+        (true, format!("{标签}：全量序列校验全部一致"))
     }
 }
 

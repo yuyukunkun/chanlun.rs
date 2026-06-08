@@ -800,7 +800,12 @@ impl 线段 {
 
                 seg.序号
                     .store(之前线段.序号.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
-                *seg.前一缺口.write().unwrap() = Self::获取缺口(之前线段);
+                *seg.前一缺口.write().unwrap() = if 之前线段.短路修正.load(Ordering::Relaxed)
+                {
+                    None
+                } else {
+                    Self::获取缺口(之前线段)
+                };
                 *seg.前一结束位置.write().unwrap() = Some(Arc::clone(
                     之前线段.基础序列.read().unwrap().last().unwrap(),
                 ));
@@ -970,6 +975,7 @@ impl 线段 {
         }
 
         let 左 = Arc::clone(&基础序列[基础序列.len() - 3]);
+        let 中 = Arc::clone(&基础序列[基础序列.len() - 2]);
         let 右 = Arc::clone(&基础序列[基础序列.len() - 1]);
 
         // 方向条件
@@ -987,7 +993,8 @@ impl 线段 {
             基础序列
         );
 
-        let 原始基础序列 = 当前线段.基础序列.read().unwrap().clone();
+        // Reassign to full copy (matching Python pattern)
+        let 基础序列 = 当前线段.基础序列.read().unwrap().clone();
         Self::_弹出线段(
             线段序列,
             &Arc::clone(线段序列.last().unwrap()),
@@ -1021,13 +1028,13 @@ impl 线段 {
             cur.特征序列.write().unwrap()[2] = None;
 
             let 开始笔 = Arc::clone(cur.基础序列.read().unwrap().last().unwrap());
-            let 开始序号 = 原始基础序列
+            let 开始序号 = 基础序列
                 .iter()
                 .position(|x| Arc::as_ptr(x) == Arc::as_ptr(&开始笔));
 
             开始序号_opt = 开始序号;
             if let Some(序号) = 开始序号 {
-                待添加元素 = 原始基础序列[序号 + 1..].to_vec();
+                待添加元素 = 基础序列[序号 + 1..].to_vec();
             } else {
                 待添加元素 = Vec::new();
             }
@@ -1047,19 +1054,14 @@ impl 线段 {
         let 当前线段 = Arc::clone(&线段序列[idx]);
         当前线段.短路修正.store(true, Ordering::Relaxed);
         if 当前线段.特征序列.read().unwrap()[2].is_some() {
-            let 段 = 虚线::创建线段(&[
-                Arc::clone(&基础序列[基础序列.len() - 3]),
-                Arc::clone(&基础序列[基础序列.len() - 2]),
-                Arc::clone(&基础序列[基础序列.len() - 1]),
-            ]);
+            let 段 = 虚线::创建线段(&[Arc::clone(&左), Arc::clone(&中), Arc::clone(&右)]);
             let 段_rc = Arc::new(段);
             Self::_添加线段(线段序列, 段_rc, 配置, format!("{}, {}", line!(), 层级));
 
             // Set feature sequence [0]
             let 新段 = Self::取段(线段序列.last_mut().unwrap());
-            let 中笔 = Arc::clone(&基础序列[基础序列.len() - 2]);
             新段.特征序列.write().unwrap()[0] =
-                Some(Arc::new(线段特征::新建(vec![中笔], 新段.方向())));
+                Some(Arc::new(线段特征::新建(vec![中], 新段.方向())));
         }
 
         true

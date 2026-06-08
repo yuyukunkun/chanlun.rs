@@ -1293,9 +1293,8 @@ impl 观察者Py {
 ///   K线合成器(标识, 周期组) — 周期组为升序排列的整数列表（如 [60, 300, 900]）
 ///
 /// 方法:
-///   投喂K线(普K) -> list[(周期, K线)] — 喂入普通K线，返回合成后的大周期K线
-///   投喂(时间戳, 开盘价, 最高价, 最低价, 收盘价, 成交量) -> list[(周期, K线)]
-///      — 快捷入口，免去构造K线对象
+///   投喂K线(普K) — 喂入普通K线，完成事件通过回调分发
+///   投喂(时间戳, 开盘价, 最高价, 最低价, 收盘价, 成交量) — 快捷入口
 ///   获取当前K线(周期) -> K线|None — 获取指定周期的当前合成结果
 #[pyclass(name = "K线合成器", module = "chanlun._chanlun")]
 pub struct K线合成器Py {
@@ -1307,51 +1306,18 @@ impl K线合成器Py {
     #[new]
     fn new(标识: String, 周期组: Vec<i64>) -> Self {
         Self {
-            inner: chanlun::business::synthesizer::K线合成器::new(标识, 周期组),
+            inner: chanlun::business::synthesizer::K线合成器::new(标识, 周期组, None),
         }
     }
 
-    /// 统一入口 — 投喂最小周期K线，自动合成大周期并分发给各周期观察者
-    fn 投喂K线(
-        &mut self,
-        普K: &Bound<'_, K线Py>,
-        py: Python<'_>,
-    ) -> PyResult<Vec<(i64, Py<K线Py>)>> {
-        let results = self.inner.投喂K线((*普K.borrow().inner).clone());
-        Ok(results
-            .into_iter()
-            .map(|(周期, k)| (周期, bar_to_py(py, Arc::new(k))))
-            .collect())
+    /// 投喂K线 — 输入最小周期K线，合成为所有目标周期，完成事件通过回调分发
+    fn 投喂K线(&mut self, 普K: &Bound<'_, K线Py>) {
+        self.inner.投喂K线((*普K.borrow().inner).clone());
     }
 
     /// 投喂原始tick数据
-    fn 投喂(
-        &mut self,
-        时间戳: i64,
-        开: f64,
-        高: f64,
-        低: f64,
-        收: f64,
-        量: f64,
-        py: Python<'_>,
-    ) -> Vec<(i64, Py<K线Py>)> {
-        let min_cycle = self.inner.周期组.iter().copied().min().unwrap_or(1);
-        let k = chanlun::kline::bar::K线::创建普K(
-            &self.inner.标识,
-            时间戳,
-            开,
-            高,
-            低,
-            收,
-            量,
-            0,
-            min_cycle,
-        );
-        let results = self.inner.投喂K线(k);
-        results
-            .into_iter()
-            .map(|(周期, k2)| (周期, bar_to_py(py, Arc::new(k2))))
-            .collect()
+    fn 投喂(&mut self, 时间戳: i64, 开: f64, 高: f64, 低: f64, 收: f64, 量: f64) {
+        self.inner.投喂(时间戳, 开, 高, 低, 收, 量);
     }
 
     /// 获取指定周期当前正在合成的K线
@@ -1430,13 +1396,6 @@ impl 立体分析器Py {
         self.inner.投喂K线((*普K.borrow().inner).clone());
     }
 
-    fn 获取观察者(&self, 周期: i64) -> Option<观察者Py> {
-        self.inner.获取观察者(周期).map(|rc| 观察者Py {
-            inner: Some(rc),
-            配置缓存: std::sync::Mutex::new(None),
-        })
-    }
-
     /// 拆分各序列数据，单独存文件，文件名为对应变量名
     fn 测试_保存数据(&self, root: Option<&str>) {
         self.inner.测试_保存数据(root);
@@ -1445,6 +1404,20 @@ impl 立体分析器Py {
     #[getter]
     fn 周期组(&self) -> Vec<i64> {
         self.inner.周期组.clone()
+    }
+
+    /// _单体分析器 — 对应 Python 立体分析器._单体分析器: dict[周期, 观察者]
+    #[getter(_单体分析器)]
+    fn get_单体分析器(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for (周期, obs_rc) in &self.inner.单体分析器 {
+            let obs_py = 观察者Py {
+                inner: Some(obs_rc.clone()),
+                配置缓存: std::sync::Mutex::new(None),
+            };
+            dict.set_item(周期, obs_py)?;
+        }
+        Ok(dict.into())
     }
 }
 
