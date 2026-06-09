@@ -24,6 +24,10 @@
 
 use crate::kline::bar::K线;
 use std::collections::HashMap;
+use tracing;
+
+/// 事件回调类型 — fn(信号类型, 标识, 周期, 完成K线)
+type 合成器事件回调 = Box<dyn Fn(String, String, i64, K线) + Send + Sync>;
 
 /// K线合成器 — 将小周期K线合成为大周期K线
 pub struct K线合成器 {
@@ -34,15 +38,13 @@ pub struct K线合成器 {
     /// 事件回调 — K线完成时触发，对应 Python K线合成器.事件回调
     /// 签名: fn(信号类型: str, 标识: str, 周期: i64, 完成K线: K线)
     /// 在 _完成K线 清空当前K线后、新K线创建前触发
-    事件回调: Option<Box<dyn Fn(String, String, i64, K线) + Send + Sync>>,
+    事件回调: Option<合成器事件回调>,
 }
 
 impl K线合成器 {
     /// 创建K线合成器 — 对应 Python K线合成器.__init__(标识, 周期组, 事件回调=None)
     pub fn new(
-        标识: String,
-        周期组: Vec<i64>,
-        事件回调: Option<Box<dyn Fn(String, String, i64, K线) + Send + Sync>>,
+        标识: String, 周期组: Vec<i64>, 事件回调: Option<合成器事件回调>
     ) -> Self {
         let mut 周期组 = 周期组;
         周期组.sort();
@@ -64,10 +66,7 @@ impl K线合成器 {
     }
 
     /// 设置事件回调 — 对应 Python `设置事件回调`
-    pub fn 设置事件回调(
-        &mut self,
-        回调: Box<dyn Fn(String, String, i64, K线) + Send + Sync>,
-    ) {
+    pub fn 设置事件回调(&mut self, 回调: 合成器事件回调) {
         self.事件回调 = Some(回调);
     }
 
@@ -166,9 +165,21 @@ impl K线合成器 {
     }
 
     /// 产生完成K线信号 — 对应 Python `_产生完成K线信号`
+    /// 异常安全：若回调 panic，捕获并记录错误，不中断管线
     fn _产生完成K线信号(&self, 周期: i64, 完成K线: K线) {
         if let Some(ref cb) = self.事件回调 {
-            cb("K线完成".into(), self.标识.clone(), 周期, 完成K线);
+            let 标识 = self.标识.clone();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                cb("K线完成".into(), 标识, 周期, 完成K线);
+            }));
+            if let Err(e) = result {
+                let msg = e
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| e.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "未知错误".into());
+                tracing::error!("K线合成器 事件回调 异常: {}", msg);
+            }
         }
     }
 

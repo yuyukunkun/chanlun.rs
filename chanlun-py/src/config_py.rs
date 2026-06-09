@@ -169,8 +169,11 @@ impl 缠论配置Py {
     /// 将配置导出为 Python 字典。
     fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         let dict = PyDict::new(py);
+        let valid = chanlun::config::缠论配置::model_fields();
         for (k, v) in &self.fields {
-            dict.set_item(k, v.clone_ref(py))?;
+            if valid.contains(&k.as_str()) {
+                dict.set_item(k, v.clone_ref(py))?;
+            }
         }
         Ok(dict.into())
     }
@@ -252,26 +255,36 @@ impl 缠论配置Py {
         Ok(result.into())
     }
 
-    /// 比较当前配置与另一个配置的差异
-    #[allow(clippy::type_complexity)]
-    fn 对比(
-        &self,
-        py: Python<'_>,
-        other: &Bound<'_, 缠论配置Py>,
-    ) -> PyResult<HashMap<String, (Py<PyAny>, Py<PyAny>)>> {
+    /// 创建当前配置的拷贝并可选择更新字段（对应 Python model_copy(update={...}, deep=True)）
+    #[pyo3(signature = (update = None))]
+    fn model_copy(&self, py: Python<'_>, update: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
+        let current = self.to_dict(py)?;
+        if let Some(updates) = update {
+            for (key, value) in updates.iter() {
+                current.bind(py).set_item(key, value)?;
+            }
+        }
+        Self::from_dict(&py.get_type::<Self>(), current.bind(py))
+    }
+
+    /// 比较当前配置与另一个配置的差异（对应 Python 对比 → dict[字段名, 新值]）
+    fn 对比(&self, py: Python<'_>, other: &Bound<'_, 缠论配置Py>) -> PyResult<Py<PyAny>> {
         let other_ref = other.borrow();
-        let mut diff = HashMap::new();
-        for (key, val) in &self.fields {
-            if let Some(other_val) = other_ref.fields.get(key) {
-                let a = val.clone_ref(py);
+        let dict = PyDict::new(py);
+        let valid = chanlun::config::缠论配置::model_fields();
+        for key in valid {
+            if let (Some(self_val), Some(other_val)) =
+                (self.fields.get(*key), other_ref.fields.get(*key))
+            {
+                let a = self_val.clone_ref(py);
                 let b = other_val.clone_ref(py);
                 let eq = a.bind(py).eq(b.bind(py))?;
                 if !eq {
-                    diff.insert(key.clone(), (val.clone_ref(py), other_val.clone_ref(py)));
+                    dict.set_item(*key, b)?;
                 }
             }
         }
-        Ok(diff)
+        Ok(dict.into())
     }
 }
 
@@ -393,9 +406,9 @@ fn validate_field(
 ) -> Result<(), String> {
     use serde_json::Value;
 
-    // 输入为 null → 跳过（保留默认）
+    // 输入为 null → 保留（对应 Optional/Infinity 字段）
     if input.is_null() {
-        return Err("值为 null".into());
+        return Ok(());
     }
 
     // 字符串字段：检查有效值白名单

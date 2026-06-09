@@ -2511,5 +2511,270 @@ class Test立体分析器双端一致(unittest.TestCase):
         self.assertTrue(eq, msg)
 
 
+class Test缠论配置双端一致(unittest.TestCase):
+    """缠论配置 to_dict / from_dict / model_copy 双端输出一致."""
+
+    def _make_configs(self):
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs = chanlun.缠论配置()
+        cfg_py = chan.缠论配置()
+        return cfg_rs, cfg_py
+
+    def test_to_dict_keys_一致(self):
+        """to_dict 字段名集合双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs, cfg_py = self._make_configs()
+        d_rs = cfg_rs.to_dict()
+        d_py = cfg_py.to_dict()
+
+        self.assertEqual(set(d_rs.keys()), set(d_py.keys()), f"to_dict 字段不一致: R extra={set(d_rs.keys()) - set(d_py.keys())} P extra={set(d_py.keys()) - set(d_rs.keys())}")
+
+    def test_to_dict_values_一致(self):
+        """to_dict 值双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs, cfg_py = self._make_configs()
+        d_rs = cfg_rs.to_dict()
+        d_py = cfg_py.to_dict()
+
+        mismatches = []
+        for k in d_rs:
+            v_rs = d_rs[k]
+            v_py = d_py.get(k)
+            if v_rs is None and v_py is None:
+                continue
+            if v_rs != v_py:
+                mismatches.append(f"  {k}: R={v_rs!r} P={v_py!r}")
+        self.assertEqual(len(mismatches), 0, f"to_dict 值不一致 ({len(mismatches)}处):\n" + "\n".join(mismatches[:10]))
+
+    def test_to_json_content_一致(self):
+        """to_json 内容一致（JSON 解析后对比）."""
+        import chanlun
+        from chanlun import chan
+        import json
+
+        cfg_rs, cfg_py = self._make_configs()
+        j_rs = json.loads(cfg_rs.to_json())
+        j_py = json.loads(cfg_py.to_json())
+
+        self.assertEqual(j_rs, j_py, f"to_json 内容不一致")
+
+    def test_from_dict_roundtrip_一致(self):
+        """from_dict → to_dict 往返双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs, cfg_py = self._make_configs()
+        d = cfg_rs.to_dict()
+        cfg2_rs = chanlun.缠论配置.from_dict(d)
+        cfg2_py = chan.缠论配置.from_dict(d)
+
+        d2_rs = cfg2_rs.to_dict()
+        d2_py = cfg2_py.to_dict()
+        for k in d2_rs:
+            self.assertEqual(d2_rs[k], d2_py.get(k), f"from_dict 往返不一致: {k}")
+
+    def test_from_json_roundtrip_一致(self):
+        """from_json → to_dict 往返双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs, cfg_py = self._make_configs()
+        j = cfg_rs.to_json()
+        cfg2_rs = chanlun.缠论配置.from_json(j)
+        cfg2_py = chan.缠论配置.from_json(j)
+
+        # 验证标识和关键字段一致
+        self.assertEqual(cfg2_rs.标识, cfg2_py.标识)
+        self.assertEqual(cfg2_rs.笔内元素数量, cfg2_py.笔内元素数量)
+        self.assertEqual(cfg2_rs.买卖点偏移, cfg2_py.买卖点偏移)
+        self.assertEqual(cfg2_rs.指标计算方式, cfg2_py.指标计算方式)
+
+    def test_custom_values_from_dict_一致(self):
+        """自定义字段 from_dict 双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        data = {
+            "标识": "custom_test",
+            "缠K合并替换": True,
+            "笔内元素数量": 8,
+            "笔弱化": True,
+            "计算指标": False,
+            "指标计算方式": "高低均值",
+            "平滑异同移动平均线_快线周期": 12,
+            "买卖点偏移": 3,
+            "买卖点激进识别": True,
+        }
+        cfg_rs = chanlun.缠论配置.from_dict(data)
+        cfg_py = chan.缠论配置.from_dict(data)
+
+        d_rs = cfg_rs.to_dict()
+        d_py = cfg_py.to_dict()
+        for k in data:
+            self.assertEqual(d_rs.get(k), d_py.get(k), f"自定义字段 {k}: R={d_rs.get(k)} P={d_py.get(k)}")
+
+    def test_model_copy_一致(self):
+        """model_copy 双端输出一致."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs, cfg_py = self._make_configs()
+        update = {"标识": "copied", "推送K线": False, "笔内元素数量": 10}
+
+        copy_rs = cfg_rs.model_copy(update)
+        copy_py = cfg_py.model_copy(update)
+
+        self.assertEqual(copy_rs.标识, copy_py.标识)
+        self.assertEqual(copy_rs.笔内元素数量, copy_py.笔内元素数量)
+        self.assertFalse(copy_rs.推送K线)
+        self.assertFalse(copy_py.推送K线)
+        # 未更新字段保持原值一致
+        self.assertEqual(copy_rs.买卖点偏移, copy_py.买卖点偏移)
+
+    def test_from_dict_过滤未知字段_一致(self):
+        """from_dict 过滤未知字段（兼容旧版本配置）双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        data = {"标识": "test", "笔内元素数量": 7, "废弃字段_已删除": 999, "另一个旧字段": "xxx"}
+        cfg_rs = chanlun.缠论配置.from_dict(data)
+        cfg_py = chan.缠论配置.from_dict(data)
+
+        self.assertEqual(cfg_rs.标识, cfg_py.标识)
+        self.assertEqual(cfg_rs.笔内元素数量, cfg_py.笔内元素数量)
+        # 未知字段应被忽略，不影响构造
+        d_rs = cfg_rs.to_dict()
+        self.assertNotIn("废弃字段_已删除", d_rs)
+
+    def test_不推送_一致(self):
+        """不推送 静态方法双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs = chanlun.缠论配置.不推送()
+        cfg_py = chan.缠论配置.不推送()
+
+        self.assertFalse(cfg_rs.推送K线)
+        self.assertFalse(cfg_py.推送K线)
+        self.assertFalse(cfg_rs.图表展示)
+        self.assertFalse(cfg_py.图表展示)
+        self.assertEqual(cfg_rs.笔内元素数量, cfg_py.笔内元素数量)
+
+    def test_对比_默认一致(self):
+        """默认配置 self 对比应无差异."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs_a, _ = self._make_configs()
+        cfg_rs_b = chanlun.缠论配置()
+        diff_rs = cfg_rs_a.对比(cfg_rs_b)
+        self.assertIsInstance(diff_rs, dict)
+        self.assertEqual(len(diff_rs), 0, "默认一致配置不应有差异")
+
+        # Python side
+        cfg_py_a = chan.缠论配置()
+        cfg_py_b = chan.缠论配置()
+        diff_py = cfg_py_a.对比(cfg_py_b)
+        self.assertEqual(len(diff_py), 0)
+
+    def test_对比_有差异字段一致(self):
+        """修改字段后 对比 双端输出一致."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs_a, cfg_py_a = self._make_configs()
+
+        # 构造有差异的配置
+        update = {"标识": "changed", "笔内元素数量": 99, "推送K线": False}
+        cfg_rs_b = cfg_rs_a.model_copy(update)
+        cfg_py_b = cfg_py_a.model_copy(update)
+
+        diff_rs = cfg_rs_a.对比(cfg_rs_b)
+        diff_py = cfg_py_a.对比(cfg_py_b)
+
+        self.assertEqual(set(diff_rs.keys()), set(diff_py.keys()), f"对比字段不一致: R={set(diff_rs.keys())} P={set(diff_py.keys())}")
+        for k in diff_rs:
+            self.assertEqual(diff_rs[k], diff_py[k], f"对比[{k}] 值不一致: R={diff_rs[k]!r} P={diff_py[k]!r}")
+
+    def test_对比_往返一致(self):
+        """to_dict → from_dict → 对比 应无差异."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs, _ = self._make_configs()
+        d = cfg_rs.to_dict()
+        cfg2_rs = chanlun.缠论配置.from_dict(d)
+        diff = cfg_rs.对比(cfg2_rs)
+        self.assertEqual(len(diff), 0, f"Rust往返后对比不应有差异: {diff}")
+
+        # Python side
+        cfg_py = chan.缠论配置()
+        d_py = cfg_py.to_dict()
+        cfg2_py = chan.缠论配置.from_dict(d_py)
+        diff_py = cfg_py.对比(cfg2_py)
+        self.assertEqual(len(diff_py), 0)
+
+    def test_对比_与chan输出一致(self):
+        """对比 输出与 chan.对比 逐项一致."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs, cfg_py = self._make_configs()
+        update = {"标识": "test_x", "缠K合并替换": True, "笔内元素数量": 7, "计算指标": False, "买卖点激进识别": True, "线段_修正": True}
+        alt_rs = cfg_rs.model_copy(update)
+        alt_py = cfg_py.model_copy(update)
+
+        # Rust binding: cfg_rs.对比(alt_rs)
+        diff_rs = cfg_rs.对比(alt_rs)
+        # chan.py: cfg_py.对比(alt_py)
+        diff_py = cfg_py.对比(alt_py)
+
+        self.assertEqual(diff_rs, diff_py, f"对比输出不一致:\n  R={diff_rs}\n  P={diff_py}")
+
+    def test_对比_only_model_fields(self):
+        """对比 仅比较 model_fields 字段."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs, cfg_py = self._make_configs()
+        update = {"标识": "only_test"}
+        alt_rs = cfg_rs.model_copy(update)
+        alt_py = cfg_py.model_copy(update)
+
+        diff_rs = cfg_rs.对比(alt_rs)
+        diff_py = cfg_py.对比(alt_py)
+
+        self.assertEqual(len(diff_rs), 1)
+        self.assertEqual(len(diff_py), 1)
+        self.assertIn("标识", diff_rs)
+        self.assertIn("标识", diff_py)
+        self.assertEqual(diff_rs["标识"], "only_test")
+        self.assertEqual(diff_py["标识"], "only_test")
+
+    def test_对比_不推送_一致(self):
+        """不推送 配置与默认配置 对比 双端一致."""
+        import chanlun
+        from chanlun import chan
+
+        cfg_rs, cfg_py = self._make_configs()
+        muted_rs = chanlun.缠论配置.不推送()
+        muted_py = chan.缠论配置.不推送()
+
+        diff_rs = cfg_rs.对比(muted_rs)
+        diff_py = cfg_py.对比(muted_py)
+
+        self.assertEqual(set(diff_rs.keys()), set(diff_py.keys()))
+        # 不推送应关闭所有推送/图表字段
+        for k in diff_rs:
+            self.assertFalse(diff_rs[k], f"不推送差异字段 {k} 应为 False")
+            self.assertFalse(diff_py[k], f"不推送差异字段 {k} 应为 False")
+
+
 if __name__ == "__main__":
     unittest.main()

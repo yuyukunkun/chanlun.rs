@@ -929,19 +929,6 @@ class 缠论配置:
         买卖点_指标匹配_MACD: bool = True,  # 买在负，卖在正！
         买卖点_指标匹配_KDJ: bool = True,  # 买在死叉之后，卖在金叉之后
         买卖点_指标匹配_RSI: bool = True,  # 买在均线之下，卖在均线之上
-        # 以下字段酌情废弃
-        买卖点_背离率: float = float("inf"),
-        买卖点_T2_回调阈值: float = 1.0,
-        买卖点_T2S_最大层级: int = 3,
-        买卖点_峰值条件: bool = False,
-        买卖点_计算方式: str = "峰",
-        买卖点_计算线段BSP1: bool = True,
-        买卖点_处理BSP2: bool = True,
-        买卖点_计算线段BSP3: bool = True,
-        买卖点_依赖T1: bool = True,
-        买卖点_中枢来源: str = "合",
-        买卖点_调试输出: bool = False,
-        # 以上字段酌情废弃
         线段内部背驰_MACD: bool = True,
         线段内部背驰_斜率: bool = True,
         线段内部背驰_测度: bool = True,
@@ -1018,17 +1005,6 @@ class 缠论配置:
         self.买卖点_指标匹配_MACD = 买卖点_指标匹配_MACD
         self.买卖点_指标匹配_KDJ = 买卖点_指标匹配_KDJ
         self.买卖点_指标匹配_RSI = 买卖点_指标匹配_RSI
-        self.买卖点_背离率 = 买卖点_背离率
-        self.买卖点_T2_回调阈值 = 买卖点_T2_回调阈值
-        self.买卖点_T2S_最大层级 = 买卖点_T2S_最大层级
-        self.买卖点_峰值条件 = 买卖点_峰值条件
-        self.买卖点_计算方式 = 买卖点_计算方式
-        self.买卖点_计算线段BSP1 = 买卖点_计算线段BSP1
-        self.买卖点_处理BSP2 = 买卖点_处理BSP2
-        self.买卖点_计算线段BSP3 = 买卖点_计算线段BSP3
-        self.买卖点_依赖T1 = 买卖点_依赖T1
-        self.买卖点_中枢来源 = 买卖点_中枢来源
-        self.买卖点_调试输出 = 买卖点_调试输出
         self.线段内部背驰_MACD = 线段内部背驰_MACD
         self.线段内部背驰_斜率 = 线段内部背驰_斜率
         self.线段内部背驰_测度 = 线段内部背驰_测度
@@ -1115,17 +1091,6 @@ class 缠论配置:
             "买卖点_指标匹配_MACD": {"annotation": bool, "default": True},
             "买卖点_指标匹配_KDJ": {"annotation": bool, "default": True},
             "买卖点_指标匹配_RSI": {"annotation": bool, "default": True},
-            "买卖点_背离率": {"annotation": float, "default": float("inf")},
-            "买卖点_T2_回调阈值": {"annotation": float, "default": 1.0},
-            "买卖点_T2S_最大层级": {"annotation": int, "default": 3},
-            "买卖点_峰值条件": {"annotation": bool, "default": False},
-            "买卖点_计算方式": {"annotation": str, "default": "峰"},
-            "买卖点_计算线段BSP1": {"annotation": bool, "default": True},
-            "买卖点_处理BSP2": {"annotation": bool, "default": True},
-            "买卖点_计算线段BSP3": {"annotation": bool, "default": True},
-            "买卖点_依赖T1": {"annotation": bool, "default": True},
-            "买卖点_中枢来源": {"annotation": str, "default": "合"},
-            "买卖点_调试输出": {"annotation": bool, "default": False},
             "线段内部背驰_MACD": {"annotation": bool, "default": True},
             "线段内部背驰_斜率": {"annotation": bool, "default": True},
             "线段内部背驰_测度": {"annotation": bool, "default": True},
@@ -6598,7 +6563,7 @@ class 观察者:
             传入差异 = 缠论配置().对比(配置)
             传入差异.update(差异)
             配置 = 缠论配置(**传入差异)
-            print("加载异常配置+传入差异", 传入差异)
+            logger.info(f"加载异常配置+传入差异: {传入差异}")
 
         name = Path(文件路径).name.split(".")[0]
         符号, 周期, 起始时间戳, 结束时间戳 = name.split("-")

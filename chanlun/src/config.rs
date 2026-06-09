@@ -23,11 +23,8 @@
  */
 
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashMap;
 use tracing::warn;
-
-fn is_infinite_f64(v: &f64) -> bool {
-    v.is_infinite()
-}
 
 /// 缠论配置 —— 控制所有分析阶段的行为
 ///
@@ -211,29 +208,6 @@ pub struct 缠论配置 {
     pub 买卖点_指标匹配_KDJ: bool,
     /// 买卖点指标匹配 RSI
     pub 买卖点_指标匹配_RSI: bool,
-    /// 买卖点背离率阈值（Infinity 表示不使用）
-    #[serde(skip_serializing_if = "is_infinite_f64")]
-    pub 买卖点_背离率: f64,
-    /// 买卖点 T2 回调阈值
-    pub 买卖点_T2_回调阈值: f64,
-    /// 买卖点 T2S 最大层级
-    pub 买卖点_T2S_最大层级: i64,
-    /// 买卖点峰值条件
-    pub 买卖点_峰值条件: bool,
-    /// 买卖点计算方式（峰/谷等）
-    pub 买卖点_计算方式: String,
-    /// 是否计算线段BSP1
-    pub 买卖点_计算线段BSP1: bool,
-    /// 是否处理BSP2
-    pub 买卖点_处理BSP2: bool,
-    /// 是否计算线段BSP3
-    pub 买卖点_计算线段BSP3: bool,
-    /// 是否依赖T1买卖点
-    pub 买卖点_依赖T1: bool,
-    /// 买卖点中枢来源（实/虚/合）
-    pub 买卖点_中枢来源: String,
-    /// 买卖点调试输出
-    pub 买卖点_调试输出: bool,
 
     // ---- 背驰 ----
     /// 线段内部背驰使用 MACD
@@ -382,17 +356,6 @@ impl Default for 缠论配置 {
             买卖点_指标匹配_MACD: true,
             买卖点_指标匹配_KDJ: true,
             买卖点_指标匹配_RSI: true,
-            买卖点_背离率: f64::INFINITY,
-            买卖点_T2_回调阈值: 1.0,
-            买卖点_T2S_最大层级: 3,
-            买卖点_峰值条件: false,
-            买卖点_计算方式: "峰".into(),
-            买卖点_计算线段BSP1: true,
-            买卖点_处理BSP2: true,
-            买卖点_计算线段BSP3: true,
-            买卖点_依赖T1: true,
-            买卖点_中枢来源: "合".into(),
-            买卖点_调试输出: false,
             线段内部背驰_MACD: true,
             线段内部背驰_斜率: true,
             线段内部背驰_测度: true,
@@ -445,6 +408,147 @@ impl 缠论配置 {
         vec![("boll".into(), self.布林带_周期, self.布林带_标准差倍数)]
     }
 
+    /// 序列化为 JSON 字典（对应 Python to_dict，仅返回 model_fields 中的字段）
+    pub fn to_dict(&self) -> serde_json::Value {
+        let full = serde_json::to_value(self).unwrap_or_default();
+        let valid = Self::model_fields();
+        if let serde_json::Value::Object(map) = full {
+            let filtered: serde_json::Map<_, _> = map
+                .into_iter()
+                .filter(|(k, _)| valid.contains(&k.as_str()))
+                .collect();
+            serde_json::Value::Object(filtered)
+        } else {
+            full
+        }
+    }
+
+    /// 从 JSON 字典反序列化（对应 Python from_dict / 兼容旧版本配置）
+    pub fn from_dict(value: &serde_json::Value) -> Result<Self, serde_json::Error> {
+        if let serde_json::Value::Object(map) = value {
+            let valid_fields = Self::model_fields();
+            let cleaned: serde_json::Map<_, _> = map
+                .iter()
+                .filter(|(k, _)| valid_fields.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            serde_json::from_value(serde_json::Value::Object(cleaned))
+        } else {
+            serde_json::from_value(value.clone())
+        }
+    }
+
+    /// 验证并修正字段值（对应 Python _validate_all_fields）
+    pub fn _validate_all_fields(&mut self) {
+        const 允许: &[&str] = &[
+            "开",
+            "高",
+            "低",
+            "收",
+            "高低均值",
+            "高低收均值",
+            "开高低收均值",
+        ];
+        if !允许.contains(&self.指标计算方式.as_str()) {
+            warn!(
+                "[指标计算方式] = {} 值不在允许范围内，使用默认值：收",
+                self.指标计算方式
+            );
+            self.指标计算方式 = "收".into();
+        }
+    }
+
+    /// 返回字段名列表（对应 Python model_fields().keys()）
+    pub fn model_fields() -> &'static [&'static str] {
+        &[
+            "标识",
+            "缠K合并替换",
+            "笔内元素数量",
+            "笔内相同终点取舍",
+            "笔内起始分型包含整笔",
+            "笔内起始分型包含整笔_包括右",
+            "笔内原始K线包含整笔",
+            "笔次级成笔",
+            "笔弱化",
+            "笔弱化_原始数量",
+            "线段_非缺口下穿刺",
+            "线段_特征序列忽视老阴老阳",
+            "线段_缺口后紧急修正",
+            "线段_修正",
+            "线段内部中枢图显",
+            "扩展线段_当下分析",
+            "分析笔",
+            "分析线段",
+            "分析扩展线段",
+            "分析笔中枢",
+            "分析线段中枢",
+            "手动终止",
+            "计算指标",
+            "计算BOLL",
+            "指标计算方式",
+            "平滑异同移动平均线_快线周期",
+            "平滑异同移动平均线_慢线周期",
+            "平滑异同移动平均线_信号周期",
+            "相对强弱指数_周期",
+            "相对强弱指数_移动平均线周期",
+            "相对强弱指数_超买阈值",
+            "相对强弱指数_超卖阈值",
+            "随机指标_RSV周期",
+            "随机指标_K值平滑周期",
+            "随机指标_D值平滑周期",
+            "随机指标_超买阈值",
+            "随机指标_超卖阈值",
+            "布林带_周期",
+            "布林带_标准差倍数",
+            "MACD_参数列表",
+            "RSI_周期列表",
+            "KDJ_参数列表",
+            "BOLL_参数列表",
+            "均线_类型列表",
+            "均线_周期列表",
+            "图表展示",
+            "推送K线",
+            "推送笔",
+            "推送线段",
+            "推送中枢",
+            "图表展示_笔",
+            "图表展示_线段",
+            "图表展示_扩展线段",
+            "图表展示_扩展线段_线段",
+            "图表展示_线段_线段",
+            "图表展示_中枢_笔",
+            "图表展示_中枢_线段",
+            "图表展示_中枢_扩展线段",
+            "图表展示_中枢_扩展线段_线段",
+            "图表展示_中枢_线段_线段",
+            "图表展示_中枢_线段内部",
+            "买卖点偏移",
+            "买卖点激进识别",
+            "买卖点与MACD柱强相关",
+            "买卖点错过误差值",
+            "买卖点_指标模式",
+            "买卖点_指标匹配_MACD",
+            "买卖点_指标匹配_KDJ",
+            "买卖点_指标匹配_RSI",
+            "线段内部背驰_MACD",
+            "线段内部背驰_斜率",
+            "线段内部背驰_测度",
+            "线段内部背驰_模式",
+            "加载文件路径",
+        ]
+    }
+
+    /// 深拷贝并更新指定字段（对应 Python model_copy(update={...}, deep=True)）
+    pub fn model_copy(&self, update: &HashMap<String, serde_json::Value>) -> Self {
+        let mut value = serde_json::to_value(self).unwrap_or_default();
+        if let serde_json::Value::Object(ref mut map) = value {
+            for (k, v) in update {
+                map.insert(k.clone(), v.clone());
+            }
+        }
+        serde_json::from_value(value).unwrap_or_else(|_| self.clone())
+    }
+
     /// 序列化为 JSON 字符串
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_default()
@@ -467,9 +571,10 @@ impl 缠论配置 {
         Ok(config)
     }
 
-    /// 返回一个关闭所有推送/显示的新配置
+    /// 返回一个关闭所有推送/显示的新配置（对应 Python 不推送）
     pub fn 不推送(&self) -> Self {
         Self {
+            线段内部中枢图显: false,
             图表展示: false,
             推送K线: false,
             推送笔: false,
@@ -524,19 +629,21 @@ impl 缠论配置 {
         result
     }
 
-    /// 对比两个配置，返回差异字段
-    pub fn 对比(&self, other: &Self) -> Vec<String> {
-        let mut diffs = Vec::new();
-        let self_json = serde_json::to_value(self).unwrap();
-        let other_json = serde_json::to_value(other).unwrap();
+    /// 对比两个配置，返回差异字段及新值（对应 Python 对比 → dict[字段名, 新值]）
+    pub fn 对比(&self, other: &Self) -> HashMap<String, serde_json::Value> {
+        let mut diffs = HashMap::new();
+        let self_dict = self.to_dict();
+        let other_dict = other.to_dict();
         if let (serde_json::Value::Object(self_map), serde_json::Value::Object(other_map)) =
-            (&self_json, &other_json)
+            (&self_dict, &other_dict)
         {
-            for (key, self_val) in self_map {
-                if let Some(other_val) = other_map.get(key)
-                    && self_val != other_val
+            for key in Self::model_fields() {
+                let self_val = self_map.get(*key);
+                let other_val = other_map.get(*key);
+                if self_val != other_val
+                    && let Some(v) = other_val
                 {
-                    diffs.push(key.clone());
+                    diffs.insert(key.to_string(), v.clone());
                 }
             }
         }
@@ -562,7 +669,6 @@ mod tests {
         let config = 缠论配置::default();
         assert_eq!(config.标识, "bar");
         assert_eq!(config.笔内元素数量, 5);
-        assert!(config.买卖点_背离率.is_infinite());
         assert_eq!(config.指标计算方式, "收");
     }
 
@@ -610,13 +716,164 @@ mod tests {
     }
 
     #[test]
+    fn test_to_dict_roundtrip() {
+        let config = 缠论配置::default();
+        let dict = config.to_dict();
+        let restored = 缠论配置::from_dict(&dict).unwrap();
+        assert_eq!(config.to_json(), restored.to_json());
+    }
+
+    #[test]
+    fn test_from_dict_filters_unknown_fields() {
+        // 兼容旧版本配置 — unknown fields are silently dropped
+        let json = serde_json::json!({
+            "标识": "test",
+            "不存在的字段": 42,
+            "另一个废弃字段": "xxx",
+            "笔内元素数量": 8,
+        });
+        let config = 缠论配置::from_dict(&json).unwrap();
+        assert_eq!(config.标识, "test");
+        assert_eq!(config.笔内元素数量, 8);
+        // 未指定字段使用默认值
+        assert_eq!(config.买卖点偏移, 1);
+    }
+
+    #[test]
+    fn test_model_fields_contains_all() {
+        let fields = 缠论配置::model_fields();
+        assert!(fields.contains(&"标识"));
+        assert!(fields.contains(&"笔内元素数量"));
+        assert!(fields.contains(&"买卖点偏移"));
+        assert!(fields.contains(&"线段内部背驰_MACD"));
+    }
+
+    #[test]
+    fn test_model_copy() {
+        let mut update = std::collections::HashMap::new();
+        update.insert("标识".into(), serde_json::json!("custom"));
+        update.insert("推送K线".into(), serde_json::json!(false));
+        update.insert("笔内元素数量".into(), serde_json::json!(10));
+
+        let config = 缠论配置::default();
+        let copied = config.model_copy(&update);
+
+        assert_eq!(copied.标识, "custom");
+        assert!(!copied.推送K线);
+        assert_eq!(copied.笔内元素数量, 10);
+        // 未指定字段保持不变
+        assert_eq!(copied.买卖点偏移, 1);
+        assert!(copied.推送笔);
+    }
+
+    #[test]
+    fn test_to_dict_to_json_consistency() {
+        let config = 缠论配置::default();
+        let dict = config.to_dict();
+        // to_dict → from_dict → to_json should equal original to_json
+        let restored = 缠论配置::from_dict(&dict).unwrap();
+        assert_eq!(config.to_json(), restored.to_json());
+    }
+
+    #[test]
     fn test_不推送() {
         let config = 缠论配置::default();
         let muted = config.不推送();
         assert!(!muted.推送K线);
         assert!(!muted.推送笔);
         assert!(!muted.图表展示);
-        // 其他字段不变
         assert_eq!(muted.笔内元素数量, 5);
+    }
+
+    #[test]
+    fn test_对比_无差异() {
+        let a = 缠论配置::default();
+        let b = 缠论配置::default();
+        let diff = a.对比(&b);
+        assert!(diff.is_empty(), "identical configs should have empty diff");
+    }
+
+    #[test]
+    fn test_对比_有差异() {
+        let mut a = 缠论配置::default();
+        let mut b = 缠论配置::default();
+        b.标识 = "changed".into();
+        b.笔内元素数量 = 99;
+
+        let diff = a.对比(&b);
+        assert_eq!(diff.len(), 2);
+        assert_eq!(diff.get("标识").unwrap().as_str().unwrap(), "changed");
+        assert_eq!(diff.get("笔内元素数量").unwrap().as_i64().unwrap(), 99);
+    }
+
+    #[test]
+    fn test_对比_仅比较model_fields() {
+        // 仅比较 model_fields 中的字段（Python 一致行为）
+        let a = 缠论配置::default();
+        let b = 缠论配置::default();
+        let diff = a.对比(&b);
+        // 验证不包含废弃字段（如已删除的 "买卖点_背离率" 等）
+        assert!(!diff.contains_key("买卖点_背离率"));
+        assert!(diff.is_empty(), "default configs should have no diff");
+    }
+
+    #[test]
+    fn test_to_dict_excludes_non_model_fields() {
+        let config = 缠论配置::default();
+        let dict = config.to_dict();
+        let valid = 缠论配置::model_fields();
+        if let serde_json::Value::Object(map) = &dict {
+            for key in map.keys() {
+                assert!(
+                    valid.contains(&key.as_str()),
+                    "{key} should not be in to_dict output"
+                );
+            }
+        }
+        assert_eq!(
+            valid.len(),
+            dict.as_object().map(|m| m.len()).unwrap_or(0),
+            "to_dict should have exactly model_fields count"
+        );
+    }
+
+    #[test]
+    fn test_model_copy_then_对比() {
+        let config = 缠论配置::default();
+        let mut update = HashMap::new();
+        update.insert("标识".into(), serde_json::json!("copied"));
+        update.insert("笔内元素数量".into(), serde_json::json!(10));
+
+        let copied = config.model_copy(&update);
+        let diff = config.对比(&copied);
+
+        assert_eq!(diff.len(), 2);
+        assert_eq!(diff["标识"].as_str().unwrap(), "copied");
+        assert_eq!(diff["笔内元素数量"].as_i64().unwrap(), 10);
+    }
+
+    #[test]
+    fn test_对比_boolean_difference() {
+        let mut a = 缠论配置::default();
+        let mut b = 缠论配置::default();
+        b.推送K线 = false;
+        b.图表展示 = false;
+
+        let diff = a.对比(&b);
+        assert_eq!(diff.len(), 2);
+        assert_eq!(diff["推送K线"], serde_json::json!(false));
+        assert_eq!(diff["图表展示"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn test_to_dict_from_dict_对比_roundtrip() {
+        let config = 缠论配置::default();
+        let dict = config.to_dict();
+        let restored = 缠论配置::from_dict(&dict).unwrap();
+        let diff = config.对比(&restored);
+        assert!(
+            diff.is_empty(),
+            "to_dict→from_dict roundtrip should produce no diff"
+        );
     }
 }
