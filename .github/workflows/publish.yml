@@ -16,16 +16,19 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ============================================================
-  # 1. 发布 chanlun 核心库至 crates.io
+  # 1. 校验 & 发布
+  #    解析 chanlun-py 依赖的版本号 → 检查 crates.io 是否可用 →
+  #    不可用时检查本地 chanlun 版本是否匹配 → 匹配则自动发布 →
+  #    等待索引同步
   # ============================================================
-  publish-crates:
+  check-version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      exists: ${{ steps.check.outputs.exists }}
+      version: ${{ steps.parse.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -34,72 +37,108 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: 缓存依赖
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('chanlun/Cargo.lock') }}
+      - name: 解析 chanlun-py 依赖的 chanlun 版本
+        id: parse
+        working-directory: chanlun-py
+        run: |
+          VER=$(grep -oP 'chanlun\s*=\s*"=?\s*\K[0-9]+\.[0-9]+\.[0-9]+(?=")' Cargo.toml | head -1)
+          if [ -z "$VER" ]; then
+            echo "::error::无法从 chanlun-py/Cargo.toml 解析 chanlun 版本号"
+            echo "请确保 Cargo.toml 中包含: chanlun = \"=X.Y.Z\""
+            exit 1
+          fi
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "依赖的 chanlun 版本: $VER"
 
-      - name: 提取版本号
-        id: version
+      - name: 解析本地 chanlun 核心库版本
+        id: local-ver
         working-directory: chanlun
         run: |
-          VER=$(cargo metadata --format-version 1 --no-deps 2>/dev/null \
-            | jq -r '.packages[] | select(.name == "chanlun") | .version')
+          VER=$(grep -oP '^version\s*=\s*"\K[0-9]+\.[0-9]+\.[0-9]+(?=")' Cargo.toml | head -1)
           echo "version=$VER" >> $GITHUB_OUTPUT
-          echo "当前版本: $VER"
+          echo "本地 chanlun 版本: $VER"
 
-      - name: 检查版本是否已存在
+      - name: 检查 crates.io 并决定是否发布
         id: check
         run: |
-          VER="${{ steps.version.outputs.version }}"
-          EXISTS=$(curl -sS "https://crates.io/api/v1/crates/chanlun" \
-            | jq -r --arg v "$VER" '.versions[]?.num // empty | select(. == $v)')
-          if [ -n "$EXISTS" ]; then
-            echo "版本 $VER 已存在于 crates.io，跳过发布"
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "版本 $VER 未发布，继续"
-            echo "exists=false" >> $GITHUB_OUTPUT
+          DEP_VER="${{ steps.parse.outputs.version }}"
+          LOCAL_VER="${{ steps.local-ver.outputs.version }}"
+
+          HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+            -H "User-Agent: chanlun-rs/ci" \
+            "https://crates.io/api/v1/crates/chanlun/$DEP_VER")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "chanlun $DEP_VER 在 crates.io 已可用，无需发布"
+            echo "need-publish=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
+          echo "chanlun $DEP_VER 在 crates.io 不存在 (HTTP $HTTP_CODE)"
+
+          if [ "$DEP_VER" != "$LOCAL_VER" ]; then
+            echo "::error::本地 chanlun 版本 ($LOCAL_VER) 与依赖版本 ($DEP_VER) 不匹配"
+            echo ""
+            echo "请先发布 chanlun 核心库至 crates.io:"
+            echo "  cd chanlun && cargo publish"
+            echo ""
+            echo "或修改 chanlun-py/Cargo.toml 中的版本号为已发布版本"
+            exit 1
+          fi
+
+          echo "本地版本 $LOCAL_VER 与依赖一致，将自动发布 chanlun 至 crates.io"
+          echo "need-publish=true" >> $GITHUB_OUTPUT
+
       - name: 格式检查
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.need-publish == 'true'
         working-directory: chanlun
         run: cargo fmt --check
 
       - name: Lint 检查
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.need-publish == 'true'
         working-directory: chanlun
         run: cargo clippy
 
       - name: 运行测试
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.need-publish == 'true'
         working-directory: chanlun
         run: cargo test
 
       - name: 验证打包
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.need-publish == 'true'
         working-directory: chanlun
         run: cargo publish --dry-run --allow-dirty
 
-      - name: 登录 crates.io
-        if: steps.check.outputs.exists == 'false'
-        run: cargo login ${{ secrets.CARGO_TOKEN }}
+      - name: 登录 crates.io 并发布
+        if: steps.check.outputs.need-publish == 'true'
+        run: |
+          cargo login ${{ secrets.CARGO_TOKEN }}
+          cd chanlun && cargo publish --allow-dirty
 
-      - name: 发布 chanlun 至 crates.io
-        if: steps.check.outputs.exists == 'false'
-        working-directory: chanlun
-        run: cargo publish --allow-dirty
+      - name: 等待 crates.io 索引同步
+        if: steps.check.outputs.need-publish == 'true'
+        run: |
+          DEP_VER="${{ steps.parse.outputs.version }}"
+          echo "等待 crates.io 索引同步 (最多 2 分钟)..."
+          for i in $(seq 1 12); do
+            HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+              -H "User-Agent: chanlun-rs/ci" \
+              "https://crates.io/api/v1/crates/chanlun/$DEP_VER")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "chanlun $DEP_VER 已在 crates.io 可用 (尝试 $i/12)"
+              exit 0
+            fi
+            echo "  等待中... ($i/12)"
+            sleep 10
+          done
+          echo "::error::等待超时：chanlun $DEP_VER 在 crates.io 仍不可用"
+          exit 1
 
   # ============================================================
   # 2. 构建 wheel — Linux x86_64 (manylinux)
   # ============================================================
   linux-x86_64:
-    needs: [publish-crates]
+    needs: [check-version]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -112,9 +151,19 @@ jobs:
       - name: 安装 Rust 工具链
         uses: dtolnay/rust-toolchain@stable
 
-      - name: 更新 cargo 索引（确保新版本可见）
-        run: cargo update
+      - name: 更新 cargo 索引（含重试）
         working-directory: chanlun-py
+        run: |
+          for i in $(seq 1 6); do
+            if cargo update 2>&1; then
+              echo "cargo update 成功"
+              exit 0
+            fi
+            echo "cargo update 失败，重试... ($i/6)"
+            sleep 10
+          done
+          echo "::error::cargo update 失败"
+          exit 1
 
       - name: 构建 wheel (manylinux)
         uses: PyO3/maturin-action@v1
@@ -134,7 +183,7 @@ jobs:
   # 3. 构建 wheel — macOS (x86_64 + arm64)
   # ============================================================
   macos:
-    needs: [publish-crates]
+    needs: [check-version]
     runs-on: macos-latest
     strategy:
       matrix:
@@ -150,9 +199,19 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 更新 cargo 索引
-        run: cargo update
+      - name: 更新 cargo 索引（含重试）
         working-directory: chanlun-py
+        run: |
+          for i in $(seq 1 6); do
+            if cargo update 2>&1; then
+              echo "cargo update 成功"
+              exit 0
+            fi
+            echo "cargo update 失败，重试... ($i/6)"
+            sleep 10
+          done
+          echo "::error::cargo update 失败"
+          exit 1
 
       - name: 构建 wheel
         uses: PyO3/maturin-action@v1
@@ -171,7 +230,7 @@ jobs:
   # 4. 构建 wheel — Windows x86_64
   # ============================================================
   windows:
-    needs: [publish-crates]
+    needs: [check-version]
     runs-on: windows-latest
     strategy:
       matrix:
@@ -187,9 +246,21 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 更新 cargo 索引
-        run: cargo update
+      - name: 更新 cargo 索引（含重试）
         working-directory: chanlun-py
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 6; $i++) {
+            cargo update
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "cargo update 成功"
+              exit 0
+            }
+            Write-Host "cargo update 失败，重试... ($i/6)"
+            Start-Sleep -Seconds 10
+          }
+          Write-Host "::error::cargo update 失败"
+          exit 1
 
       - name: 构建 wheel
         uses: PyO3/maturin-action@v1
@@ -208,7 +279,7 @@ jobs:
   # 5. 源码分发包 (sdist)
   # ============================================================
   sdist:
-    needs: [publish-crates]
+    needs: [check-version]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -217,6 +288,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
 
       - name: 构建 sdist
         uses: PyO3/maturin-action@v1
@@ -235,7 +309,7 @@ jobs:
   # 6. 发布至 PyPI
   # ============================================================
   publish:
-    needs: [publish-crates, linux-x86_64, macos, windows, sdist]
+    needs: [linux-x86_64, macos, windows, sdist]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish-to-pypi == 'true'
     permissions:
