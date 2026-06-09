@@ -1,0 +1,113 @@
+# Copyright (c) 2012-2019 Richard Jones <richard@python.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+#  The above copyright notice and this permission notice shall be included in
+#  all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+import re
+from typing import Any, Callable, Generic, Literal, Protocol, TypeVar, overload
+
+__all__ = ["parse", "search", "findall", "with_pattern"]
+
+_T = TypeVar("_T")
+_T_co = TypeVar("_T_co", covariant=True)
+
+class _TypeConverter(Protocol[_T_co]):
+    def __call__(self, string: str) -> _T_co: ...
+
+_TTypeConverter = TypeVar("_TTypeConverter", bound="_TypeConverter[Any]")
+
+def with_pattern(pattern: str, regex_group_count=None) -> Callable[[_TTypeConverter], _TTypeConverter]: ...
+
+class Result:
+    fixed: tuple[Any, ...]
+    named: dict[str, Any]
+    spans: dict[int | str, tuple[int, int]]
+
+    def __init__(self, fixed: tuple[Any, ...], named: dict[str, Any], spans: dict[int | str, tuple[int, int]]) -> None: ...
+    def __getitem__(self, item) -> Any: ...
+    def __contains__(self, name) -> bool: ...
+
+class Match:
+    parser: "Parser"
+    match: re.Match  # type: ignore[type-arg]
+
+    def __init__(self, parser: "Parser", match: re.Match) -> None: ...  # type: ignore[type-arg]
+    def evaluate_result(self) -> Result: ...
+
+class ResultIterator(Generic[_T]):
+    parser: "Parser"
+    string: str
+    pos: int
+    endpos: int
+    evaluate_result: bool
+    def __next__(self) -> _T: ...
+    next = __next__
+
+    def __init__(self, parser: "Parser", string: str, pos: int, endpos: int | None, evaluate_result: bool = True) -> None: ...
+    def __iter__(self) -> "ResultIterator[_T]": ...
+
+class TooManyFields(ValueError): ...
+class RepeatedNameError(ValueError): ...
+
+class Parser:
+    def __init__(self, format: str, extra_types: dict[str, _TypeConverter[Any]] | None = None, case_sensitive: bool = False) -> None: ...
+    @property
+    def named_fields(self) -> list[str]: ...
+    @property
+    def fixed_fields(self) -> list[int]: ...
+    @property
+    def format(self) -> str: ...
+    @overload
+    def parse(self, string: str, evaluate_result: Literal[True] = True) -> Result | None: ...
+    @overload
+    def parse(self, string: str, *, evaluate_result: Literal[False]) -> Match | None: ...
+    @overload
+    def parse(self, string: str, evaluate_result: Literal[False]) -> Match | None: ...
+    @overload
+    def search(self, string: str, pos: int = 0, endpos: int | None = None, evaluate_result: Literal[True] = True) -> Result | None: ...
+    @overload
+    def search(self, string: str, pos: int = 0, endpos: int | None = None, *, evaluate_result: Literal[False]) -> Match | None: ...
+    @overload
+    def search(self, string: str, pos: int, endpos: int | None, evaluate_result: Literal[False]) -> Match | None: ...
+    @overload
+    def findall(self, string: str, pos: int = 0, endpos=None, extra_types: dict[str, _TypeConverter[Any]] | None = None, evaluate_result: Literal[True] = True) -> ResultIterator[Result]: ...
+    @overload
+    def findall(self, string: str, pos: int = 0, endpos=None, extra_types: dict[str, _TypeConverter[Any]] | None = None, *, evaluate_result: Literal[False]) -> ResultIterator[Match]: ...
+    @overload
+    def findall(self, string: str, pos: int, endpos: int | None, extra_types, evaluate_result: Literal[False]) -> ResultIterator[Match]: ...
+    def evaluate_result(self, m: re.Match) -> Result: ...  # type: ignore[type-arg]
+
+@overload
+def parse(format: str, string: str, extra_types: dict[str, _TypeConverter[Any]] | None = None, evaluate_result: Literal[True] = True, case_sensitive: bool = ...) -> Result | None: ...
+@overload
+def parse(format: str, string: str, extra_types: dict[str, _TypeConverter[Any]] | None = None, *, evaluate_result: Literal[False], case_sensitive: bool = ...) -> Match | None: ...
+@overload
+def parse(format: str, string: str, extra_types, evaluate_result: Literal[False], case_sensitive: bool = ...) -> Match | None: ...
+@overload
+def search(format: str, string: str, pos: int = 0, endpos: int | None = None, extra_types: dict[str, _TypeConverter[Any]] | None = None, evaluate_result: Literal[True] = True, case_sensitive: bool = False) -> Result | None: ...
+@overload
+def search(format: str, string: str, pos: int = 0, endpos: int | None = None, extra_types: dict[str, _TypeConverter[Any]] | None = None, *, evaluate_result: Literal[False], case_sensitive: bool = False) -> Match | None: ...
+@overload
+def search(format: str, string: str, pos: int, endpos: int | None, extra_types, evaluate_result: Literal[False], case_sensitive: bool = False) -> Match | None: ...
+@overload
+def findall(format: str, string: str, pos: int = 0, endpos=None, extra_types: dict[str, _TypeConverter[Any]] | None = None, evaluate_result: Literal[True] = True, case_sensitive: bool = False) -> ResultIterator[Result]: ...
+@overload
+def findall(format: str, string: str, pos: int = 0, endpos=None, extra_types: dict[str, _TypeConverter[Any]] | None = None, *, evaluate_result: Literal[False], case_sensitive: bool = False) -> ResultIterator[Match]: ...
+@overload
+def findall(format, string, pos, endpos, extra_types, evaluate_result: Literal[False], case_sensitive: bool = False) -> ResultIterator[Match]: ...
+def compile(format: str, extra_types: dict[str, _TypeConverter[Any]] | None = None, case_sensitive: bool = False) -> Parser: ...

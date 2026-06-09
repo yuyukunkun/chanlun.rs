@@ -1,0 +1,32 @@
+chanlun — 缠论技术分析库
+===========================
+
+Copyright (c) 2026 YuYuKunKun
+
+This product includes software developed by third-party open source projects:
+
+
+----------------------------------------------------------------------
+1. czsc
+  Repository: <https://github.com/waditu/czsc>
+  License: Apache License 2.0
+  Copyright (c) 2025 zengbin93
+  Used in: chanlun-py/chanlun/chan_external.py（部分代码片段）
+
+----------------------------------------------------------------------
+2. parse
+  Repository: <https://github.com/r1chardj0n3s/parse>
+  License: MIT License
+  Copyright (c) 2012-2019 Richard Jones <richard@python.org>
+  Used in: chanlun-py/chanlun/parse.py
+
+----------------------------------------------------------------------
+3. termcolor
+  Repository:  <https://github.com/termcolor/termcolor>
+  License: MIT License
+  Copyright (c) 2008-2011 Volvox Development Team
+  Used in: chanlun-py/chanlun/termcolor.py
+
+
+----------------------------------------------------------------------
+Full licenses are available in the LICENSES/ directory.
