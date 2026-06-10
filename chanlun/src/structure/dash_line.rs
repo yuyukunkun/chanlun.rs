@@ -34,6 +34,12 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use tracing::warn;
 
+/// 扩展线段模式 — 控制虚线高低取值方式
+///
+/// 默认 `true`：扩展线段取基础序列中所有子段端点的全局极值（与原文54课一致）
+/// 设为 `true`：使用文/武分型端点
+pub static 扩展线段模式: AtomicBool = AtomicBool::new(true);
+
 /// 虚线 — 笔和线段的通用数据结构。
 ///
 /// 笔和线段共享此 struct，通过 `标识` 字段区分（"笔"/"线段"/"扩展线段"等）。
@@ -209,22 +215,70 @@ impl 虚线 {
         }
     }
 
-    /// 虚线高
-    pub fn 高(&self) -> f64 {
-        if self.方向() == 相对方向::向下 {
-            self.文.中.高.get()
-        } else {
+    /// 虚线端点高 — 始终取文/武分型端点的中.高，不扫描基础序列
+    pub fn 端点高(&self) -> f64 {
+        if self.方向() == 相对方向::向上 {
             self.武.read().unwrap().中.高.get()
+        } else {
+            self.文.中.高.get()
         }
     }
 
-    /// 虚线低
-    pub fn 低(&self) -> f64 {
+    /// 虚线端点低 — 始终取文/武分型端点的中.低，不扫描基础序列
+    pub fn 端点低(&self) -> f64 {
         if self.方向() == 相对方向::向下 {
             self.武.read().unwrap().中.低.get()
         } else {
             self.文.中.低.get()
         }
+    }
+
+    /// 虚线高
+    /// 默认同端点高；扩展线段模式开启时，取基础序列中所有子段文分型 + 最后子段武分型的最高
+    pub fn 高(&self) -> f64 {
+        let 模式 = self.模式.read().unwrap();
+        let 标识 = self.标识.read().unwrap();
+        if 扩展线段模式.load(Ordering::Relaxed)
+            && *模式 != "文武"
+            && *标识 != "笔"
+            && 标识.contains("扩展")
+        {
+            let 基础序列 = self.基础序列.read().unwrap();
+            if !基础序列.is_empty() {
+                return 基础序列
+                    .iter()
+                    .map(|s| s.文.中.高.get())
+                    .chain(std::iter::once(
+                        基础序列.last().unwrap().武.read().unwrap().中.高.get(),
+                    ))
+                    .fold(f64::NEG_INFINITY, f64::max);
+            }
+        }
+        self.端点高()
+    }
+
+    /// 虚线低
+    /// 默认同端点低；扩展线段模式开启时，取基础序列中所有子段文分型 + 最后子段武分型的最低
+    pub fn 低(&self) -> f64 {
+        let 模式 = self.模式.read().unwrap();
+        let 标识 = self.标识.read().unwrap();
+        if 扩展线段模式.load(Ordering::Relaxed)
+            && *模式 != "文武"
+            && *标识 != "笔"
+            && 标识.contains("扩展")
+        {
+            let 基础序列 = self.基础序列.read().unwrap();
+            if !基础序列.is_empty() {
+                return 基础序列
+                    .iter()
+                    .map(|s| s.文.中.低.get())
+                    .chain(std::iter::once(
+                        基础序列.last().unwrap().武.read().unwrap().中.低.get(),
+                    ))
+                    .fold(f64::INFINITY, f64::min);
+            }
+        }
+        self.端点低()
     }
 
     /// 判断两个虚线是否首尾相连

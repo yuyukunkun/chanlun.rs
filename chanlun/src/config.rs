@@ -795,7 +795,7 @@ mod tests {
 
     #[test]
     fn test_对比_有差异() {
-        let mut a = 缠论配置::default();
+        let a = 缠论配置::default();
         let mut b = 缠论配置::default();
         b.标识 = "changed".into();
         b.笔内元素数量 = 99;
@@ -854,7 +854,7 @@ mod tests {
 
     #[test]
     fn test_对比_boolean_difference() {
-        let mut a = 缠论配置::default();
+        let a = 缠论配置::default();
         let mut b = 缠论配置::default();
         b.推送K线 = false;
         b.图表展示 = false;

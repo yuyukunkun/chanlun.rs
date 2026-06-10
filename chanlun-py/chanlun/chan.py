@@ -3488,6 +3488,9 @@ class 分型:
         分型序列.append(当前分型)
 
 
+扩展线段模式 = True  # TODO 虚线高低取值 暂定，此举将符合同级别分解时正确的高低取值涉及中枢等问题
+
+
 class 虚线:
     """笔/线段的通用数据结构，持有一组分型端点（文=起点分型, 武=终点分型）。
 
@@ -3616,14 +3619,28 @@ class 虚线:
                 raise RuntimeError("无法识别的方向", self.文.结构, self.武.结构)
 
     @property
+    def 端点高(self) -> float:
+        if self.方向 is 相对方向.向上:
+            return self.武.中.高
+        return self.文.中.高
+
+    @property
+    def 端点低(self) -> float:
+        if self.方向 is 相对方向.向下:
+            return self.武.中.低
+        return self.文.中.低
+
+    @property
     def 高(self) -> float:
         """虚线区间的最高价。
 
         :return: 向上虚线取武.中.高，向下虚线取文.中.高
         """
-        if self.方向 is 相对方向.向上:
-            return self.武.中.高
-        return self.文.中.高
+        if 扩展线段模式 and self.模式 != "文武" and self.标识 != "笔" and "扩展" in self.标识:  # 扩展线段
+            端点序列 = [筆.文 for 筆 in self.基础序列]
+            端点序列.append(self.基础序列[-1].武)
+            return max(端点序列, key=lambda o: o.中.高).中.高
+        return self.端点高
 
     @property
     def 低(self) -> float:
@@ -3631,9 +3648,11 @@ class 虚线:
 
         :return: 向下虚线取武.中.低，向上虚线取文.中.低
         """
-        if self.方向 is 相对方向.向下:
-            return self.武.中.低
-        return self.文.中.低
+        if 扩展线段模式 and self.模式 != "文武" and self.标识 != "笔" and "扩展" in self.标识:  # 扩展线段
+            端点序列 = [筆.文 for 筆 in self.基础序列]
+            端点序列.append(self.基础序列[-1].武)
+            return min(端点序列, key=lambda o: o.中.低).中.低
+        return self.端点低
 
     def 之前是(self, 之前: 虚线) -> bool:
         """
@@ -5626,7 +5645,7 @@ class 线段:
         if not 线段序列:
             for i in range(1, len(虚线序列) - 1):
                 左, 中, 右 = 虚线序列[i - 1], 虚线序列[i], 虚线序列[i + 1]
-                关系 = 相对方向.分析(左.高, 左.低, 右.高, 右.低)
+                关系 = 相对方向.分析(左.端点高, 左.端点低, 右.端点高, 右.端点低)
                 if 关系 not in (相对方向.向下, 相对方向.向上, 相对方向.顺, 相对方向.逆, 相对方向.同):  # FIXME 此处为首个线段
                     continue
 
@@ -5646,7 +5665,7 @@ class 线段:
 
         if not 配置.扩展线段_当下分析:
             左, 中, 右 = 当前线段.基础序列[:3]
-            if not 相对方向.分析(左.高, 左.低, 右.高, 右.低).是否缺口():
+            if not 相对方向.分析(左.端点高, 左.端点低, 右.端点高, 右.端点低).是否缺口():
                 当前线段.基础序列[:] = 当前线段.基础序列[:3]
                 线段._武终(当前线段, sys._getframe().f_lineno)
             else:
@@ -5663,7 +5682,7 @@ class 线段:
 
         for i in range(序号 + 1, len(虚线序列) - 1):
             左, 中, 右 = 虚线序列[i - 1], 虚线序列[i], 虚线序列[i + 1]
-            相对关系 = 相对方向.分析(左.高, 左.低, 右.高, 右.低)
+            相对关系 = 相对方向.分析(左.端点高, 左.端点低, 右.端点高, 右.端点低)
             if 相对关系.是否缺口():
                 线段._添加虚线(当前线段, 左)
                 线段._添加虚线(当前线段, 中)
@@ -6926,6 +6945,6 @@ if __name__ == "__main__":
     当前配置 = 缠论配置.不推送()
     当前配置.加载文件路径 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "btcusd-300-1761327300-1776327900.nb")
     with tempfile.TemporaryDirectory() as tmpdir:
-        # 测试_读取数据(观察者("", 0, 当前配置), 当前配置)().测试_保存数据(tmpdir)
+        测试_读取数据(观察者("", 0, 当前配置), 当前配置)().测试_保存数据(tmpdir)
         # 测试_周期合成(当前配置)().测试_保存数据(tmpdir)
-        测试_指标挂载(当前配置)().测试_保存数据(tmpdir)
+        # 测试_指标挂载(当前配置)().测试_保存数据(tmpdir)

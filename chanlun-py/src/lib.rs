@@ -121,6 +121,18 @@ fn set_分型模式(value: bool) {
     chanlun::structure::fractal_obj::分型模式.store(value, Ordering::Relaxed);
 }
 
+/// 扩展线段模式 — 控制虚线高低取值方式，默认 False
+#[pyfunction]
+fn get_扩展线段模式() -> bool {
+    chanlun::structure::dash_line::扩展线段模式.load(Ordering::Relaxed)
+}
+
+/// 设置 扩展线段模式
+#[pyfunction]
+fn set_扩展线段模式(value: bool) {
+    chanlun::structure::dash_line::扩展线段模式.store(value, Ordering::Relaxed);
+}
+
 /// 获取当前日志级别 ("trace" / "debug" / "info" / "warn" / "error" / "off")
 #[pyfunction]
 fn get_log_level() -> &'static str {
@@ -160,6 +172,8 @@ fn _chanlun(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     init_tracing();
     m.add_function(wrap_pyfunction!(get_分型模式, m)?)?;
     m.add_function(wrap_pyfunction!(set_分型模式, m)?)?;
+    m.add_function(wrap_pyfunction!(get_扩展线段模式, m)?)?;
+    m.add_function(wrap_pyfunction!(set_扩展线段模式, m)?)?;
     m.add_function(wrap_pyfunction!(get_log_level, m)?)?;
     m.add_function(wrap_pyfunction!(set_log_level, m)?)?;
     // 阶段 1: 枚举和基础类型

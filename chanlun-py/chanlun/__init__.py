@@ -32,6 +32,8 @@ __all__ = [
     "布林带",
     "get_分型模式",
     "set_分型模式",
+    "get_扩展线段模式",
+    "set_扩展线段模式",
     "get_log_level",
     "set_log_level",
     "get_rs_log_level",
