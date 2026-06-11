@@ -26,9 +26,10 @@ use crate::structure::dash_line::虚线;
 use crate::structure::feat_fractal::特征分型;
 use crate::structure::fractal_obj::分型;
 use crate::types::{分型结构, 相对方向};
+use parking_lot::RwLock;
+use std::sync::Arc;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, RwLock};
 
 /// 线段特征 — 特征序列元素，内部是虚线的集合。
 ///
@@ -62,7 +63,7 @@ impl Clone for 线段特征 {
     fn clone(&self) -> Self {
         Self {
             序号: AtomicI64::new(self.序号.load(Ordering::Relaxed)),
-            标识: RwLock::new(self.标识.read().unwrap().clone()),
+            标识: RwLock::new(self.标识.read().clone()),
             线段方向: self.线段方向,
             基础序列: self.基础序列.clone(),
         }
@@ -82,7 +83,7 @@ impl 线段特征 {
 
     /// 图表标题 — 返回标识字符串
     pub fn 图表标题(&self) -> String {
-        self.标识.read().unwrap().clone()
+        self.标识.read().clone()
     }
 
     /// 文 — 取特征序列元素中分型特征值最大/最小的文分型
@@ -118,47 +119,31 @@ impl 线段特征 {
     /// 武 — 取特征序列元素中分型特征值最大/最小的武分型
     /// tiebreaker: later时间戳 wins when特征值 equal (matches Python)
     pub fn 武(&self) -> Arc<分型> {
-        if self.线段方向.是否向上() {
-            self.基础序列
-                .iter()
-                .max_by(|a, b| {
-                    a.武
-                        .read()
-                        .unwrap()
-                        .分型特征值
-                        .partial_cmp(&b.武.read().unwrap().分型特征值)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| {
-                            a.武
-                                .read()
-                                .unwrap()
-                                .时间戳()
-                                .cmp(&b.武.read().unwrap().时间戳())
-                        })
-                })
-                .map(|x| x.武.read().unwrap().clone())
-                .unwrap_or_else(|| self.基础序列[0].武.read().unwrap().clone())
+        let best = if self.线段方向.是否向上() {
+            self.基础序列.iter().max_by(|a, b| {
+                let a_武 = a.武.read();
+                let b_武 = b.武.read();
+                a_武
+                    .分型特征值
+                    .partial_cmp(&b_武.分型特征值)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a_武.时间戳().cmp(&b_武.时间戳()))
+            })
         } else {
-            self.基础序列
-                .iter()
-                .max_by(|a, b| {
-                    b.武
-                        .read()
-                        .unwrap()
-                        .分型特征值
-                        .partial_cmp(&a.武.read().unwrap().分型特征值)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| {
-                            a.武
-                                .read()
-                                .unwrap()
-                                .时间戳()
-                                .cmp(&b.武.read().unwrap().时间戳())
-                        })
-                })
-                .map(|x| x.武.read().unwrap().clone())
-                .unwrap_or_else(|| self.基础序列[0].武.read().unwrap().clone())
-        }
+            self.基础序列.iter().max_by(|a, b| {
+                let a_武 = a.武.read();
+                let b_武 = b.武.read();
+                b_武
+                    .分型特征值
+                    .partial_cmp(&a_武.分型特征值)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a_武.时间戳().cmp(&b_武.时间戳()))
+            })
+        };
+        best.map_or_else(
+            || self.基础序列[0].武.read().clone(),
+            |x| x.武.read().clone(),
+        )
     }
 
     /// 高 — 文和武中分型特征值的较大者
@@ -197,7 +182,7 @@ impl 线段特征 {
         if let Some(pos) = self
             .基础序列
             .iter()
-            .position(|x| Arc::as_ptr(x) == Arc::as_ptr(待删除虚线))
+            .position(|x| Arc::ptr_eq(x, 待删除虚线))
         {
             self.基础序列.remove(pos);
             Ok(())
@@ -256,7 +241,7 @@ impl 线段特征 {
                                 .unwrap();
                             let fake = 虚线::创建笔(
                                 Arc::clone(&小号虚线.文),
-                                大号虚线.武.read().unwrap().clone(),
+                                大号虚线.武.read().clone(),
                                 false,
                             );
                             结果.pop();
@@ -330,13 +315,13 @@ impl 线段特征 {
                 ),
             );
         }
-        if *self.标识.read().unwrap() != *other.标识.read().unwrap() {
+        if *self.标识.read() != *other.标识.read() {
             return (
                 false,
                 format!(
                     "线段特征: [标识] 不等 A={},B={}",
-                    self.标识.read().unwrap(),
-                    other.标识.read().unwrap()
+                    self.标识.read(),
+                    other.标识.read()
                 ),
             );
         }
@@ -381,12 +366,12 @@ impl crate::types::fractal::有高低 for 线段特征 {
 impl std::fmt::Display for 线段特征 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.基础序列.is_empty() {
-            write!(f, "{}<{}, 空>", self.标识.read().unwrap(), self.线段方向)
+            write!(f, "{}<{}, 空>", self.标识.read(), self.线段方向)
         } else {
             write!(
                 f,
                 "{}<{}, {}, {}, {}>",
-                self.标识.read().unwrap(),
+                self.标识.read(),
                 self.线段方向,
                 self.文(),
                 self.武(),

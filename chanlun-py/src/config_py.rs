@@ -22,10 +22,11 @@
  * SOFTWARE.
  */
 
+use chanlun::warn;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
 use std::collections::HashMap;
-use tracing::warn;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 缠论配置 — 控制所有分析阶段行为的参数集（共 60+ 字段，均有默认值）。
 ///
@@ -95,6 +96,8 @@ use tracing::warn;
 #[pyclass(name = "缠论配置", module = "chanlun._chanlun")]
 pub struct 缠论配置Py {
     fields: HashMap<String, Py<PyAny>>,
+    缓存: parking_lot::Mutex<Option<chanlun::config::缠论配置>>,
+    pub(crate) 版本: AtomicU64,
 }
 
 #[pymethods]
@@ -120,7 +123,11 @@ impl 缠论配置Py {
         // 全部通过 serde_json 往返验证类型，统一处理字符串数字/布尔强制转换
         let config = dict_to_rust_config(&fields)?;
         let fields = config_to_field_dict(&config)?;
-        Ok(Self { fields })
+        Ok(Self {
+            fields,
+            缓存: parking_lot::Mutex::new(Some(config)),
+            版本: AtomicU64::new(1),
+        })
     }
 
     fn __getattr__(&self, name: &str, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -135,10 +142,13 @@ impl 缠论配置Py {
     fn __setattr__(&mut self, name: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
         if self.fields.contains_key(name) {
             self.fields.insert(name.to_string(), value.clone().unbind());
+            *self.缓存.lock() = None;
+            self.版本.fetch_add(1, Ordering::Relaxed);
             // 通过 serde 往返验证类型
             match dict_to_rust_config(&self.fields) {
                 Ok(config) => {
                     self.fields = config_to_field_dict(&config)?;
+                    *self.缓存.lock() = Some(config);
                     Ok(())
                 }
                 Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -217,7 +227,11 @@ impl 缠论配置Py {
 
         let config = dict_to_rust_config(&fields)?;
         let fields = config_to_field_dict(&config)?;
-        Ok(Self { fields })
+        Ok(Self {
+            fields,
+            缓存: parking_lot::Mutex::new(Some(config)),
+            版本: AtomicU64::new(1),
+        })
     }
 
     #[classmethod]
@@ -231,7 +245,11 @@ impl 缠论配置Py {
     fn 不推送(_cls: &Bound<'_, PyType>) -> PyResult<Self> {
         let config = chanlun::config::缠论配置::default().不推送();
         let fields = config_to_field_dict(&config)?;
-        Ok(Self { fields })
+        Ok(Self {
+            fields,
+            缓存: parking_lot::Mutex::new(Some(config)),
+            版本: AtomicU64::new(1),
+        })
     }
 
     #[classmethod]
@@ -302,18 +320,31 @@ impl 缠论配置Py {
 
         let config = dict_to_rust_config(&fields)?;
         let fields = config_to_field_dict(&config)?;
-        Ok(Self { fields })
+        Ok(Self {
+            fields,
+            缓存: parking_lot::Mutex::new(Some(config)),
+            版本: AtomicU64::new(1),
+        })
     }
 
     pub(crate) fn to_rust_config(
         &self,
         _py: Python<'_>,
     ) -> PyResult<chanlun::config::缠论配置> {
-        dict_to_rust_config(&self.fields)
+        if let Some(ref cached) = *self.缓存.lock() {
+            return Ok(cached.clone());
+        }
+        let config = dict_to_rust_config(&self.fields)?;
+        *self.缓存.lock() = Some(config.clone());
+        Ok(config)
     }
 
     pub(crate) fn from_rust_config(config: &chanlun::config::缠论配置) -> PyResult<Self> {
-        config_to_field_dict(config).map(|fields| Self { fields })
+        config_to_field_dict(config).map(|fields| Self {
+            fields,
+            缓存: parking_lot::Mutex::new(Some(config.clone())),
+            版本: AtomicU64::new(1),
+        })
     }
 }
 

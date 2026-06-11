@@ -23,8 +23,8 @@
  */
 
 use crate::kline::bar::K线;
+use crate::warn;
 use std::collections::HashMap;
-use tracing;
 
 /// 事件回调类型 — fn(信号类型, 标识, 周期, 完成K线)
 type 合成器事件回调 = Box<dyn Fn(String, String, i64, K线) + Send + Sync>;
@@ -178,7 +178,7 @@ impl K线合成器 {
                     .map(|s| s.to_string())
                     .or_else(|| e.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| "未知错误".into());
-                tracing::error!("K线合成器 事件回调 异常: {}", msg);
+                warn!("K线合成器 事件回调 异常: {}", msg);
             }
         }
     }

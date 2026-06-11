@@ -102,6 +102,7 @@ fn init_tracing() {
 
 mod algorithm_py;
 mod business_py;
+pub(crate) mod cache;
 mod config_py;
 mod equality_py;
 mod indicators_py;
@@ -139,9 +140,7 @@ fn get_log_level() -> &'static str {
     级别数字转名称(LOG_LEVEL.load(Ordering::Relaxed))
 }
 
-/// 设置日志级别 (不区分大小写: "trace" / "debug" / "info" / "warn" / "error" / "off")
-///
-/// 设为 "off" 可完全关闭日志输出。
+/// 设置日志级别 — 自动启用日志，同步更新 tracing subscriber
 #[pyfunction]
 fn set_log_level(level: &str) -> PyResult<()> {
     let 数字 = 级别名称转数字(level).ok_or_else(|| {
@@ -150,32 +149,91 @@ fn set_log_level(level: &str) -> PyResult<()> {
             level
         ))
     })?;
-
-    let guard = 过滤器句柄锁
-        .get()
-        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("日志系统尚未初始化"))?;
-    let handle = guard.lock().unwrap();
-    let 名称 = 级别数字转名称(数字);
-    let filter = tracing_subscriber::EnvFilter::new(名称);
-    handle
-        .reload(filter)
-        .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("切换日志级别失败"))?;
-
     LOG_LEVEL.store(数字, Ordering::Relaxed);
+    chanlun::log::日志启用.store(数字 < 5, Ordering::Relaxed);
+    // 同步更新 tracing subscriber
+    if let Some(guard) = 过滤器句柄锁.get() {
+        let handle = guard.lock().unwrap();
+        let 名称 = 级别数字转名称(数字);
+        let filter = tracing_subscriber::EnvFilter::new(名称);
+        let _ = handle.reload(filter);
+    }
     Ok(())
+}
+
+/// 获取日志输出模式 ("off", "simple", "tracing")
+#[pyfunction]
+fn get_log_mode() -> &'static str {
+    match chanlun::log::get_log_mode() {
+        0 => "off",
+        1 => "simple",
+        2 => "tracing",
+        _ => "unknown",
+    }
+}
+
+/// 设置日志输出模式（必须在任何日志输出之前调用）
+/// - "off": 不输出
+/// - "simple": 直接 eprintln/println（默认）
+/// - "tracing": 带时间戳和格式化的 tracing subscriber
+#[pyfunction]
+fn set_log_mode(mode: &str) -> PyResult<()> {
+    let m = match mode.to_lowercase().as_str() {
+        "off" | "0" => 0u8,
+        "simple" | "on" | "1" => 1u8,
+        "tracing" | "2" => 2u8,
+        _ => {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "无效日志模式，有效值: 'off', 'simple', 'tracing'",
+            ));
+        }
+    };
+    if m == 2 {
+        init_tracing();
+    }
+    chanlun::log::set_log_mode(m);
+    Ok(())
+}
+
+/// 获取缓存模式 ("thread_local" 或 "global")
+#[pyfunction]
+fn get_cache_mode() -> &'static str {
+    match crate::cache::peek_mode().unwrap_or(&crate::cache::CacheMode::ThreadLocal) {
+        crate::cache::CacheMode::ThreadLocal => "thread_local",
+        crate::cache::CacheMode::Global => "global",
+    }
+}
+
+/// 设置缓存模式（必须在创建任何观察者之前调用）
+#[pyfunction]
+fn set_cache_mode(mode: &str) -> PyResult<()> {
+    let m = match mode.to_lowercase().as_str() {
+        "thread_local" | "local" => crate::cache::CacheMode::ThreadLocal,
+        "global" => crate::cache::CacheMode::Global,
+        _ => {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "无效缓存模式，有效值: 'thread_local', 'global'",
+            ));
+        }
+    };
+    crate::cache::set_mode(m).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e))
 }
 
 /// 缠论技术分析库 — Rust 高性能实现
 #[pymodule]
 /// 缠论技术分析库 — Rust 高性能实现
 fn _chanlun(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    init_tracing();
+    chanlun::log::init_from_env();
     m.add_function(wrap_pyfunction!(get_分型模式, m)?)?;
     m.add_function(wrap_pyfunction!(set_分型模式, m)?)?;
     m.add_function(wrap_pyfunction!(get_扩展线段模式, m)?)?;
     m.add_function(wrap_pyfunction!(set_扩展线段模式, m)?)?;
     m.add_function(wrap_pyfunction!(get_log_level, m)?)?;
     m.add_function(wrap_pyfunction!(set_log_level, m)?)?;
+    m.add_function(wrap_pyfunction!(get_log_mode, m)?)?;
+    m.add_function(wrap_pyfunction!(set_log_mode, m)?)?;
+    m.add_function(wrap_pyfunction!(get_cache_mode, m)?)?;
+    m.add_function(wrap_pyfunction!(set_cache_mode, m)?)?;
     // 阶段 1: 枚举和基础类型
     types_py::register(m)?;
     // 阶段 2: 配置

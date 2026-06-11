@@ -22,9 +22,9 @@
  * SOFTWARE.
  */
 
+use crate::warn;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
-use tracing::warn;
 
 /// 缠论配置 —— 控制所有分析阶段的行为
 ///

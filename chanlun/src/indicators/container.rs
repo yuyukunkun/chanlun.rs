@@ -70,9 +70,7 @@ impl 指标容器 {
 
     /// 预注册指标（不覆盖已有值）
     pub fn 注册(&mut self, 名称: &str, 默认值: Option<指标值>) {
-        if !self._数据.contains_key(名称) {
-            self._数据.insert(名称.to_string(), 默认值);
-        }
+        self._数据.entry(名称.to_string()).or_insert(默认值);
     }
 
     /// 按名称获取指标值

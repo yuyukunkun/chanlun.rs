@@ -26,33 +26,20 @@ use crate::kline_py::chan_kline_to_py;
 use crate::structure_py::{dashed_to_py, fractal_to_py};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyType};
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::atomic::Ordering;
 
-// 使用全局 static 而非 thread_local!，保证跨线程对象标识一致性
-static HUB_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<中枢Py>>>> =
-    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+// 缓存通过 crate::cache 模块管理（支持 thread_local / global 运行时切换）
 
 pub(crate) fn hub_to_py(
     py: Python<'_>, inner: Arc<chanlun::algorithm::hub::中枢>
 ) -> Py<中枢Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) = HUB_IDENTITY
-        .read()
-        .unwrap()
-        .get(&key)
-        .map(|p| p.clone_ref(py))
-    {
+    if let Some(cached) = crate::cache::hub_get(py, key) {
         return cached;
     }
-    HUB_IDENTITY
-        .write()
-        .unwrap()
-        .retain(|_, v| v.get_refcnt(py) > 1);
     let obj = Py::new(py, 中枢Py { inner }).unwrap();
-    HUB_IDENTITY.write().unwrap().insert(key, obj.clone_ref(py));
+    crate::cache::hub_insert(py, key, &obj);
     obj
 }
 
@@ -90,16 +77,21 @@ impl 背驰分析Py {
         方式: &str,
         py: Python<'_>,
     ) -> bool {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
+        let 方式 = 方式.to_string();
         let rc_list: Vec<Arc<chanlun::kline::bar::K线>> = K线序列
             .iter()
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
-        chanlun::algorithm::divergence::背驰分析::MACD背驰(
-            &进入段.borrow().inner,
-            &离开段.borrow().inner,
-            &rc_list,
-            方式,
-        )
+        py.detach(move || {
+            chanlun::algorithm::divergence::背驰分析::MACD背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &rc_list,
+                &方式,
+            )
+        })
     }
 
     #[classmethod]
@@ -137,15 +129,19 @@ impl 背驰分析Py {
         普K序列: Vec<Py<K线Py>>,
         py: Python<'_>,
     ) -> bool {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
         let rc_list: Vec<Arc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
-        chanlun::algorithm::divergence::背驰分析::全量背驰(
-            &进入段.borrow().inner,
-            &离开段.borrow().inner,
-            &rc_list,
-        )
+        py.detach(move || {
+            chanlun::algorithm::divergence::背驰分析::全量背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &rc_list,
+            )
+        })
     }
 
     #[classmethod]
@@ -157,15 +153,19 @@ impl 背驰分析Py {
         普K序列: Vec<Py<K线Py>>,
         py: Python<'_>,
     ) -> bool {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
         let rc_list: Vec<Arc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
-        chanlun::algorithm::divergence::背驰分析::任意背驰(
-            &进入段.borrow().inner,
-            &离开段.borrow().inner,
-            &rc_list,
-        )
+        py.detach(move || {
+            chanlun::algorithm::divergence::背驰分析::任意背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &rc_list,
+            )
+        })
     }
 
     #[classmethod]
@@ -178,17 +178,21 @@ impl 背驰分析Py {
         配置: &Bound<'_, 缠论配置Py>,
         py: Python<'_>,
     ) -> PyResult<bool> {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
         let rc_list: Vec<Arc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         let config = 配置.borrow().to_rust_config(py)?;
-        Ok(chanlun::algorithm::divergence::背驰分析::配置背驰(
-            &进入段.borrow().inner,
-            &离开段.borrow().inner,
-            &rc_list,
-            &config,
-        ))
+        Ok(py.detach(move || {
+            chanlun::algorithm::divergence::背驰分析::配置背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &rc_list,
+                &config,
+            )
+        }))
     }
 
     #[classmethod]
@@ -200,15 +204,19 @@ impl 背驰分析Py {
         普K序列: Vec<Py<K线Py>>,
         py: Python<'_>,
     ) -> bool {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
         let rc_list: Vec<Arc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
-        chanlun::algorithm::divergence::背驰分析::任选背驰(
-            &进入段.borrow().inner,
-            &离开段.borrow().inner,
-            &rc_list,
-        )
+        py.detach(move || {
+            chanlun::algorithm::divergence::背驰分析::任选背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &rc_list,
+            )
+        })
     }
 
     #[classmethod]
@@ -222,18 +230,169 @@ impl 背驰分析Py {
         模式: &str,
         py: Python<'_>,
     ) -> PyResult<bool> {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
         let rc_list: Vec<Arc<chanlun::kline::bar::K线>> = 普K序列
             .iter()
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         let config = 配置.borrow().to_rust_config(py)?;
-        Ok(chanlun::algorithm::divergence::背驰分析::背驰模式(
-            &进入段.borrow().inner,
-            &离开段.borrow().inner,
-            &rc_list,
-            &config,
-            模式,
-        ))
+        let 模式 = 模式.to_string();
+        Ok(py.detach(move || {
+            chanlun::algorithm::divergence::背驰分析::背驰模式(
+                &进入段_inner,
+                &离开段_inner,
+                &rc_list,
+                &config,
+                &模式,
+            )
+        }))
+    }
+
+    // ---- 观察者直传（跳过 Python list→Vec 转换，直接借用观察者内部 &[Arc<K线>]） ----
+
+    #[classmethod]
+    #[pyo3(name = "MACD背驰_OBS", signature = (进入段, 离开段, 观察员, 方式 = "总"))]
+    fn MACD背驰_obs(
+        _cls: &Bound<'_, PyType>,
+        进入段: &Bound<'_, 虚线Py>,
+        离开段: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+        方式: &str,
+        py: Python<'_>,
+    ) -> bool {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
+        let 方式 = 方式.to_string();
+        let obs_arc = 观察员.borrow().inner.clone().expect("观察者未初始化");
+        py.detach(move || {
+            let guard = obs_arc.read();
+            chanlun::algorithm::divergence::背驰分析::MACD背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &guard.普通K线序列,
+                &方式,
+            )
+        })
+    }
+
+    #[classmethod]
+    #[pyo3(name = "全量背驰_OBS", signature = (进入段, 离开段, 观察员))]
+    fn 全量背驰_obs(
+        _cls: &Bound<'_, PyType>,
+        进入段: &Bound<'_, 虚线Py>,
+        离开段: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+        py: Python<'_>,
+    ) -> bool {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
+        let obs_arc = 观察员.borrow().inner.clone().expect("观察者未初始化");
+        py.detach(move || {
+            let guard = obs_arc.read();
+            chanlun::algorithm::divergence::背驰分析::全量背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &guard.普通K线序列,
+            )
+        })
+    }
+
+    #[classmethod]
+    #[pyo3(name = "任意背驰_OBS", signature = (进入段, 离开段, 观察员))]
+    fn 任意背驰_obs(
+        _cls: &Bound<'_, PyType>,
+        进入段: &Bound<'_, 虚线Py>,
+        离开段: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+        py: Python<'_>,
+    ) -> bool {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
+        let obs_arc = 观察员.borrow().inner.clone().expect("观察者未初始化");
+        py.detach(move || {
+            let guard = obs_arc.read();
+            chanlun::algorithm::divergence::背驰分析::任意背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &guard.普通K线序列,
+            )
+        })
+    }
+
+    #[classmethod]
+    #[pyo3(name = "配置背驰_OBS", signature = (进入段, 离开段, 观察员, 配置))]
+    fn 配置背驰_obs(
+        _cls: &Bound<'_, PyType>,
+        进入段: &Bound<'_, 虚线Py>,
+        离开段: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+        配置: &Bound<'_, 缠论配置Py>,
+        py: Python<'_>,
+    ) -> PyResult<bool> {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
+        let config = 配置.borrow().to_rust_config(py)?;
+        let obs_arc = 观察员.borrow().inner.clone().expect("观察者未初始化");
+        Ok(py.detach(move || {
+            let guard = obs_arc.read();
+            chanlun::algorithm::divergence::背驰分析::配置背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &guard.普通K线序列,
+                &config,
+            )
+        }))
+    }
+
+    #[classmethod]
+    #[pyo3(name = "任选背驰_OBS", signature = (进入段, 离开段, 观察员))]
+    fn 任选背驰_obs(
+        _cls: &Bound<'_, PyType>,
+        进入段: &Bound<'_, 虚线Py>,
+        离开段: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+        py: Python<'_>,
+    ) -> bool {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
+        let obs_arc = 观察员.borrow().inner.clone().expect("观察者未初始化");
+        py.detach(move || {
+            let guard = obs_arc.read();
+            chanlun::algorithm::divergence::背驰分析::任选背驰(
+                &进入段_inner,
+                &离开段_inner,
+                &guard.普通K线序列,
+            )
+        })
+    }
+
+    #[classmethod]
+    #[pyo3(name = "背驰模式_OBS", signature = (进入段, 离开段, 观察员, 配置, 模式))]
+    fn 背驰模式_obs(
+        _cls: &Bound<'_, PyType>,
+        进入段: &Bound<'_, 虚线Py>,
+        离开段: &Bound<'_, 虚线Py>,
+        观察员: &Bound<'_, 观察者Py>,
+        配置: &Bound<'_, 缠论配置Py>,
+        模式: &str,
+        py: Python<'_>,
+    ) -> PyResult<bool> {
+        let 进入段_inner = Arc::clone(&进入段.borrow().inner);
+        let 离开段_inner = Arc::clone(&离开段.borrow().inner);
+        let config = 配置.borrow().to_rust_config(py)?;
+        let 模式 = 模式.to_string();
+        let obs_arc = 观察员.borrow().inner.clone().expect("观察者未初始化");
+        Ok(py.detach(move || {
+            let guard = obs_arc.read();
+            chanlun::algorithm::divergence::背驰分析::背驰模式(
+                &进入段_inner,
+                &离开段_inner,
+                &guard.普通K线序列,
+                &config,
+                &模式,
+            )
+        }))
     }
 }
 
@@ -345,7 +504,7 @@ impl 笔Py {
             .map(|k| k.bind(py).borrow().inner.clone())
             .collect();
         let config = 配置.borrow().to_rust_config(py)?;
-        let depth = match 当前分型_rc {
+        let depth = py.detach(|| match 当前分型_rc {
             Some(fr) => chanlun::algorithm::bi::笔::分析(
                 fr,
                 &mut fr_seq,
@@ -356,17 +515,21 @@ impl 笔Py {
                 &config,
             ),
             None => 递归层次,
-        };
+        });
 
-        // 写回 Python 列表
+        // 写回 Python 列表 (bulk extend)
+        let fr_items: Vec<Py<PyAny>> = fr_seq
+            .iter()
+            .map(|f| fractal_to_py(py, Arc::clone(f)).into_any())
+            .collect();
         分型序列.call_method0("clear")?;
-        for f in fr_seq {
-            分型序列.call_method1("append", (fractal_to_py(py, f),))?;
-        }
+        分型序列.call_method1("extend", (PyList::new(py, &fr_items)?,))?;
+        let bi_items: Vec<Py<PyAny>> = bi_seq
+            .iter()
+            .map(|d| dashed_to_py(py, Arc::clone(d)).into_any())
+            .collect();
         笔序列.call_method0("clear")?;
-        for d in bi_seq {
-            笔序列.call_method1("append", (dashed_to_py(py, d),))?;
-        }
+        笔序列.call_method1("extend", (PyList::new(py, &bi_items)?,))?;
 
         Ok(depth)
     }
@@ -552,19 +715,23 @@ impl 线段Py {
         let rel_list: Vec<chanlun::types::相对方向> = 关系序列
             .map(|v| v.into_iter().map(|d| d.inner).collect())
             .unwrap_or(default_rel);
-        chanlun::algorithm::segment::线段::分析(
-            &bi_list,
-            &mut seg_seq,
-            &config,
-            层级,
-            &rel_list,
-        );
+        py.detach(|| {
+            chanlun::algorithm::segment::线段::分析(
+                &bi_list,
+                &mut seg_seq,
+                &config,
+                层级,
+                &rel_list,
+            );
+        });
 
-        // 写回 Python 列表
+        // 写回 Python 列表 (bulk extend)
+        let items: Vec<Py<PyAny>> = seg_seq
+            .iter()
+            .map(|d| dashed_to_py(py, Arc::clone(d)).into_any())
+            .collect();
         线段序列.call_method0("clear")?;
-        for d in seg_seq {
-            线段序列.call_method1("append", (dashed_to_py(py, d),))?;
-        }
+        线段序列.call_method1("extend", (PyList::new(py, &items)?,))?;
         Ok(())
     }
 
@@ -590,13 +757,17 @@ impl 线段Py {
         }
 
         let config = 配置.borrow().to_rust_config(py)?;
-        chanlun::algorithm::segment::线段::扩展分析(&dash_list, &mut seg_seq, &config);
+        py.detach(|| {
+            chanlun::algorithm::segment::线段::扩展分析(&dash_list, &mut seg_seq, &config);
+        });
 
-        // 写回 Python 列表
+        // 写回 Python 列表 (bulk extend)
+        let items: Vec<Py<PyAny>> = seg_seq
+            .iter()
+            .map(|d| dashed_to_py(py, Arc::clone(d)).into_any())
+            .collect();
         线段序列.call_method0("clear")?;
-        for d in seg_seq {
-            线段序列.call_method1("append", (dashed_to_py(py, d),))?;
-        }
+        线段序列.call_method1("extend", (PyList::new(py, &items)?,))?;
         Ok(())
     }
 
@@ -714,7 +885,7 @@ impl 中枢Py {
 
     #[getter]
     fn 标识(&self) -> String {
-        self.inner.标识.read().unwrap().clone()
+        self.inner.标识.read().clone()
     }
 
     #[getter]
@@ -725,7 +896,7 @@ impl 中枢Py {
     #[getter]
     fn 基础序列(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
-        for d in self.inner.基础序列.read().unwrap().iter() {
+        for d in self.inner.基础序列.read().iter() {
             list.append(dashed_to_py(py, Arc::clone(d)))?;
         }
         Ok(list.into())
@@ -736,7 +907,6 @@ impl 中枢Py {
         self.inner
             .第三买卖线
             .read()
-            .unwrap()
             .as_ref()
             .map(|d| dashed_to_py(py, Arc::clone(d)))
     }
@@ -746,7 +916,6 @@ impl 中枢Py {
         self.inner
             .本级_第三买卖线
             .read()
-            .unwrap()
             .as_ref()
             .map(|d| dashed_to_py(py, Arc::clone(d)))
     }
@@ -845,13 +1014,17 @@ impl 中枢Py {
             hub_seq.push(Arc::clone(&h.inner));
         }
         let config = 配置.borrow().to_rust_config(配置.py())?;
-        self.inner.获取扩展中枢(&mut hub_seq, &config);
+        py.detach(|| {
+            self.inner.获取扩展中枢(&mut hub_seq, &config);
+        });
 
-        // 写回 Python 列表
+        // 写回 Python 列表 (bulk extend)
+        let items: Vec<Py<PyAny>> = hub_seq
+            .iter()
+            .map(|h| hub_to_py(py, Arc::clone(h)).into_any())
+            .collect();
         扩展中枢.call_method0("clear")?;
-        for h in hub_seq {
-            扩展中枢.call_method1("append", (hub_to_py(py, h),))?;
-        }
+        扩展中枢.call_method1("extend", (PyList::new(py, &items)?,))?;
         Ok(())
     }
 
@@ -958,13 +1131,17 @@ impl 中枢Py {
             hub_seq.push(Arc::clone(&h.inner));
         }
 
-        chanlun::algorithm::hub::中枢::分析(&rc_list, &mut hub_seq, 跳过首部, 标识, 层级);
+        py.detach(|| {
+            chanlun::algorithm::hub::中枢::分析(&rc_list, &mut hub_seq, 跳过首部, 标识, 层级);
+        });
 
-        // 写回 Python 列表
+        // 写回 Python 列表 (bulk extend)
+        let items: Vec<Py<PyAny>> = hub_seq
+            .iter()
+            .map(|h| hub_to_py(py, Arc::clone(h)).into_any())
+            .collect();
         中枢序列.call_method0("clear")?;
-        for h in hub_seq {
-            中枢序列.call_method1("append", (hub_to_py(py, h),))?;
-        }
+        中枢序列.call_method1("extend", (PyList::new(py, &items)?,))?;
         Ok(())
     }
 

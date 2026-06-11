@@ -26,10 +26,10 @@ use crate::business::observer::观察者;
 use crate::business::synthesizer::K线合成器;
 use crate::config::缠论配置;
 use crate::kline::bar::K线;
+use crate::{error, warn};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock;
-use tracing::{error, info};
 
 /// 立体分析器 — 多周期协调器
 pub struct 立体分析器 {
@@ -72,7 +72,7 @@ impl 立体分析器 {
         // 显示周期特殊配置
         {
             let 显示观察员 = 单体分析器.get(&显示周期).expect("显示周期观察者不存在");
-            let mut guard = 显示观察员.write().unwrap();
+            let mut guard = 显示观察员.write();
             guard.配置.推送K线 = true;
             guard.配置.推送笔 = true;
             guard.配置.推送线段 = true;
@@ -84,14 +84,14 @@ impl 立体分析器 {
         {
             let 显示缠K序列 = 单体分析器
                 .get(&显示周期)
-                .map(|o| o.read().unwrap().缠论K线序列.clone())
+                .map(|o| o.read().缠论K线序列.clone())
                 .unwrap_or_default();
 
             for &周期 in &周期组 {
                 if 周期 != 显示周期
                     && let Some(观察员) = 单体分析器.get(&周期)
                 {
-                    观察员.write().unwrap().基础缠K序列 = 显示缠K序列.clone();
+                    观察员.write().基础缠K序列 = 显示缠K序列.clone();
                 }
             }
         }
@@ -119,7 +119,7 @@ impl 立体分析器 {
     /// __K线回调 — 对应 Python 立体分析器.__K线回调
     fn __K线回调(&self, _信号类型: String, _标识: String, 周期: i64, 完成K线: K线) {
         if let Some(观察员) = self.单体分析器.get(&周期) {
-            let mut obs = 观察员.write().unwrap();
+            let mut obs = 观察员.write();
             obs.增加原始K线(完成K线);
             // 对应 Python: if 当前K线 := self._K线合成器.获取当前K线(周期)
             // _完成K线刚清空当前K线，获取当前K线返回 None，所以这里不添加
@@ -133,7 +133,7 @@ impl 立体分析器 {
         完成K线: K线,
     ) {
         if let Some(观察员) = 单体分析器.get(&周期) {
-            观察员.write().unwrap().增加原始K线(完成K线);
+            观察员.write().增加原始K线(完成K线);
         }
     }
 
@@ -165,22 +165,22 @@ impl 立体分析器 {
         let 起始时间 = self
             .单体分析器
             .get(&self.输入周期)
-            .and_then(|o| o.read().unwrap().普通K线序列.first().map(|k| k.时间戳))
+            .and_then(|o| o.read().普通K线序列.first().map(|k| k.时间戳))
             .unwrap_or(0);
         let 结束时间 = self
             .单体分析器
             .get(&self.输入周期)
-            .and_then(|o| o.read().unwrap().普通K线序列.last().map(|k| k.时间戳))
+            .and_then(|o| o.read().普通K线序列.last().map(|k| k.时间戳))
             .unwrap_or(0);
         let 标识 = self
             .单体分析器
             .get(&self.输入周期)
-            .map(|o| o.read().unwrap().符号.clone())
+            .map(|o| o.read().符号.clone())
             .unwrap_or_default();
         let 周期 = self
             .单体分析器
             .get(&self.输入周期)
-            .map(|o| o.read().unwrap().周期)
+            .map(|o| o.read().周期)
             .unwrap_or_default();
 
         let 目录标识 = format!("RustM_{}:{}_{}_{}", 标识, 周期, 起始时间, 结束时间);
@@ -195,12 +195,11 @@ impl 立体分析器 {
             if let Some(观察员) = self.单体分析器.get(周期) {
                 观察员
                     .read()
-                    .unwrap()
                     .测试_保存数据(Some(&保存路径.to_string_lossy()));
             }
         }
 
-        info!("多级别数据拆分保存完成，目录：{}", 保存路径.display());
+        warn!("多级别数据拆分保存完成，目录：{}", 保存路径.display());
     }
 
     /// 相等 — 各周期观察者全量比对，对应 Python `立体分析器相等`
@@ -213,11 +212,11 @@ impl 立体分析器 {
 
         for 周期 in &self.周期组 {
             let a_obs = match self.单体分析器.get(周期) {
-                Some(o) => o.read().unwrap(),
+                Some(o) => o.read(),
                 None => return (false, format!("{标签}: 周期{周期} 观察者不存在 (A)")),
             };
             let b_obs = match other.单体分析器.get(周期) {
-                Some(o) => o.read().unwrap(),
+                Some(o) => o.read(),
                 None => return (false, format!("{标签}: 周期{周期} 观察者不存在 (B)")),
             };
             let (eq, msg) = a_obs.相等(&b_obs, 浮点容差);

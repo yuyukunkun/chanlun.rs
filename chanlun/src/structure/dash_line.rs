@@ -29,10 +29,10 @@ use crate::kline::chan_kline::缠论K线;
 use crate::structure::fractal_obj::分型;
 use crate::structure::segment_feat::线段特征;
 use crate::types::{分型结构, 相对方向, 缺口};
-use cached::stores::LruCache;
+use crate::warn;
+use parking_lot::RwLock;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, RwLock};
-use tracing::warn;
 
 /// 扩展线段模式 — 控制虚线高低取值方式
 ///
@@ -132,32 +132,26 @@ pub struct MACD行为统计 {
 impl Clone for 虚线 {
     fn clone(&self) -> Self {
         Self {
-            标识: RwLock::new(self.标识.read().unwrap().clone()),
+            标识: RwLock::new(self.标识.read().clone()),
             序号: AtomicI64::new(self.序号.load(Ordering::Relaxed)),
             级别: AtomicI64::new(self.级别.load(Ordering::Relaxed)),
             文: Arc::clone(&self.文),
-            武: RwLock::new(Arc::clone(&self.武.read().unwrap())),
+            武: RwLock::new(Arc::clone(&self.武.read())),
             有效性: AtomicBool::new(self.有效性.load(Ordering::Relaxed)),
-            基础序列: RwLock::new(self.基础序列.read().unwrap().clone()),
-            特征序列: RwLock::new(self.特征序列.read().unwrap().clone()),
-            实_中枢序列: RwLock::new(self.实_中枢序列.read().unwrap().clone()),
-            虚_中枢序列: RwLock::new(self.虚_中枢序列.read().unwrap().clone()),
-            合_中枢序列: RwLock::new(self.合_中枢序列.read().unwrap().clone()),
-            确认K线: RwLock::new(self.确认K线.read().unwrap().clone()),
-            模式: RwLock::new(self.模式.read().unwrap().clone()),
+            基础序列: RwLock::new(self.基础序列.read().clone()),
+            特征序列: RwLock::new(self.特征序列.read().clone()),
+            实_中枢序列: RwLock::new(self.实_中枢序列.read().clone()),
+            虚_中枢序列: RwLock::new(self.虚_中枢序列.read().clone()),
+            合_中枢序列: RwLock::new(self.合_中枢序列.read().clone()),
+            确认K线: RwLock::new(self.确认K线.read().clone()),
+            模式: RwLock::new(self.模式.read().clone()),
             _特征序列_显示: AtomicBool::new(self._特征序列_显示.load(Ordering::Relaxed)),
-            前一缺口: RwLock::new(*self.前一缺口.read().unwrap()),
-            前一结束位置: RwLock::new(self.前一结束位置.read().unwrap().clone()),
+            前一缺口: RwLock::new(*self.前一缺口.read()),
+            前一结束位置: RwLock::new(self.前一结束位置.read().clone()),
             短路修正: AtomicBool::new(self.短路修正.load(Ordering::Relaxed)),
         }
     }
 }
-
-type 买卖意义缓存类型 = LruCache<(usize, usize), (bool, String)>;
-
-/// 买卖意义 LRU 缓存（max 128 条目，对齐 Python @lru_cache(maxsize=128)）
-static 买卖意义缓存: LazyLock<Mutex<买卖意义缓存类型>> =
-    LazyLock::new(|| Mutex::new(LruCache::with_size(128)));
 
 impl 虚线 {
     pub fn new(
@@ -195,14 +189,14 @@ impl 虚线 {
             "{}:{}:{}:{}",
             self.文.中.标识,
             self.文.中.周期,
-            self.标识.read().unwrap(),
+            self.标识.read(),
             self.序号.load(Ordering::Relaxed)
         )
     }
 
     /// 方向 — 文到武的方向（对齐 Python：无法识别时 panic）
     pub fn 方向(&self) -> 相对方向 {
-        match (self.文.结构, self.武.read().unwrap().结构) {
+        match (self.文.结构, self.武.read().结构) {
             (分型结构::顶, 分型结构::底) => 相对方向::向下,
             (分型结构::顶, 分型结构::下) => 相对方向::向下,
             (分型结构::底, 分型结构::顶) => 相对方向::向上,
@@ -210,7 +204,7 @@ impl 虚线 {
             _ => panic!(
                 "虚线 方向 无法识别: 文.结构={:?}, 武.结构={:?}",
                 self.文.结构,
-                self.武.read().unwrap().结构
+                self.武.read().结构
             ),
         }
     }
@@ -218,7 +212,7 @@ impl 虚线 {
     /// 虚线端点高 — 始终取文/武分型端点的中.高，不扫描基础序列
     pub fn 端点高(&self) -> f64 {
         if self.方向() == 相对方向::向上 {
-            self.武.read().unwrap().中.高.get()
+            self.武.read().中.高.get()
         } else {
             self.文.中.高.get()
         }
@@ -227,7 +221,7 @@ impl 虚线 {
     /// 虚线端点低 — 始终取文/武分型端点的中.低，不扫描基础序列
     pub fn 端点低(&self) -> f64 {
         if self.方向() == 相对方向::向下 {
-            self.武.read().unwrap().中.低.get()
+            self.武.read().中.低.get()
         } else {
             self.文.中.低.get()
         }
@@ -236,20 +230,20 @@ impl 虚线 {
     /// 虚线高
     /// 默认同端点高；扩展线段模式开启时，取基础序列中所有子段文分型 + 最后子段武分型的最高
     pub fn 高(&self) -> f64 {
-        let 模式 = self.模式.read().unwrap();
-        let 标识 = self.标识.read().unwrap();
+        let 模式 = self.模式.read();
+        let 标识 = self.标识.read();
         if 扩展线段模式.load(Ordering::Relaxed)
             && *模式 != "文武"
             && *标识 != "笔"
             && 标识.contains("扩展")
         {
-            let 基础序列 = self.基础序列.read().unwrap();
+            let 基础序列 = self.基础序列.read();
             if !基础序列.is_empty() {
                 return 基础序列
                     .iter()
                     .map(|s| s.文.中.高.get())
                     .chain(std::iter::once(
-                        基础序列.last().unwrap().武.read().unwrap().中.高.get(),
+                        基础序列.last().unwrap().武.read().中.高.get(),
                     ))
                     .fold(f64::NEG_INFINITY, f64::max);
             }
@@ -260,20 +254,20 @@ impl 虚线 {
     /// 虚线低
     /// 默认同端点低；扩展线段模式开启时，取基础序列中所有子段文分型 + 最后子段武分型的最低
     pub fn 低(&self) -> f64 {
-        let 模式 = self.模式.read().unwrap();
-        let 标识 = self.标识.read().unwrap();
+        let 模式 = self.模式.read();
+        let 标识 = self.标识.read();
         if 扩展线段模式.load(Ordering::Relaxed)
             && *模式 != "文武"
             && *标识 != "笔"
             && 标识.contains("扩展")
         {
-            let 基础序列 = self.基础序列.read().unwrap();
+            let 基础序列 = self.基础序列.read();
             if !基础序列.is_empty() {
                 return 基础序列
                     .iter()
                     .map(|s| s.文.中.低.get())
                     .chain(std::iter::once(
-                        基础序列.last().unwrap().武.read().unwrap().中.低.get(),
+                        基础序列.last().unwrap().武.read().中.低.get(),
                     ))
                     .fold(f64::INFINITY, f64::min);
             }
@@ -283,18 +277,18 @@ impl 虚线 {
 
     /// 判断两个虚线是否首尾相连
     pub fn 之前是(&self, 之前: &虚线) -> bool {
-        if *self.标识.read().unwrap() != *之前.标识.read().unwrap() {
+        if *self.标识.read() != *之前.标识.read() {
             return false;
         }
-        Arc::as_ptr(&*之前.武.read().unwrap()) == Arc::as_ptr(&self.文)
+        Arc::ptr_eq(&*之前.武.read(), &self.文)
     }
 
     /// 判断两个虚线是否首尾相连
     pub fn 之后是(&self, 之后: &虚线) -> bool {
-        if *self.标识.read().unwrap() != *之后.标识.read().unwrap() {
+        if *self.标识.read() != *之后.标识.read() {
             return false;
         }
-        Arc::as_ptr(&*self.武.read().unwrap()) == Arc::as_ptr(&之后.文)
+        Arc::ptr_eq(&*self.武.read(), &之后.文)
     }
 
     /// 获取该虚线范围内的普K序列
@@ -304,23 +298,17 @@ impl 虚线 {
         // 而非序号切片——因为序号可能与实际位置不一致。
         let 始 = 普K序列
             .iter()
-            .position(|k| Arc::as_ptr(k) == Arc::as_ptr(&*self.文.中.标的K线.read().unwrap()));
-        let 终 = 普K序列.iter().position(|k| {
-            Arc::as_ptr(k) == Arc::as_ptr(&*self.武.read().unwrap().中.标的K线.read().unwrap())
-        });
+            .position(|k| Arc::ptr_eq(k, &*self.文.中.标的K线.read()));
+        let 终 = 普K序列
+            .iter()
+            .position(|k| Arc::ptr_eq(k, &*self.武.read().中.标的K线.read()));
         match (始, 终) {
             (Some(s), Some(e)) if s <= e => 普K序列[s..=e].to_vec(),
             _ => {
                 // 指针查找失败时回退到序号方式
                 warn!("[警告]虚线.获取普K序列 <指针查找失败时回退到序号方式>");
                 let 始 = self.文.中.原始起始序号 as usize;
-                let 终 = self
-                    .武
-                    .read()
-                    .unwrap()
-                    .中
-                    .原始结束序号
-                    .load(Ordering::Relaxed) as usize;
+                let 终 = self.武.read().中.原始结束序号.load(Ordering::Relaxed) as usize;
                 if 始 < 普K序列.len() && 终 < 普K序列.len() && 始 <= 终 {
                     普K序列[始..=终].to_vec()
                 } else {
@@ -333,21 +321,21 @@ impl 虚线 {
     /// 获取该虚线范围内的缠K序列
     /// 对齐说明：Python 接收 观察者 对象，Rust 直接接收切片引用，行为等价
     pub fn 获取缠K序列(&self, 缠K序列: &[Arc<缠论K线>]) -> Vec<Arc<缠论K线>> {
-        缠论K线::截取(缠K序列, &self.文.中, &self.武.read().unwrap().中).unwrap_or_default()
+        缠论K线::截取(缠K序列, &self.文.中, &self.武.read().中).unwrap_or_default()
     }
 
     /// 获取_武 — 递归获取虚线的终点分型（笔直接返回武，线段递归到底层笔的武）
     /// 对齐说明：Python 是 @classmethod（cls, 实线），Rust 是实例方法（&self），逻辑等价
     pub fn 获取_武(&self) -> Arc<分型> {
-        if *self.标识.read().unwrap() == "笔" {
-            return self.武.read().unwrap().clone();
+        if *self.标识.read() == "笔" {
+            return self.武.read().clone();
         }
-        let mut current_rc = Arc::clone(self.基础序列.read().unwrap().last().unwrap());
+        let mut current_rc = Arc::clone(self.基础序列.read().last().unwrap());
         loop {
-            if *current_rc.标识.read().unwrap() == "笔" {
-                return current_rc.武.read().unwrap().clone();
+            if *current_rc.标识.read() == "笔" {
+                return current_rc.武.read().clone();
             }
-            let next = Arc::clone(current_rc.基础序列.read().unwrap().last().unwrap());
+            let next = Arc::clone(current_rc.基础序列.read().last().unwrap());
             current_rc = next;
         }
     }
@@ -355,16 +343,16 @@ impl 虚线 {
     /// 获取数据文本（用于保存/调试）
     pub fn 获取数据文本(&self) -> String {
         use crate::utils::format_f64_g;
-        if *self.标识.read().unwrap() == "笔" {
+        if *self.标识.read() == "笔" {
             return format!(
                 "{}, {}, {}, 文:({},{}), 武:({},{}), {}",
-                self.标识.read().unwrap(),
+                self.标识.read(),
                 self.序号.load(Ordering::Relaxed),
                 self.级别.load(Ordering::Relaxed),
                 self.文.时间戳(),
                 format_f64_g(self.文.分型特征值),
-                self.武.read().unwrap().时间戳(),
-                format_f64_g(self.武.read().unwrap().分型特征值),
+                self.武.read().时间戳(),
+                format_f64_g(self.武.read().分型特征值),
                 if self.有效性.load(Ordering::Relaxed) {
                     "True"
                 } else {
@@ -378,11 +366,11 @@ impl 虚线 {
         let (特征_a, 特征_b, 特征_c) = crate::algorithm::segment::线段::特征序列状态(self);
         let 特征_bool = |b: bool| -> &str { if b { "True" } else { "False" } };
 
-        let 前一缺口_str = match &*self.前一缺口.read().unwrap() {
+        let 前一缺口_str = match &*self.前一缺口.read() {
             Some(g) => format!("{}", g),
             None => "None".to_string(),
         };
-        let 前一结束位置_str = match &*self.前一结束位置.read().unwrap() {
+        let 前一结束位置_str = match &*self.前一结束位置.read() {
             Some(d) => format!("{}", d),
             None => "None".to_string(),
         };
@@ -392,7 +380,6 @@ impl 虚线 {
             "[{}]",
             self.实_中枢序列
                 .read()
-                .unwrap()
                 .iter()
                 .map(|h| format!("{}", h))
                 .collect::<Vec<_>>()
@@ -402,7 +389,6 @@ impl 虚线 {
             "[{}]",
             self.虚_中枢序列
                 .read()
-                .unwrap()
                 .iter()
                 .map(|h| format!("{}", h))
                 .collect::<Vec<_>>()
@@ -412,7 +398,6 @@ impl 虚线 {
             "[{}]",
             self.合_中枢序列
                 .read()
-                .unwrap()
                 .iter()
                 .map(|h| format!("{}", h))
                 .collect::<Vec<_>>()
@@ -443,19 +428,19 @@ impl 虚线 {
 
         format!(
             "{}, {}, {}, 文:({},{}), 武:({},{}), {}, {}, ({}, {}, {}), (前: {}, 后: {}, 三: {}, 伤: {}), 实: {}, 虚: {}, 合: {}, {}, {}, {}, {}",
-            self.标识.read().unwrap(),
+            self.标识.read(),
             self.序号.load(Ordering::Relaxed),
             self.级别.load(Ordering::Relaxed),
             self.文.时间戳(),
             format_f64_g(self.文.分型特征值),
-            self.武.read().unwrap().时间戳(),
-            format_f64_g(self.武.read().unwrap().分型特征值),
+            self.武.read().时间戳(),
+            format_f64_g(self.武.read().分型特征值),
             if self.有效性.load(Ordering::Relaxed) {
                 "True"
             } else {
                 "False"
             },
-            self.基础序列.read().unwrap().len(),
+            self.基础序列.read().len(),
             特征_bool(特征_a),
             特征_bool(特征_b),
             特征_bool(特征_c),
@@ -469,7 +454,7 @@ impl 虚线 {
             实_str,
             虚_str,
             合_str,
-            self.模式.read().unwrap(),
+            self.模式.read(),
             前一缺口_str,
             前一结束位置_str,
             if self.短路修正.load(Ordering::Relaxed) {
@@ -497,26 +482,26 @@ impl 虚线 {
             panic!("创建线段 虚线序列 数量 {} 不是单数!", 序列数量);
         }
         let 文 = Arc::clone(&虚线序列[0].文);
-        let 武 = Arc::clone(&*虚线序列[虚线序列.len() - 1].武.read().unwrap());
+        let 武 = Arc::clone(&*虚线序列[虚线序列.len() - 1].武.read());
         assert!(
             文.结构 != 武.结构,
             "创建线段: 文.结构 == 武.结构 文={}, 武={}",
             文,
             武
         );
-        let 标识: String = if *虚线序列[0].标识.read().unwrap() == "笔" {
+        let 标识: String = if *虚线序列[0].标识.read() == "笔" {
             "线段".into()
         } else {
-            format!("线段<{}>", 虚线序列[0].标识.read().unwrap())
+            format!("线段<{}>", 虚线序列[0].标识.read())
         };
         let 级别 = 虚线序列[0].级别.load(Ordering::Relaxed) + 1;
         let 段 = Self::new(0, 标识, 文, 武, 级别, true);
-        *段.特征序列.write().unwrap() = vec![None, None, None];
-        *段.实_中枢序列.write().unwrap() = Vec::new();
-        *段.虚_中枢序列.write().unwrap() = Vec::new();
-        *段.合_中枢序列.write().unwrap() = Vec::new();
-        *段.基础序列.write().unwrap() = 虚线序列.to_vec();
-        *段.模式.write().unwrap() = "文武".into();
+        *段.特征序列.write() = vec![None, None, None];
+        *段.实_中枢序列.write() = Vec::new();
+        *段.虚_中枢序列.write() = Vec::new();
+        *段.合_中枢序列.write() = Vec::new();
+        *段.基础序列.write() = 虚线序列.to_vec();
+        *段.模式.write() = "文武".into();
         段
     }
 
@@ -573,59 +558,56 @@ impl 虚线 {
     pub fn 计算MACD柱子均值(普K序列: &[Arc<K线>], 实线: &虚线) -> f64 {
         let K线序列 = K线::截取rc(
             普K序列,
-            &实线.文.中.标的K线.read().unwrap(),
-            &实线.武.read().unwrap().中.标的K线.read().unwrap(),
+            &实线.文.中.标的K线.read(),
+            &实线.武.read().中.标的K线.read(),
         );
         if K线序列.is_empty() {
             return 0.0;
         }
         let 总: f64 = K线序列
             .iter()
-            .filter_map(|k| k.指标.read().unwrap().macd_cloned())
+            .filter_map(|k| k.指标.read().macd_cloned())
             .map(|m| m.MACD柱.abs())
             .sum();
         总 / K线序列.len() as f64
     }
 
     /// 计算MACD柱子均值_阴 — 负柱的绝对值均值
-    /// 对齐说明：Python 无数据时返回 False（bool），Rust 返回 None，调用方处理等价
     pub fn 计算MACD柱子均值_阴(普K序列: &[Arc<K线>], 实线: &虚线) -> Option<f64> {
         let K线序列 = K线::截取rc(
             普K序列,
-            &实线.文.中.标的K线.read().unwrap(),
-            &实线.武.read().unwrap().中.标的K线.read().unwrap(),
+            &实线.文.中.标的K线.read(),
+            &实线.武.read().中.标的K线.read(),
         );
-        let 总: Vec<f64> = K线序列
+        let (sum, count) = K线序列
             .iter()
-            .filter_map(|k| k.指标.read().unwrap().macd_cloned())
+            .filter_map(|k| k.指标.read().macd_cloned())
             .filter(|m| m.MACD柱 < 0.0)
-            .map(|m| m.MACD柱.abs())
-            .collect();
-        if 总.is_empty() {
+            .fold((0.0, 0usize), |(s, c), m| (s + m.MACD柱.abs(), c + 1));
+        if count == 0 {
             None
         } else {
-            Some(总.iter().sum::<f64>() / 总.len() as f64)
+            Some(sum / count as f64)
         }
     }
 
     /// 计算MACD柱子均值_阳 — 正柱的绝对值均值
-    /// 对齐说明：Python 无数据时返回 False（bool），Rust 返回 None，调用方处理等价
     pub fn 计算MACD柱子均值_阳(普K序列: &[Arc<K线>], 实线: &虚线) -> Option<f64> {
         let K线序列 = K线::截取rc(
             普K序列,
-            &实线.文.中.标的K线.read().unwrap(),
-            &实线.武.read().unwrap().中.标的K线.read().unwrap(),
+            &实线.文.中.标的K线.read(),
+            &实线.武.read().中.标的K线.read(),
         );
-        let 总: Vec<f64> = K线序列
+        let (sum, count) = K线序列
             .iter()
-            .filter_map(|k| k.指标.read().unwrap().macd_cloned())
+            .filter_map(|k| k.指标.read().macd_cloned())
             .filter(|m| m.MACD柱 > 0.0)
             .map(|m| m.MACD柱.abs())
-            .collect();
-        if 总.is_empty() {
+            .fold((0.0, 0usize), |(s, c), v| (s + v, c + 1));
+        if count == 0 {
             None
         } else {
-            Some(总.iter().sum::<f64>() / 总.len() as f64)
+            Some(sum / count as f64)
         }
     }
 
@@ -633,9 +615,9 @@ impl 虚线 {
 
     /// 武之全量MACD均值 — 武端MACD柱是否小于均值（背驰）
     pub fn 武之全量MACD均值(普K序列: &[Arc<K线>], 实线: &虚线) -> bool {
-        let 武_ref = 实线.武.read().unwrap();
-        let 标 = 武_ref.中.标的K线.read().unwrap();
-        let 武_MACD = match 标.指标.read().unwrap().macd() {
+        let 武_ref = 实线.武.read();
+        let 标 = 武_ref.中.标的K线.read();
+        let 武_MACD = match 标.指标.read().macd() {
             Some(m) => m.MACD柱.abs(),
             None => return false,
         };
@@ -653,9 +635,9 @@ impl 虚线 {
 
     /// 武之MACD均值_阴 — 武端负柱是否小于阴均值
     pub fn 武之MACD均值_阴(普K序列: &[Arc<K线>], 实线: &虚线) -> bool {
-        let 武_ref = 实线.武.read().unwrap();
-        let 标 = 武_ref.中.标的K线.read().unwrap();
-        let 武_MACD = match 标.指标.read().unwrap().macd() {
+        let 武_ref = 实线.武.read();
+        let 标 = 武_ref.中.标的K线.read();
+        let 武_MACD = match 标.指标.read().macd() {
             Some(m) => m.MACD柱.abs(),
             None => return false,
         };
@@ -667,9 +649,9 @@ impl 虚线 {
 
     /// 武之MACD均值_阳 — 武端正柱是否小于阳均值
     pub fn 武之MACD均值_阳(普K序列: &[Arc<K线>], 实线: &虚线) -> bool {
-        let 武_ref = 实线.武.read().unwrap();
-        let 标 = 武_ref.中.标的K线.read().unwrap();
-        let 武_MACD = match 标.指标.read().unwrap().macd() {
+        let 武_ref = 实线.武.read();
+        let 标 = 武_ref.中.标的K线.read();
+        let 武_MACD = match 标.指标.read().macd() {
             Some(m) => m.MACD柱.abs(),
             None => return false,
         };
@@ -681,20 +663,20 @@ impl 虚线 {
 
     /// 武之MACD极值 — 武端MACD柱是否为区间极值
     pub fn 武之MACD极值(普K序列: &[Arc<K线>], 实线: &虚线) -> bool {
-        let 武_ref = 实线.武.read().unwrap();
-        let 标 = 武_ref.中.标的K线.read().unwrap();
-        let 武_MACD = match 标.指标.read().unwrap().macd() {
+        let 武_ref = 实线.武.read();
+        let 标 = 武_ref.中.标的K线.read();
+        let 武_MACD = match 标.指标.read().macd() {
             Some(m) => m.MACD柱,
             None => return false,
         };
         let K线序列 = K线::截取rc(
             普K序列,
-            &实线.文.中.标的K线.read().unwrap(),
-            &实线.武.read().unwrap().中.标的K线.read().unwrap(),
+            &实线.文.中.标的K线.read(),
+            &实线.武.read().中.标的K线.read(),
         );
         let 所有柱子: Vec<f64> = K线序列
             .iter()
-            .filter_map(|k| k.指标.read().unwrap().macd_cloned())
+            .filter_map(|k| k.指标.read().macd_cloned())
             .map(|m| m.MACD柱)
             .collect();
         if 所有柱子.is_empty() {
@@ -709,6 +691,217 @@ impl 虚线 {
         }
     }
 
+    pub fn _计算K线序列MACD趋向背驰(
+        普K序列: &[Arc<K线>], 方向: 相对方向
+    ) -> [bool; 3] {
+        if 普K序列.is_empty() {
+            return [false, false, false];
+        }
+        let 最后 = &普K序列[普K序列.len() - 1];
+
+        let mut 柱子列表: Vec<Arc<K线>> = Vec::new();
+        let mut 离差列表: Vec<Arc<K线>> = Vec::new();
+        let mut 信号列表: Vec<Arc<K线>> = Vec::new();
+
+        if 方向 == 相对方向::向上 {
+            for k in 普K序列 {
+                let guard = k.指标.read();
+                if let Some(m) = guard.macd() {
+                    if m.MACD柱 > 0.0 {
+                        柱子列表.push(Arc::clone(k));
+                    }
+                    if m.DIF.is_some_and(|d| d > 0.0) {
+                        离差列表.push(Arc::clone(k));
+                    }
+                    if m.DEA.is_some_and(|d| d > 0.0) {
+                        信号列表.push(Arc::clone(k));
+                    }
+                }
+            }
+        } else {
+            for k in 普K序列 {
+                let guard = k.指标.read();
+                if let Some(m) = guard.macd() {
+                    if m.MACD柱 < 0.0 {
+                        柱子列表.push(Arc::clone(k));
+                    }
+                    if m.DIF.is_some_and(|d| d < 0.0) {
+                        离差列表.push(Arc::clone(k));
+                    }
+                    if m.DEA.is_some_and(|d| d < 0.0) {
+                        信号列表.push(Arc::clone(k));
+                    }
+                }
+            }
+        }
+
+        if 柱子列表.is_empty() {
+            return [false, false, false];
+        }
+
+        let mut 结果 = [false; 3];
+
+        if 方向 == 相对方向::向上 {
+            let 最高柱子 = 柱子列表
+                .iter()
+                .max_by(|a, b| {
+                    a.指标
+                        .read()
+                        .macd()
+                        .unwrap()
+                        .MACD柱
+                        .partial_cmp(&b.指标.read().macd().unwrap().MACD柱)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap();
+            let mut 柱对 = [Arc::clone(最高柱子), Arc::clone(最后)];
+            柱对.sort_by_key(|k| k.时间戳);
+            {
+                let g0 = 柱对[0].指标.read();
+                let g1 = 柱对[1].指标.read();
+                let m0 = g0.macd().unwrap();
+                let m1 = g1.macd().unwrap();
+                if m0.MACD柱 > m1.MACD柱 && m0.MACD柱 > 0.0 && 柱对[0].高 < 柱对[1].高 {
+                    结果[0] = true;
+                }
+            }
+
+            if !离差列表.is_empty() {
+                let 最高离差 = 离差列表
+                    .iter()
+                    .max_by(|a, b| {
+                        let da = a.指标.read().macd().and_then(|m| m.DIF).unwrap_or(0.0);
+                        let db = b.指标.read().macd().and_then(|m| m.DIF).unwrap_or(0.0);
+                        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .unwrap();
+                let d0 = 最高离差
+                    .指标
+                    .read()
+                    .macd()
+                    .and_then(|m| m.DIF)
+                    .unwrap_or(0.0);
+                let d1 = 最后.指标.read().macd().and_then(|m| m.DIF).unwrap_or(0.0);
+                if d0 > d1 && 最高离差.高 < 最后.高 {
+                    结果[1] = true;
+                }
+            }
+
+            if !信号列表.is_empty() {
+                let 最高信号 = 信号列表
+                    .iter()
+                    .max_by(|a, b| {
+                        let ea = a.指标.read().macd().and_then(|m| m.DEA).unwrap_or(0.0);
+                        let eb = b.指标.read().macd().and_then(|m| m.DEA).unwrap_or(0.0);
+                        ea.partial_cmp(&eb).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .unwrap();
+                let e0 = 最高信号
+                    .指标
+                    .read()
+                    .macd()
+                    .and_then(|m| m.DEA)
+                    .unwrap_or(0.0);
+                let e1 = 最后.指标.read().macd().and_then(|m| m.DEA).unwrap_or(0.0);
+                if e0 > e1 && 最高信号.高 < 最后.高 {
+                    结果[2] = true;
+                }
+            }
+        } else {
+            let 最高柱子 = 柱子列表
+                .iter()
+                .max_by(|a, b| {
+                    a.指标
+                        .read()
+                        .macd()
+                        .unwrap()
+                        .MACD柱
+                        .abs()
+                        .partial_cmp(&b.指标.read().macd().unwrap().MACD柱.abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap();
+            let mut 柱对 = [Arc::clone(最高柱子), Arc::clone(最后)];
+            柱对.sort_by_key(|k| k.时间戳);
+            {
+                let g0 = 柱对[0].指标.read();
+                let g1 = 柱对[1].指标.read();
+                let m0 = g0.macd().unwrap();
+                let m1 = g1.macd().unwrap();
+                if m0.MACD柱 < m1.MACD柱 && m0.MACD柱 < 0.0 && 柱对[0].低 > 柱对[1].低 {
+                    结果[0] = true;
+                }
+            }
+
+            if !离差列表.is_empty() {
+                let 最高离差 = 离差列表
+                    .iter()
+                    .max_by(|a, b| {
+                        let da = a
+                            .指标
+                            .read()
+                            .macd()
+                            .and_then(|m| m.DIF)
+                            .unwrap_or(0.0)
+                            .abs();
+                        let db = b
+                            .指标
+                            .read()
+                            .macd()
+                            .and_then(|m| m.DIF)
+                            .unwrap_or(0.0)
+                            .abs();
+                        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .unwrap();
+                let d0 = 最高离差
+                    .指标
+                    .read()
+                    .macd()
+                    .and_then(|m| m.DIF)
+                    .unwrap_or(0.0);
+                let d1 = 最后.指标.read().macd().and_then(|m| m.DIF).unwrap_or(0.0);
+                if d0 < d1 && 最高离差.低 > 最后.低 {
+                    结果[1] = true;
+                }
+            }
+
+            if !信号列表.is_empty() {
+                let 最高信号 = 信号列表
+                    .iter()
+                    .max_by(|a, b| {
+                        let ea = a
+                            .指标
+                            .read()
+                            .macd()
+                            .and_then(|m| m.DEA)
+                            .unwrap_or(0.0)
+                            .abs();
+                        let eb = b
+                            .指标
+                            .read()
+                            .macd()
+                            .and_then(|m| m.DEA)
+                            .unwrap_or(0.0)
+                            .abs();
+                        ea.partial_cmp(&eb).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .unwrap();
+                let e0 = 最高信号
+                    .指标
+                    .read()
+                    .macd()
+                    .and_then(|m| m.DEA)
+                    .unwrap_or(0.0);
+                let e1 = 最后.指标.read().macd().and_then(|m| m.DEA).unwrap_or(0.0);
+                if e0 < e1 && 最高信号.低 > 最后.低 {
+                    结果[2] = true;
+                }
+            }
+        }
+
+        结果
+    }
     // ---- MACD趋向背驰 ----
 
     /// 计算K线序列MACD趋向背驰 — 分析 MACD柱/DIF/DEA 三项背驰信号
@@ -723,13 +916,7 @@ impl 虚线 {
         if 方向 == 相对方向::向上 {
             let 柱子序列: Vec<&Arc<K线>> = 普K序列
                 .iter()
-                .filter(|k| {
-                    k.指标
-                        .read()
-                        .unwrap()
-                        .macd()
-                        .is_some_and(|m| m.MACD柱 > 0.0)
-                })
+                .filter(|k| k.指标.read().macd().is_some_and(|m| m.MACD柱 > 0.0))
                 .collect();
             if 柱子序列.is_empty() {
                 return [false, false, false];
@@ -743,18 +930,17 @@ impl 虚线 {
                 .max_by(|a, b| {
                     a.指标
                         .read()
-                        .unwrap()
                         .macd()
                         .unwrap()
                         .MACD柱
-                        .partial_cmp(&b.指标.read().unwrap().macd().unwrap().MACD柱)
+                        .partial_cmp(&b.指标.read().macd().unwrap().MACD柱)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
             let mut 柱对 = [Arc::clone(*最高柱子), Arc::clone(最后)];
             柱对.sort_by_key(|k| k.时间戳);
-            let m0_g = 柱对[0].指标.read().unwrap();
-            let m1_g = 柱对[1].指标.read().unwrap();
+            let m0_g = 柱对[0].指标.read();
+            let m1_g = 柱对[1].指标.read();
             if let (Some(m0), Some(m1)) = (m0_g.macd(), m1_g.macd())
                 && m0.MACD柱 > m1.MACD柱
                 && 柱对[0].高 < 柱对[1].高
@@ -766,25 +952,13 @@ impl 虚线 {
             let 最高离差值 = 柱子序列
                 .iter()
                 .max_by(|a, b| {
-                    let da = a
-                        .指标
-                        .read()
-                        .unwrap()
-                        .macd()
-                        .and_then(|m| m.DIF)
-                        .unwrap_or(0.0);
-                    let db = b
-                        .指标
-                        .read()
-                        .unwrap()
-                        .macd()
-                        .and_then(|m| m.DIF)
-                        .unwrap_or(0.0);
+                    let da = a.指标.read().macd().and_then(|m| m.DIF).unwrap_or(0.0);
+                    let db = b.指标.read().macd().and_then(|m| m.DIF).unwrap_or(0.0);
                     da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
-            let m0_g = 最高离差值.指标.read().unwrap();
-            let m1_g = 最后.指标.read().unwrap();
+            let m0_g = 最高离差值.指标.read();
+            let m1_g = 最后.指标.read();
             if let (Some(m0), Some(m1)) = (m0_g.macd(), m1_g.macd()) {
                 let dif0 = m0.DIF.unwrap_or(0.0);
                 let dif1 = m1.DIF.unwrap_or(0.0);
@@ -797,25 +971,13 @@ impl 虚线 {
             let 最高信号线 = 柱子序列
                 .iter()
                 .max_by(|a, b| {
-                    let da = a
-                        .指标
-                        .read()
-                        .unwrap()
-                        .macd()
-                        .and_then(|m| m.DEA)
-                        .unwrap_or(0.0);
-                    let db = b
-                        .指标
-                        .read()
-                        .unwrap()
-                        .macd()
-                        .and_then(|m| m.DEA)
-                        .unwrap_or(0.0);
+                    let da = a.指标.read().macd().and_then(|m| m.DEA).unwrap_or(0.0);
+                    let db = b.指标.read().macd().and_then(|m| m.DEA).unwrap_or(0.0);
                     da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
-            let m0_g = 最高信号线.指标.read().unwrap();
-            let m1_g = 最后.指标.read().unwrap();
+            let m0_g = 最高信号线.指标.read();
+            let m1_g = 最后.指标.read();
             if let (Some(m0), Some(m1)) = (m0_g.macd(), m1_g.macd()) {
                 let dea0 = m0.DEA.unwrap_or(0.0);
                 let dea1 = m1.DEA.unwrap_or(0.0);
@@ -828,13 +990,7 @@ impl 虚线 {
         } else {
             let 柱子序列: Vec<&Arc<K线>> = 普K序列
                 .iter()
-                .filter(|k| {
-                    k.指标
-                        .read()
-                        .unwrap()
-                        .macd()
-                        .is_some_and(|m| m.MACD柱 < 0.0)
-                })
+                .filter(|k| k.指标.read().macd().is_some_and(|m| m.MACD柱 < 0.0))
                 .collect();
             if 柱子序列.is_empty() {
                 return [false, false, false];
@@ -848,19 +1004,18 @@ impl 虚线 {
                 .max_by(|a, b| {
                     a.指标
                         .read()
-                        .unwrap()
                         .macd()
                         .unwrap()
                         .MACD柱
                         .abs()
-                        .partial_cmp(&b.指标.read().unwrap().macd().unwrap().MACD柱.abs())
+                        .partial_cmp(&b.指标.read().macd().unwrap().MACD柱.abs())
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
             let mut 柱对 = [Arc::clone(*最高柱子), Arc::clone(最后)];
             柱对.sort_by_key(|k| k.时间戳);
-            let m0_g = 柱对[0].指标.read().unwrap();
-            let m1_g = 柱对[1].指标.read().unwrap();
+            let m0_g = 柱对[0].指标.read();
+            let m1_g = 柱对[1].指标.read();
             if let (Some(m0), Some(m1)) = (m0_g.macd(), m1_g.macd())
                 && m0.MACD柱 < m1.MACD柱
                 && 柱对[0].低 > 柱对[1].低
@@ -875,7 +1030,6 @@ impl 虚线 {
                     let da = a
                         .指标
                         .read()
-                        .unwrap()
                         .macd()
                         .and_then(|m| m.DIF)
                         .unwrap_or(0.0)
@@ -883,7 +1037,6 @@ impl 虚线 {
                     let db = b
                         .指标
                         .read()
-                        .unwrap()
                         .macd()
                         .and_then(|m| m.DIF)
                         .unwrap_or(0.0)
@@ -891,8 +1044,8 @@ impl 虚线 {
                     da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
-            let m0_g = 最高离差值.指标.read().unwrap();
-            let m1_g = 最后.指标.read().unwrap();
+            let m0_g = 最高离差值.指标.read();
+            let m1_g = 最后.指标.read();
             if let (Some(m0), Some(m1)) = (m0_g.macd(), m1_g.macd()) {
                 let dif0 = m0.DIF.unwrap_or(0.0);
                 let dif1 = m1.DIF.unwrap_or(0.0);
@@ -908,7 +1061,6 @@ impl 虚线 {
                     let da = a
                         .指标
                         .read()
-                        .unwrap()
                         .macd()
                         .and_then(|m| m.DEA)
                         .unwrap_or(0.0)
@@ -916,7 +1068,6 @@ impl 虚线 {
                     let db = b
                         .指标
                         .read()
-                        .unwrap()
                         .macd()
                         .and_then(|m| m.DEA)
                         .unwrap_or(0.0)
@@ -924,8 +1075,8 @@ impl 虚线 {
                     da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap();
-            let m0_g = 最高信号线.指标.read().unwrap();
-            let m1_g = 最后.指标.read().unwrap();
+            let m0_g = 最高信号线.指标.read();
+            let m1_g = 最后.指标.read();
             if let (Some(m0), Some(m1)) = (m0_g.macd(), m1_g.macd()) {
                 let dea0 = m0.DEA.unwrap_or(0.0);
                 let dea1 = m1.DEA.unwrap_or(0.0);
@@ -949,7 +1100,7 @@ impl 虚线 {
 
         let 符号 = |x: f64| -> &str { if x > 0.0 { "正" } else { "负" } };
 
-        let 首_MACD = match k线序列[0].指标.read().unwrap().macd() {
+        let 首_MACD = match k线序列[0].指标.read().macd() {
             Some(m) => m.MACD柱,
             None => return Vec::new(),
         };
@@ -958,7 +1109,7 @@ impl 虚线 {
         let mut 结果 = Vec::new();
 
         for k线 in &k线序列[1..] {
-            let macd = match k线.指标.read().unwrap().macd() {
+            let macd = match k线.指标.read().macd() {
                 Some(m) => m.MACD柱,
                 None => continue,
             };
@@ -1028,12 +1179,17 @@ impl 虚线 {
         let mut dea_up = 0;
         let mut dea_down = 0;
 
+        let mut golden = 0;
+        let mut death = 0;
+        let mut 交叉标记 = vec![0i32];
+
         for i in 1..普K序列.len() {
-            let pre_guard = 普K序列[i - 1].指标.read().unwrap();
-            let cur_guard = 普K序列[i].指标.read().unwrap();
+            let pre_guard = 普K序列[i - 1].指标.read();
+            let cur_guard = 普K序列[i].指标.read();
             let pre = pre_guard.macd();
             let cur = cur_guard.macd();
             if pre.is_none() || cur.is_none() {
+                交叉标记.push(0);
                 continue;
             }
             let (pre_dif, cur_dif) = (pre.unwrap().DIF, cur.unwrap().DIF);
@@ -1055,25 +1211,6 @@ impl 虚线 {
                     dea_down += 1;
                 }
             }
-        }
-
-        let mut golden = 0;
-        let mut death = 0;
-        let mut 交叉标记 = vec![0i32];
-
-        for i in 1..普K序列.len() {
-            let pre_guard = 普K序列[i - 1].指标.read().unwrap();
-            let cur_guard = 普K序列[i].指标.read().unwrap();
-            let pre = pre_guard.macd();
-            let cur = cur_guard.macd();
-            if pre.is_none() || cur.is_none() {
-                交叉标记.push(0);
-                continue;
-            }
-            let pre_dif = pre.unwrap().DIF;
-            let pre_dea = pre.unwrap().DEA;
-            let cur_dif = cur.unwrap().DIF;
-            let cur_dea = cur.unwrap().DEA;
 
             if let (Some(pd), Some(cd), Some(pe), Some(ce)) = (pre_dif, cur_dif, pre_dea, cur_dea) {
                 if pd <= pe && cd > ce {
@@ -1111,24 +1248,7 @@ impl 虚线 {
     pub fn 买卖意义(
         实线: &虚线, 观察员: &crate::business::observer::观察者
     ) -> (bool, String) {
-        // LRU 缓存查找
-        let key = (
-            std::ptr::from_ref(实线) as usize,
-            std::ptr::from_ref(观察员) as usize,
-        );
-        {
-            let mut cache = 买卖意义缓存.lock().unwrap();
-            if let Some(val) = cached::Cached::cache_get(&mut *cache, &key) {
-                return val.clone();
-            }
-        }
-
-        let result = Self::_买卖意义_计算(实线, 观察员);
-        {
-            let mut cache = 买卖意义缓存.lock().unwrap();
-            cached::Cached::cache_set(&mut *cache, key, result.clone());
-        }
-        result
+        Self::_买卖意义_计算(实线, 观察员)
     }
 
     /// 买卖意义 实际计算（无缓存）
@@ -1139,39 +1259,38 @@ impl 虚线 {
         let 普K序列 = &观察员.普通K线序列;
         let 配置 = &观察员.配置;
 
-        if *实线.标识.read().unwrap() != "笔"
-            && *实线.标识.read().unwrap() != "线段"
-            && *实线.标识.read().unwrap() != "线段<线段>"
+        if *实线.标识.read() != "笔"
+            && *实线.标识.read() != "线段"
+            && *实线.标识.read() != "线段<线段>"
         {
             return (false, "标识不在范围内".into());
         }
 
         // KDJ指标完整性检查
-        let 武_ref = 实线.武.read().unwrap();
-        let 标 = 武_ref.中.标的K线.read().unwrap();
-        match 标.指标.read().unwrap().kdj() {
+        let 武_ref = 实线.武.read();
+        let 标 = 武_ref.中.标的K线.read();
+        match 标.指标.read().kdj() {
             Some(kdj) if kdj.K.is_some() && kdj.D.is_some() && kdj.J.is_some() => {}
             _ => return (false, "KDJ指标不完整".into()),
         }
 
-        let 意义 =
-            Self::缠K买卖点模式(&配置.买卖点_指标模式, &实线.武.read().unwrap().中, 配置);
+        let 意义 = Self::缠K买卖点模式(&配置.买卖点_指标模式, &实线.武.read().中, 配置);
         let 结果 = false;
 
-        let 背驰过: Vec<Arc<缠论K线>> = if *实线.标识.read().unwrap() == "笔" {
+        let 背驰过: Vec<Arc<缠论K线>> = if *实线.标识.read() == "笔" {
             crate::algorithm::bi::笔::是否背驰过(实线, 观察员)
         } else {
             crate::algorithm::segment::线段::是否背驰过(实线, 观察员)
         };
 
         if 意义 {
-            if *实线.标识.read().unwrap() == "笔" {
+            if *实线.标识.read() == "笔" {
                 if Self::武之MACD均值(普K序列, 实线) {
                     return (true, "武之MACD均值".into());
                 }
                 if Self::武之MACD极值(普K序列, 实线) && !背驰过.is_empty() {
                     return (true, "背驰过且极值".into());
-                } else if 实线.武.read().unwrap().与MACD柱子分型匹配() {
+                } else if 实线.武.read().与MACD柱子分型匹配() {
                     return (
                         true,
                         format!(
@@ -1186,7 +1305,7 @@ impl 虚线 {
                     );
                 }
             }
-            if *实线.标识.read().unwrap() != "笔"
+            if *实线.标识.read() != "笔"
                 && crate::algorithm::segment::线段::判断线段内部是否背驰(实线, 观察员)
             {
                 return (true, "线段内部背驰".into());
@@ -1195,7 +1314,7 @@ impl 虚线 {
 
         if !结果
             && 意义
-            && 实线.武.read().unwrap().中.与MACD柱子匹配()
+            && 实线.武.read().中.与MACD柱子匹配()
             && Self::武之MACD极值(普K序列, 实线)
             && 背驰过.len() > 2
         {
@@ -1207,13 +1326,13 @@ impl 虚线 {
 
     /// 结构化相等校验 — 递归校验所有子结构（分型/缺口/缠K/中枢/线段特征/虚线），返回 (是否相等, 差异描述)
     pub fn 相等(&self, other: &Self, 浮点容差: f64) -> (bool, String) {
-        if *self.标识.read().unwrap() != *other.标识.read().unwrap() {
+        if *self.标识.read() != *other.标识.read() {
             return (
                 false,
                 format!(
                     "虚线: [标识] 不等 A={},B={}",
-                    self.标识.read().unwrap(),
-                    other.标识.read().unwrap()
+                    self.标识.read(),
+                    other.标识.read()
                 ),
             );
         }
@@ -1246,11 +1365,7 @@ impl 虚线 {
         }
         // 武
         {
-            let (eq, msg) = self
-                .武
-                .read()
-                .unwrap()
-                .相等(&other.武.read().unwrap(), 浮点容差);
+            let (eq, msg) = self.武.read().相等(&other.武.read(), 浮点容差);
             if !eq {
                 return (false, format!("虚线: [武]分型异常 >> {msg}"));
             }
@@ -1267,8 +1382,8 @@ impl 虚线 {
         }
         // 基础序列
         {
-            let a = self.基础序列.read().unwrap();
-            let b = other.基础序列.read().unwrap();
+            let a = self.基础序列.read();
+            let b = other.基础序列.read();
             if a.len() != b.len() {
                 return (
                     false,
@@ -1284,8 +1399,8 @@ impl 虚线 {
         }
         // 特征序列
         {
-            let a = self.特征序列.read().unwrap();
-            let b = other.特征序列.read().unwrap();
+            let a = self.特征序列.read();
+            let b = other.特征序列.read();
             if a.len() != b.len() {
                 return (
                     false,
@@ -1325,33 +1440,30 @@ impl 虚线 {
             };
         检查中枢列表(
             "实_中枢序列",
-            &self.实_中枢序列.read().unwrap(),
-            &other.实_中枢序列.read().unwrap(),
+            &self.实_中枢序列.read(),
+            &other.实_中枢序列.read(),
             浮点容差,
         )
         .map_err(|e| (false, e))
         .ok();
         检查中枢列表(
             "虚_中枢序列",
-            &self.虚_中枢序列.read().unwrap(),
-            &other.虚_中枢序列.read().unwrap(),
+            &self.虚_中枢序列.read(),
+            &other.虚_中枢序列.read(),
             浮点容差,
         )
         .map_err(|e| (false, e))
         .ok();
         检查中枢列表(
             "合_中枢序列",
-            &self.合_中枢序列.read().unwrap(),
-            &other.合_中枢序列.read().unwrap(),
+            &self.合_中枢序列.read(),
+            &other.合_中枢序列.read(),
             浮点容差,
         )
         .map_err(|e| (false, e))
         .ok();
         // 确认K线
-        match (
-            &*self.确认K线.read().unwrap(),
-            &*other.确认K线.read().unwrap(),
-        ) {
+        match (&*self.确认K线.read(), &*other.确认K线.read()) {
             (None, None) => {}
             (Some(a), Some(b)) => {
                 let (eq, msg) = a.相等(b, 浮点容差);
@@ -1371,13 +1483,13 @@ impl 虚线 {
             }
         }
         // 模式
-        if *self.模式.read().unwrap() != *other.模式.read().unwrap() {
+        if *self.模式.read() != *other.模式.read() {
             return (
                 false,
                 format!(
                     "虚线: [模式] 不等 A={},B={}",
-                    self.模式.read().unwrap(),
-                    other.模式.read().unwrap()
+                    self.模式.read(),
+                    other.模式.read()
                 ),
             );
         }
@@ -1388,10 +1500,7 @@ impl 虚线 {
             return (false, "虚线: [_特征序列_显示] 不等".to_string());
         }
         // 前一缺口
-        match (
-            &*self.前一缺口.read().unwrap(),
-            &*other.前一缺口.read().unwrap(),
-        ) {
+        match (&*self.前一缺口.read(), &*other.前一缺口.read()) {
             (None, None) => {}
             (Some(a), Some(b)) => {
                 let (eq, msg) = a.相等(b, 浮点容差);
@@ -1411,10 +1520,7 @@ impl 虚线 {
             }
         }
         // 前一结束位置
-        match (
-            &*self.前一结束位置.read().unwrap(),
-            &*other.前一结束位置.read().unwrap(),
-        ) {
+        match (&*self.前一结束位置.read(), &*other.前一结束位置.read()) {
             (None, None) => {}
             (Some(a), Some(b)) => {
                 let (eq, msg) = a.相等(b, 浮点容差);
@@ -1443,16 +1549,16 @@ impl 虚线 {
 
 impl std::fmt::Display for 虚线 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if *self.标识.read().unwrap() == "笔" {
+        if *self.标识.read() == "笔" {
             write!(
                 f,
                 "笔({}, {}, {}, {}, 周期: {}, 数量: {})",
                 self.序号.load(Ordering::Relaxed),
                 self.方向(),
                 self.文,
-                self.武.read().unwrap(),
+                self.武.read(),
                 self.文.中.周期,
-                self.武.read().unwrap().中.序号.load(Ordering::Relaxed)
+                self.武.read().中.序号.load(Ordering::Relaxed)
                     - self.文.中.序号.load(Ordering::Relaxed)
                     + 1
             )
@@ -1463,20 +1569,20 @@ impl std::fmt::Display for 虚线 {
                 Some(g) => format!("{}", g),
                 None => "None".to_string(),
             };
-            let 确认K线_str = match &*self.确认K线.read().unwrap() {
+            let 确认K线_str = match &*self.确认K线.read() {
                 Some(k) => format!("{}", k),
                 None => "None".to_string(),
             };
             write!(
                 f,
                 "{}<{}, {}, {}, {}, {}, 数量: {}, 缺口: {}, {}>",
-                self.标识.read().unwrap(),
+                self.标识.read(),
                 self.序号.load(Ordering::Relaxed),
                 四象,
                 self.方向(),
                 self.文,
-                self.武.read().unwrap(),
-                self.基础序列.read().unwrap().len(),
+                self.武.read(),
+                self.基础序列.read().len(),
                 缺口_str,
                 确认K线_str,
             )
@@ -1490,6 +1596,7 @@ mod tests {
     use crate::kline::bar::K线;
     use crate::kline::chan_kline::缠论K线;
     use crate::types::分型结构;
+    use crate::{error, info, warn};
 
     /// 辅助：创建一根最小化的原始K线
     fn 辅助_创建K线(时间戳: i64, 高: f64, 低: f64, 开: f64, 收: f64) -> K线 {
@@ -1585,18 +1692,19 @@ mod tests {
         assert_eq!(笔.序号.load(Ordering::Relaxed), 0);
         assert!(笔.有效性.load(Ordering::Relaxed));
         assert!(!笔.短路修正.load(Ordering::Relaxed));
-        assert!(笔.前一缺口.read().unwrap().is_none());
+        assert!(笔.前一缺口.read().is_none());
 
         // 修改 Cell 字段
         笔.序号.store(42, Ordering::Relaxed);
         笔.有效性.store(false, Ordering::Relaxed);
         笔.短路修正.store(true, Ordering::Relaxed);
-        *笔.前一缺口.write().unwrap() = Some(缺口::new(200.0, 100.0));
+        *笔.前一缺口.write() = Some(缺口::new(200.0, 100.0));
 
         assert_eq!(笔.序号.load(Ordering::Relaxed), 42);
         assert!(!笔.有效性.load(Ordering::Relaxed));
         assert!(笔.短路修正.load(Ordering::Relaxed));
-        let qk = 笔.前一缺口.read().unwrap().unwrap();
+        let qk = 笔.前一缺口.read();
+        let qk = qk.as_ref().unwrap();
         assert!((qk.高 - 200.0).abs() < 0.01);
         assert!((qk.低 - 100.0).abs() < 0.01);
     }
@@ -1612,27 +1720,27 @@ mod tests {
         let 笔 = 虚线::创建笔(顶, 底, true);
 
         // 标识
-        assert_eq!(*笔.标识.read().unwrap(), "笔");
-        *笔.标识.write().unwrap() = "测试标识".into();
-        assert_eq!(*笔.标识.read().unwrap(), "测试标识");
+        assert_eq!(*笔.标识.read(), "笔");
+        *笔.标识.write() = "测试标识".into();
+        assert_eq!(*笔.标识.read(), "测试标识");
 
         // 模式
-        assert_eq!(*笔.模式.read().unwrap(), "文武");
-        *笔.模式.write().unwrap() = "全量".into();
-        assert_eq!(*笔.模式.read().unwrap(), "全量");
+        assert_eq!(*笔.模式.read(), "文武");
+        *笔.模式.write() = "全量".into();
+        assert_eq!(*笔.模式.read(), "全量");
 
         // 基础序列
-        assert!(笔.基础序列.read().unwrap().is_empty());
+        assert!(笔.基础序列.read().is_empty());
         let 另一底 = 辅助_创建底分型(300, 20.0, 10.0, 15);
-        let 笔2 = 虚线::创建笔(Arc::clone(&*笔.武.read().unwrap()), 另一底, true);
-        笔.基础序列.write().unwrap().push(Arc::new(笔2));
-        assert_eq!(笔.基础序列.read().unwrap().len(), 1);
+        let 笔2 = 虚线::创建笔(Arc::clone(&*笔.武.read()), 另一底, true);
+        笔.基础序列.write().push(Arc::new(笔2));
+        assert_eq!(笔.基础序列.read().len(), 1);
 
         // 武 - Replace with new 分型
         let 新底 = 辅助_创建底分型(400, 15.0, 5.0, 20);
         let 新底_ptr = Arc::as_ptr(&新底);
-        *笔.武.write().unwrap() = Arc::clone(&新底);
-        assert_eq!(Arc::as_ptr(&*笔.武.read().unwrap()), 新底_ptr);
+        *笔.武.write() = Arc::clone(&新底);
+        assert_eq!(Arc::as_ptr(&*笔.武.read()), 新底_ptr);
     }
 
     // ============================================================
@@ -1652,11 +1760,8 @@ mod tests {
         assert_eq!(Arc::as_ptr(&克隆笔.文), Arc::as_ptr(&笔.文));
 
         // 武 Rc 指针应一致
-        assert_eq!(Arc::as_ptr(&*笔.武.read().unwrap()), Arc::as_ptr(&底));
-        assert_eq!(
-            Arc::as_ptr(&*克隆笔.武.read().unwrap()),
-            Arc::as_ptr(&*笔.武.read().unwrap())
-        );
+        assert_eq!(Arc::as_ptr(&*笔.武.read()), Arc::as_ptr(&底));
+        assert_eq!(Arc::as_ptr(&*克隆笔.武.read()), Arc::as_ptr(&*笔.武.read()));
     }
 
     #[test]
@@ -1693,14 +1798,14 @@ mod tests {
         assert_eq!(笔_rc2.序号.load(Ordering::Relaxed), 77);
 
         // 通过 rc1 修改 RefCell
-        *笔_rc1.模式.write().unwrap() = "配置".into();
-        assert_eq!(*笔_rc2.模式.read().unwrap(), "配置");
+        *笔_rc1.模式.write() = "配置".into();
+        assert_eq!(*笔_rc2.模式.read(), "配置");
 
         // 通过 rc1 修改 武
         let 新底 = 辅助_创建底分型(400, 15.0, 5.0, 20);
         let 新底_ptr = Arc::as_ptr(&新底);
-        *笔_rc1.武.write().unwrap() = Arc::clone(&新底);
-        assert_eq!(Arc::as_ptr(&*笔_rc2.武.read().unwrap()), 新底_ptr);
+        *笔_rc1.武.write() = Arc::clone(&新底);
+        assert_eq!(Arc::as_ptr(&*笔_rc2.武.read()), 新底_ptr);
     }
 
     // ============================================================
@@ -1714,7 +1819,7 @@ mod tests {
         let 笔 = 虚线::创建笔(Arc::clone(&顶), Arc::clone(&底), true);
 
         let wu = 笔.获取_武();
-        assert_eq!(Arc::as_ptr(&*笔.武.read().unwrap()), Arc::as_ptr(&wu));
+        assert_eq!(Arc::as_ptr(&*笔.武.read()), Arc::as_ptr(&wu));
         assert_eq!(Arc::as_ptr(&wu), Arc::as_ptr(&底));
     }
 
@@ -1754,13 +1859,13 @@ mod tests {
         let 文_ptr_before = Arc::as_ptr(&笔.文);
 
         // 修改武
-        *笔.武.write().unwrap() = Arc::clone(&底2);
+        *笔.武.write() = Arc::clone(&底2);
 
         // 文指针不变
         assert_eq!(Arc::as_ptr(&笔.文), 文_ptr_before);
 
         // 但方向变了（因为武从底1变成底2）
-        let 新武耗时 = 笔.武.read().unwrap().时间戳();
+        let 新武耗时 = 笔.武.read().时间戳();
         assert_eq!(新武耗时, 300);
     }
 }

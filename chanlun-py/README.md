@@ -72,6 +72,77 @@ pip install target/wheels/chanlun-*.whl
 - 类名 / 方法名 / 字段名与 `chan.py` 保持一致
 - 支持 `.nb` 二进制文件格式（大端字节序）
 
+## 性能配置
+
+### 缓存模式
+
+Python 对象缓存有两种模式，通过环境变量 `CHANLUN_CACHE_MODE` 或函数调用切换：
+
+```python
+from chanlun._chanlun import set_cache_mode, get_cache_mode
+
+# 默认：thread_local，每线程独立缓存，零锁，多线程场景最佳
+print(get_cache_mode())  # "thread_local"
+
+# 全局：dashmap 分片哈希表，跨线程 Python `is` 身份一致
+set_cache_mode("global")  # 必须在创建任何观察者之前调用
+```
+
+```bash
+# 环境变量方式
+CHANLUN_CACHE_MODE=global python main.py   # 全局缓存
+python main.py                              # 默认：线程局部缓存
+```
+
+| 模式 | 性能 | Python `is` 跨线程 | 适用场景 |
+|------|------|---------------------|----------|
+| `thread_local`（默认） | 零锁，最快 | 否 | 批量回测、多线程独立分析 |
+| `global` | dashmap 分片锁 | 是 | 测试验证、跨线程对象共享 |
+
+### 日志模式
+
+日志输出有三种模式，通过环境变量 `CHANLUN_LOG_MODE` 或函数调用切换：
+
+```python
+from chanlun._chanlun import set_log_mode, set_log_level, get_log_mode
+
+# 默认：off，不输出，零开销
+print(get_log_mode())  # "off"
+
+# 简单模式：直接 eprintln/println
+set_log_mode("simple")
+set_log_level("debug")  # 必需：设置日志级别启用输出
+
+# Tracing 模式：带时间戳和文件位置格式化输出
+set_log_mode("tracing")
+set_log_level("debug")
+```
+
+```bash
+# 环境变量方式
+CHANLUN_LOG_MODE=simple python main.py     # 简单输出
+CHANLUN_LOG_MODE=tracing python main.py    # 格式化输出
+python main.py                              # 默认：静默
+```
+
+| 模式 | 输出方式 | 性能 | 格式 |
+|------|---------|------|------|
+| `off`（默认） | 无 | 零开销 | — |
+| `simple` | `eprintln!` / `println!` | 极轻 | 纯文本 |
+| `tracing` | tracing-subscriber | 稍重 | `2026-06-12 01:57:59.942 WARN file.rs:line` |
+
+### 观察者直传（避免 Python list 转换）
+
+背驰分析新增 `_OBS` 后缀方法，直接接受观察者引用，跳过 `list[K线]` ↔ `Vec<Arc<K线>>` 转换：
+
+```python
+# 旧方式：构建 Python 列表
+result = 背驰分析.MACD背驰(进入段, 离开段, obs.普通K线序列, "总")
+
+# 新方式：直接传观察者
+result = 背驰分析.MACD背驰_OBS(进入段, 离开段, obs, "总")
+```
+
 ## 许可
 
 本项目主体采用 MIT 许可。包含以下第三方开源代码：czsc（Apache 2.0）、parse（MIT）、termcolor（MIT）。

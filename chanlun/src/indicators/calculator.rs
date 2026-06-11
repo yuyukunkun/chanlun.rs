@@ -45,7 +45,7 @@ impl 指标计算器 {
         let has_prev;
         {
             let prev_guard = if n > 1 {
-                Some(全序列[n - 2].指标.read().unwrap())
+                Some(全序列[n - 2].指标.read())
             } else {
                 None
             };
@@ -100,9 +100,9 @@ impl 指标计算器 {
                     信号,
                 ))
             };
-            当前K线.指标.write().unwrap().设置(&key, val.clone());
+            当前K线.指标.write().设置(&key, val.clone());
             if i == 0 {
-                当前K线.指标.write().unwrap().设置("macd", val);
+                当前K线.指标.write().设置("macd", val);
             }
         }
     }
@@ -142,9 +142,9 @@ impl 指标计算器 {
                     Some(配置.相对强弱指数_移动平均线周期),
                 ))
             };
-            当前K线.指标.write().unwrap().设置(&key, val.clone());
+            当前K线.指标.write().设置(&key, val.clone());
             if i == 0 {
-                当前K线.指标.write().unwrap().设置("rsi", val);
+                当前K线.指标.write().设置("rsi", val);
             }
         }
     }
@@ -177,9 +177,9 @@ impl 指标计算器 {
                     配置.随机指标_超卖阈值,
                 ))
             };
-            当前K线.指标.write().unwrap().设置(&key, val.clone());
+            当前K线.指标.write().设置(&key, val.clone());
             if i == 0 {
-                当前K线.指标.write().unwrap().设置("kdj", val);
+                当前K线.指标.write().设置("kdj", val);
             }
         }
     }
@@ -218,9 +218,9 @@ impl 指标计算器 {
                     标准差倍数,
                 ))
             };
-            当前K线.指标.write().unwrap().设置(&key, val.clone());
+            当前K线.指标.write().设置(&key, val.clone());
             if i == 0 {
-                当前K线.指标.write().unwrap().设置("boll", val);
+                当前K线.指标.write().设置("boll", val);
             }
         }
     }
@@ -245,7 +245,7 @@ impl 指标计算器 {
                     "EMA" => Self::_增量EMA(现有序列, 当前价, *period, 计算方式, &key),
                     _ => continue,
                 };
-                if let Some(均线_map) = 当前K线.指标.write().unwrap().均线_mut() {
+                if let Some(均线_map) = 当前K线.指标.write().均线_mut() {
                     均线_map.insert(key, 值);
                 }
             }
@@ -274,7 +274,7 @@ impl 指标计算器 {
         }
         // 尝试从前一根K线获取缓存的SMA
         if let Some(prev) = 现有序列.last().and_then(|k| {
-            let guard = k.指标.read().unwrap();
+            let guard = k.指标.read();
             guard.均线().and_then(|m| m.get(prev_key)).copied()
         }) {
             let oldest = super::K线取值(
@@ -304,7 +304,7 @@ impl 指标计算器 {
         prev_key: &str,
     ) -> f64 {
         let 前值 = 现有序列.last().and_then(|k| {
-            let guard = k.指标.read().unwrap();
+            let guard = k.指标.read();
             guard.均线().and_then(|m| m.get(prev_key)).copied()
         });
         match 前值 {
@@ -320,8 +320,8 @@ impl 指标计算器 {
     fn _回填新指标(全序列: &[Arc<K线>], 配置: &缠论配置) {
         // 作用域化首尾读锁：在回填写循环之前释放，避免读锁与写锁冲突
         let (新MACD, 新RSI, 新KDJ, 新BOLL) = {
-            let 首K_guard = 全序列[0].指标.read().unwrap();
-            let 尾K_guard = 全序列[全序列.len() - 1].指标.read().unwrap();
+            let 首K_guard = 全序列[0].指标.read();
+            let 尾K_guard = 全序列[全序列.len() - 1].指标.read();
 
             let 新MACD: Vec<_> = 配置
                 ._解析MACD参数列表()
@@ -357,7 +357,7 @@ impl 指标计算器 {
         for i in 0..全序列.len() {
             let k线 = &全序列[i];
             let prev_guard = if i > 0 {
-                Some(全序列[i - 1].指标.read().unwrap())
+                Some(全序列[i - 1].指标.read())
             } else {
                 None
             };
@@ -388,7 +388,7 @@ impl 指标计算器 {
                         *信号,
                     ))
                 };
-                k线.指标.write().unwrap().设置(key, val);
+                k线.指标.write().设置(key, val);
             }
 
             for (key, 周期) in &新RSI {
@@ -419,7 +419,7 @@ impl 指标计算器 {
                         Some(配置.相对强弱指数_移动平均线周期),
                     ))
                 };
-                k线.指标.write().unwrap().设置(key, val);
+                k线.指标.write().设置(key, val);
             }
 
             for (key, rsv, k平滑, d平滑) in &新KDJ {
@@ -446,7 +446,7 @@ impl 指标计算器 {
                         配置.随机指标_超卖阈值,
                     ))
                 };
-                k线.指标.write().unwrap().设置(key, val);
+                k线.指标.write().设置(key, val);
             }
 
             for (key, 周期, 标准差倍数) in &新BOLL {
@@ -469,7 +469,7 @@ impl 指标计算器 {
                         *标准差倍数,
                     ))
                 };
-                k线.指标.write().unwrap().设置(key, val);
+                k线.指标.write().设置(key, val);
             }
         }
     }

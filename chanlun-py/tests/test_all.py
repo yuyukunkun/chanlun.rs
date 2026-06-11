@@ -2776,5 +2776,74 @@ class Test缠论配置双端一致(unittest.TestCase):
             self.assertFalse(diff_py[k], f"不推送差异字段 {k} 应为 False")
 
 
+class Test生成K线双端一致(unittest.TestCase):
+    """根据当前K线生成新K线 Rust vs chan.py 输出一致."""
+
+    def test_生成K线_居中各方向双端一致(self):
+        """居中模式下各方向生成K线双端OHLC一致（居中=确定性输出）"""
+        import chanlun
+        from chanlun import chan
+
+        bar_rs = chanlun.K线.创建普K("btcusd", 1000000000, 50000, 50200, 49800, 50100, 100, 0, 300)
+        bar_py = chan.K线.创建普K("btcusd", chan.转化为时间戳(1000000000), 50000, 50200, 49800, 50100, 100, 0, 300)
+
+        directions = {
+            "向上": 0,
+            "向下": 1,
+            "向上缺口": 2,
+            "向下缺口": 3,
+            "衔接向上": 4,
+            "衔接向下": 5,
+        }
+        py_dirs = {
+            "向上": chan.相对方向.向上,
+            "向下": chan.相对方向.向下,
+            "向上缺口": chan.相对方向.向上缺口,
+            "向下缺口": chan.相对方向.向下缺口,
+            "衔接向上": chan.相对方向.衔接向上,
+            "衔接向下": chan.相对方向.衔接向下,
+        }
+
+        for name in directions:
+            new_rs = bar_rs.根据当前K线生成新K线(directions[name], 居中=True)
+            new_py = bar_py.根据当前K线生成新K线(py_dirs[name], 居中=True)
+
+            # 居中模式下，高和低是确定性的（偏移=高低差*0.5）
+            # 开盘价/收盘价/成交量含随机，不比较
+            tol = 1.0 + abs(new_py.高) * 1e-6
+            self.assertAlmostEqual(new_rs.高, new_py.高, delta=tol, msg=f"{name}: 最高价不一致 (R={new_rs.高}, P={new_py.高})")
+            self.assertAlmostEqual(new_rs.低, new_py.低, delta=tol, msg=f"{name}: 最低价不一致 (R={new_rs.低}, P={new_py.低})")
+
+        # 时间戳和序号
+        self.assertEqual(new_rs.序号, new_py.序号)
+        self.assertEqual(int(new_rs.时间戳), int(chan.转化为时间戳_数字(new_py.时间戳)))
+
+    def test_生成K线_居中外推验证(self):
+        """居中向上生成：新K线的高/低应整体高于原K线."""
+        import chanlun
+
+        bar = chanlun.K线.创建普K("btcusd", 1000000000, 50000, 50200, 49800, 50100, 100, 0, 300)
+        new = bar.根据当前K线生成新K线(0, 居中=True)
+
+        self.assertGreater(new.高, bar.高, "向上：新高应高于原高")
+        self.assertGreater(new.低, bar.低, "向上：新低应高于原低")
+
+        new_down = bar.根据当前K线生成新K线(1, 居中=True)
+        self.assertLess(new_down.高, bar.高, "向下：新高应低于原高")
+        self.assertLess(new_down.低, bar.低, "向下：新低应低于原低")
+
+    def test_生成K线_衔接验证(self):
+        """衔接向上：新K线的低 = 原K线的高（无缝衔接）."""
+        import chanlun
+
+        bar = chanlun.K线.创建普K("btcusd", 1000000000, 50000, 50200, 49800, 50100, 100, 0, 300)
+        new = bar.根据当前K线生成新K线(4, 居中=True)
+
+        self.assertAlmostEqual(new.低, bar.高, delta=1e-6, msg="衔接向上：新低应=原高")
+
+        new_down = bar.根据当前K线生成新K线(5, 居中=True)
+        self.assertAlmostEqual(new_down.高, bar.低, delta=1e-6, msg="衔接向下：新高应=原低")
+
+
 if __name__ == "__main__":
     unittest.main()

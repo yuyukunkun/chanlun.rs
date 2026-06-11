@@ -25,10 +25,10 @@
 use crate::kline::chan_kline::缠论K线;
 use crate::types::分型结构;
 use crate::types::相对方向;
+use crate::warn;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use tracing::warn;
 
 /// 分型模式 — True 时使用构造时缓存值（默认），False 时从 中 缠K 实时读取
 pub static 分型模式: AtomicBool = AtomicBool::new(true);
@@ -75,7 +75,7 @@ impl 分型 {
                 右.时间戳.load(Ordering::Relaxed),
             );
         }
-        let 结构 = 中.分型.read().unwrap().unwrap_or(分型结构::散);
+        let 结构 = 中.分型.read().unwrap_or(分型结构::散);
         let 时间戳 = 中.时间戳.load(Ordering::Relaxed);
         let 分型特征值 = 中.分型特征值.get();
         Self {
@@ -102,7 +102,7 @@ impl 分型 {
         if 分型模式.load(Ordering::Relaxed) {
             self.结构
         } else {
-            self.中.分型.read().unwrap().unwrap_or(分型结构::散) // FIXME 错误
+            self.中.分型.read().unwrap_or(分型结构::散) // FIXME 错误
         }
     }
 
@@ -157,19 +157,17 @@ impl 分型 {
 
         if let (Some(左), Some(右)) = (&self.左, &self.右) {
             if self.结构() == 分型结构::底 {
-                if 右.标的K线.read().unwrap().收盘价 > 左.标的K线.read().unwrap().高 {
+                if 右.标的K线.read().收盘价 > 左.标的K线.read().高 {
                     return "强";
-                } else if 右.标的K线.read().unwrap().收盘价 > self.中.标的K线.read().unwrap().高
-                {
+                } else if 右.标的K线.read().收盘价 > self.中.标的K线.read().高 {
                     return "中";
                 } else {
                     return "弱";
                 }
             } else if self.结构() == 分型结构::顶 {
-                if 右.标的K线.read().unwrap().收盘价 < 左.标的K线.read().unwrap().低 {
+                if 右.标的K线.read().收盘价 < 左.标的K线.read().低 {
                     return "强";
-                } else if 右.标的K线.read().unwrap().收盘价 < self.中.标的K线.read().unwrap().低
-                {
+                } else if 右.标的K线.read().收盘价 < self.中.标的K线.read().低 {
                     return "中";
                 } else {
                     return "弱";
@@ -183,12 +181,12 @@ impl 分型 {
     pub fn 与MACD柱子分型匹配(&self) -> bool {
         if let (Some(左), Some(右)) = (&self.左, &self.右) {
             if self.结构() == 分型结构::底 {
-                let 左_k = 左.标的K线.read().unwrap();
-                let 中_k = self.中.标的K线.read().unwrap();
-                let 右_k = 右.标的K线.read().unwrap();
-                let 左_m = 左_k.指标.read().unwrap();
-                let 中_m = 中_k.指标.read().unwrap();
-                let 右_m = 右_k.指标.read().unwrap();
+                let 左_k = 左.标的K线.read();
+                let 中_k = self.中.标的K线.read();
+                let 右_k = 右.标的K线.read();
+                let 左_m = 左_k.指标.read();
+                let 中_m = 中_k.指标.read();
+                let 右_m = 右_k.指标.read();
                 if let (Some(左macd), Some(中macd), Some(右macd)) =
                     (左_m.macd(), 中_m.macd(), 右_m.macd())
                 {
@@ -196,12 +194,12 @@ impl 分型 {
                 }
             }
             if self.结构() == 分型结构::顶 {
-                let 左_k = 左.标的K线.read().unwrap();
-                let 中_k = self.中.标的K线.read().unwrap();
-                let 右_k = 右.标的K线.read().unwrap();
-                let 左_m = 左_k.指标.read().unwrap();
-                let 中_m = 中_k.指标.read().unwrap();
-                let 右_m = 右_k.指标.read().unwrap();
+                let 左_k = 左.标的K线.read();
+                let 中_k = self.中.标的K线.read();
+                let 右_k = 右.标的K线.read();
+                let 左_m = 左_k.指标.read();
+                let 中_m = 中_k.指标.read();
+                let 右_m = 右_k.指标.read();
                 if let (Some(左macd), Some(中macd), Some(右macd)) =
                     (左_m.macd(), 中_m.macd(), 右_m.macd())
                 {
@@ -214,7 +212,7 @@ impl 分型 {
 
     /// 判断两个分型是否匹配
     pub fn 判断分型(左: &Arc<分型>, 右: &Arc<分型>, _模式: &str) -> bool {
-        Arc::as_ptr(左) == Arc::as_ptr(右)
+        Arc::ptr_eq(左, 右)
     }
 
     /// 从缠K序列中获取以指定缠K为中元素的分型
@@ -222,9 +220,7 @@ impl 分型 {
         K线序列: &[Arc<缠论K线>],
         中: &Arc<缠论K线>,
     ) -> Option<Self> {
-        let idx = K线序列
-            .iter()
-            .position(|k| Arc::as_ptr(k) == Arc::as_ptr(中))?;
+        let idx = K线序列.iter().position(|k| Arc::ptr_eq(k, 中))?;
         let 左 = if idx > 0 {
             Some(Arc::clone(&K线序列[idx - 1]))
         } else {
