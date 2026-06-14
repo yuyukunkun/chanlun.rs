@@ -40,6 +40,10 @@ analyzer = chanlun.立体分析器("BTCUSD", [60, 60*5, 60*5*6], config)
 ```bash
 pip install maturin
 
+# 推荐：一键清理缓存 + 构建 + 安装
+./clean_install.sh
+
+# 或手动：
 # 开发模式（直接安装到当前 venv）
 maturin develop
 
@@ -47,6 +51,12 @@ maturin develop
 maturin build --release
 pip install target/wheels/chanlun-*.whl
 ```
+
+> **注意**：若修改了 `chan.py`，安装前需清除 `__pycache__`，否则旧 `.pyc` 会被打包进 wheel 导致修改不生效：
+> ```bash
+> find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
+> find . -type f -name "*.pyc" -delete 2>/dev/null
+> ```
 
 也可使用项目内的 `build.sh`:
 

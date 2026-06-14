@@ -1114,10 +1114,13 @@ class 缠论配置:
             default = field_info["default"]
 
             try:
-                # 布尔类型验证
+                # 布尔类型验证（与 Rust 绑定层 coerce_strings_to_numbers 对齐）
                 if type_ is bool:
                     if not isinstance(value, bool):
-                        setattr(self, fname, bool(value))
+                        if isinstance(value, str) and value.lower() in ("true", "false"):
+                            setattr(self, fname, value.lower() == "true")
+                        else:
+                            setattr(self, fname, default)
 
                 # 整数类型验证
                 elif type_ is int:
@@ -1164,7 +1167,22 @@ class 缠论配置:
         :return: 仅保留当前类已知字段的字典
         """
         valid_fields = cls.model_fields().keys()
-        cleaned = {k: v for k, v in values.items() if k in valid_fields}
+        cleaned = {}
+        for k, v in values.items():
+            if k not in valid_fields:
+                continue
+            # 字符串值类型强制转换（与 Rust 绑定层 coerce_strings_to_numbers 对齐）
+            if isinstance(v, str):
+                if v.lower() in ("true", "false"):
+                    v = v.lower() == "true"
+                elif v.lstrip("-").isdigit():
+                    v = int(v)
+                else:
+                    try:
+                        v = float(v)
+                    except ValueError:
+                        pass
+            cleaned[k] = v
         return cleaned
 
     def to_dict(self) -> dict:
@@ -7144,7 +7162,9 @@ def 测试_指标挂载(配置: 缠论配置):
                 观察员.增加原始K线(k线)
                 if i == 500:
                     assert 观察员.普通K线序列[0].指标.macd_12_26_9 is not None, "指标挂载失败"
-                    print(观察员.普通K线序列[0].指标["macd_12_26_9"])
+                    print(观察员.普通K线序列[-1].指标["macd_12_26_9"])
+                    print(观察员.普通K线序列[-1].macd)
+
                     break
 
         消耗用时 = datetime.now() - 启动时间
