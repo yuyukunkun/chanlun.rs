@@ -1,6 +1,6 @@
 [package]
 name = "chanlun-py"
-version = "26.6.73"
+version = "26.6.74"
 edition = "2024"
 description = "缠论技术分析库 — Rust 高性能 Python 绑定"
 authors = ["YuYuKunKun"]
@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 name = "chanlun"
 
 [dependencies]
-chanlun = "26.6.4" # { path = "../chanlun" }
+chanlun =  { path = "../chanlun" }
 parking_lot = "0.12"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "ansi", "std", "registry"] }
 tracing-core = "0.1"

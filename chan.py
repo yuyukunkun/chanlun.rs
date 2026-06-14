@@ -1661,6 +1661,9 @@ class 平滑异同移动平均线:
         self.慢线EMA = 慢线EMA
         self.DEA_EMA = DEA_EMA
 
+    def __repr__(self):
+        return f"平滑异同移动平均线(时间戳={self.时间戳}, 收盘价={self.收盘价}, 快线周期={self.快线周期}, 慢线周期={self.慢线周期}, 信号周期={self.信号周期}, DIF={self.DIF}, DEA={self.DEA}, MACD柱={self.MACD柱}, 快线EMA={self.快线EMA}, 慢线EMA={self.慢线EMA}, DEA_EMA={self.DEA_EMA})"
+
     @classmethod
     def 首次计算(cls, 初始收盘价: float, 初始时间: datetime, 快线周期: int = 12, 慢线周期: int = 26, 信号周期: int = 9) -> 平滑异同移动平均线:
         """
@@ -1692,12 +1695,12 @@ class 平滑异同移动平均线:
             快线周期=快线周期,
             慢线周期=慢线周期,
             信号周期=信号周期,
-            DIF=DIF,
-            DEA=DEA_EMA,
-            MACD柱=MACD柱,
-            快线EMA=快线EMA,
-            慢线EMA=慢线EMA,
-            DEA_EMA=DEA_EMA,
+            DIF=round(DIF, 2),
+            DEA=round(DEA_EMA, 2),
+            MACD柱=round(MACD柱, 2),
+            快线EMA=round(快线EMA, 2),
+            慢线EMA=round(慢线EMA, 2),
+            DEA_EMA=round(DEA_EMA, 2),
         )
 
     @classmethod
@@ -1763,12 +1766,12 @@ class 平滑异同移动平均线:
             快线周期=前一个MACD.快线周期,
             慢线周期=前一个MACD.慢线周期,
             信号周期=前一个MACD.信号周期,
-            DIF=DIF,
-            DEA=DEA_EMA,
-            MACD柱=MACD柱,
-            快线EMA=快线EMA,
-            慢线EMA=慢线EMA,
-            DEA_EMA=DEA_EMA,
+            DIF=round(DIF, 2),
+            DEA=round(DEA_EMA, 2),
+            MACD柱=round(MACD柱, 2),
+            快线EMA=round(快线EMA, 2),
+            慢线EMA=round(慢线EMA, 2),
+            DEA_EMA=round(DEA_EMA, 2),
         )
 
     @classmethod
@@ -4988,7 +4991,8 @@ class 线段:
     @staticmethod
     def _索引(序列: list, 项) -> int:
         """O(1) index lookup — 序列元素序号连续递增。"""
-        return 项.序号 - 序列[0].序号
+        # return 项.序号 - 序列[0].序号
+        return 序列.index(项)
 
     @classmethod
     def _添加虚线(cls, 段: 虚线, 筆: 虚线):
@@ -6167,9 +6171,23 @@ class 中枢:
         else:
             # if self.本级_第三买卖线:
             #     return True
+            中枢状态 = self.当前状态()
+            if 中枢状态 == "中枢之中":
+                return False
             线段内部中枢 = self.基础序列[-1].合_中枢序列 if 虚实 == "合" else self.基础序列[-1].实_中枢序列
+            if not 线段内部中枢:
+                return False
+            高, 低 = self.高, self.低
             for 内部中枢 in 线段内部中枢:
-                if 相对方向.分析(self.高, self.低, 内部中枢.高, 内部中枢.低).是否缺口():
+                内部中枢高, 内部中枢低 = 内部中枢.高, 内部中枢.低
+                if 中枢状态 == "中枢之下":
+                    if 低 <= 内部中枢高:
+                        continue
+                else:
+                    # 中枢之上
+                    if 高 >= 内部中枢低:
+                        continue
+                if 相对方向.分析(self.高, self.低, 内部中枢高, 内部中枢低).是否缺口():
                     return True
         return False
 

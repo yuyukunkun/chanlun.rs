@@ -301,6 +301,13 @@ impl 中枢 {
             return self.第三买卖线.read().is_some();
         }
 
+        // if self.本级_第三买卖线: return True  # 暂未启用
+
+        let 中枢状态 = self.当前状态();
+        if 中枢状态 == "中枢之中" {
+            return false;
+        }
+
         let 基础序列_ref = self.基础序列.read();
         let 最后段 = 基础序列_ref.last().unwrap();
         let 内部中枢_vec = if 虚实 == "合" {
@@ -308,14 +315,26 @@ impl 中枢 {
         } else {
             最后段.实_中枢序列.read()
         };
+        if 内部中枢_vec.is_empty() {
+            return false;
+        }
+
+        let 高 = self.高();
+        let 低 = self.低();
         for 内部中枢 in 内部中枢_vec.iter() {
-            if crate::types::相对方向::分析(
-                self.高(),
-                self.低(),
-                内部中枢.高(),
-                内部中枢.低(),
-            )
-            .是否缺口()
+            let 内部中枢高 = 内部中枢.高();
+            let 内部中枢低 = 内部中枢.低();
+            if 中枢状态 == "中枢之下" {
+                if 低 <= 内部中枢高 {
+                    continue;
+                }
+            } else {
+                // 中枢之上
+                if 高 >= 内部中枢低 {
+                    continue;
+                }
+            }
+            if crate::types::相对方向::分析(高, 低, 内部中枢高, 内部中枢低).是否缺口()
             {
                 return true;
             }
