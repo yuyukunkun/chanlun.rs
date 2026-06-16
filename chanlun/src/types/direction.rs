@@ -122,6 +122,34 @@ impl 相对方向 {
             前高, 前低, 后高, 后低
         );
     }
+
+    /// 从可选方向序列中随机选取指定数量（与 chan.py 对齐）
+    pub fn 从序列中机选(
+        数量: usize,
+        可选方向: &[相对方向],
+        可重复: bool,
+    ) -> Vec<相对方向> {
+        if 数量 == 0 || 可选方向.is_empty() {
+            return Vec::new();
+        }
+        if !可重复 && 数量 > 可选方向.len() {
+            panic!("数量超过可选方向数");
+        }
+        let mut result = Vec::with_capacity(数量);
+        if 可重复 {
+            for _ in 0..数量 {
+                let idx = fastrand::usize(..可选方向.len());
+                result.push(可选方向[idx]);
+            }
+        } else {
+            let mut indices: Vec<usize> = (0..可选方向.len()).collect();
+            fastrand::shuffle(&mut indices);
+            for &idx in indices.iter().take(数量) {
+                result.push(可选方向[idx]);
+            }
+        }
+        result
+    }
 }
 
 impl std::fmt::Display for 相对方向 {

@@ -22,15 +22,16 @@
  * SOFTWARE.
  */
 
+use parking_lot::RwLock;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
-use std::sync::RwLock;
 
 use crate::algorithm_py::hub_to_py;
 use crate::kline_py::bar_to_py;
 use crate::structure_py::{dashed_to_py, fractal_to_py, 分型Py};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::config_py::缠论配置Py;
 use crate::kline_py::{K线Py, 缠论K线Py};
@@ -693,28 +694,27 @@ impl 买卖点Py {
 #[pyclass(name = "观察者", module = "chanlun._chanlun", subclass)]
 pub struct 观察者Py {
     pub(crate) inner: Option<Arc<RwLock<chanlun::business::observer::观察者>>>,
-    配置缓存: std::sync::Mutex<Option<Py<缠论配置Py>>>,
+    配置缓存: parking_lot::Mutex<Option<Py<缠论配置Py>>>,
+    最后配置版本: AtomicU64,
 }
 
 impl 观察者Py {
     pub(crate) fn obs(
         &self,
-    ) -> std::sync::RwLockReadGuard<'_, chanlun::business::observer::观察者> {
+    ) -> parking_lot::RwLockReadGuard<'_, chanlun::business::observer::观察者> {
         self.inner
             .as_ref()
             .expect("观察者 尚未初始化，请通过 __init__(符号, 周期, 配置) 构造")
             .read()
-            .unwrap_or_else(|e| e.into_inner())
     }
 
     pub(crate) fn obs_mut(
         &self,
-    ) -> std::sync::RwLockWriteGuard<'_, chanlun::business::observer::观察者> {
+    ) -> parking_lot::RwLockWriteGuard<'_, chanlun::business::observer::观察者> {
         self.inner
             .as_ref()
             .expect("观察者 尚未初始化，请通过 __init__(符号, 周期, 配置) 构造")
             .write()
-            .unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -770,7 +770,8 @@ impl 观察者Py {
             inner: Some(chanlun::business::observer::观察者::new(
                 符号, 周期, config,
             )),
-            配置缓存: std::sync::Mutex::new(None),
+            配置缓存: parking_lot::Mutex::new(None),
+            最后配置版本: AtomicU64::new(0),
         })
     }
 
@@ -824,7 +825,7 @@ impl 观察者Py {
 
     #[getter]
     fn 配置(&self, py: Python<'_>) -> PyResult<Py<缠论配置Py>> {
-        let mut cache = self.配置缓存.lock().unwrap();
+        let mut cache = self.配置缓存.lock();
         if let Some(ref cached) = *cache {
             Ok(cached.clone_ref(py))
         } else {
@@ -838,11 +839,8 @@ impl 观察者Py {
     #[setter]
     fn set_配置(&self, value: &Bound<'_, 缠论配置Py>) -> PyResult<()> {
         let config = value.borrow().to_rust_config(value.py())?;
+        *self.配置缓存.lock() = Some(value.clone().unbind());
         self.obs_mut().配置 = config;
-        self.配置缓存
-            .lock()
-            .unwrap()
-            .replace(value.clone().unbind());
         Ok(())
     }
 
@@ -861,25 +859,53 @@ impl 观察者Py {
 
     /// 核心入口 — 投喂一根原始K线，增量更新所有层级（内部实现）
     #[pyo3(name = "_增加原始K线")]
-    fn 增加原始K线_impl(&mut self, 普K: &Bound<'_, K线Py>) -> PyResult<()> {
-        self.obs_mut().增加原始K线((*普K.borrow().inner).clone());
-        Ok(())
+    fn 增加原始K线_impl(slf: &Bound<'_, Self>, 普K: &Bound<'_, K线Py>) -> PyResult<()> {
+        let kline = (*普K.borrow().inner).clone();
+        let obs_arc = slf
+            .borrow()
+            .inner
+            .clone()
+            .expect("观察者 尚未初始化，请通过 __init__(符号, 周期, 配置) 构造");
+        let symbol = obs_arc.read().符号.clone();
+        let result = slf.py().detach(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                obs_arc.write().增加原始K线(kline);
+            }))
+        });
+        match result {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let msg = e
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| e.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "未知算法错误".into());
+                Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "[{symbol}] 算法异常: {msg}"
+                )))
+            }
+        }
     }
 
     /// 核心入口 — 投喂一根原始K线，增量更新所有层级（公开分发器，支持子类重写）
     fn 增加原始K线(slf: &Bound<'_, Self>, 普K: &Bound<'_, K线Py>) -> PyResult<()> {
-        // 同步缓存的 Python 配置到 Rust 观察者（支持 obs.配置 直接修改）
+        // 版本对比，仅在配置变更时同步（支持 obs.配置.field = value 直接修改）
         {
             let me = slf.borrow();
-            if let Some(ref cached) = *me.配置缓存.lock().unwrap() {
+            if let Some(ref cached) = *me.配置缓存.lock() {
                 let py = slf.py();
-                if let Ok(config) = cached.bind(py).borrow().to_rust_config(py) {
-                    me.obs_mut().配置 = config;
+                let cfg_ref = cached.bind(py).borrow();
+                let current_version = cfg_ref.版本.load(Ordering::Relaxed);
+                if current_version != me.最后配置版本.load(Ordering::Relaxed) {
+                    if let Ok(config) = cfg_ref.to_rust_config(py) {
+                        me.obs_mut().配置 = config;
+                    }
+                    me.最后配置版本.store(current_version, Ordering::Relaxed);
                 }
             }
         }
-        slf.call_method1("_增加原始K线", (普K,))?;
-        Ok(())
+        // 直接调用 Rust 实现，跳过 Python dispatch
+        Self::增加原始K线_impl(slf, 普K)
     }
 
     /// 投喂原始数据 — 便捷入口，直接从 OHLCV 创建 K线 并通过 Python 分发 增加原始K线，
@@ -931,9 +957,31 @@ impl 观察者Py {
 
     /// 静态重新分析（内部实现）
     #[pyo3(name = "_静态重新分析")]
-    fn 静态重新分析_impl(&mut self) -> PyResult<()> {
-        self.obs_mut().静态重新分析();
-        Ok(())
+    fn 静态重新分析_impl(slf: &Bound<'_, Self>) -> PyResult<()> {
+        let obs_arc = slf
+            .borrow()
+            .inner
+            .clone()
+            .expect("观察者 尚未初始化，请通过 __init__(符号, 周期, 配置) 构造");
+        let symbol = obs_arc.read().符号.clone();
+        let result = slf.py().detach(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                obs_arc.write().静态重新分析();
+            }))
+        });
+        match result {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let msg = e
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| e.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "未知算法错误".into());
+                Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "[{symbol}] 静态重新分析异常: {msg}"
+                )))
+            }
+        }
     }
 
     /// 静态重新分析（公开分发器，支持子类重写）
@@ -1413,7 +1461,8 @@ impl 立体分析器Py {
         for (周期, obs_rc) in &self.inner.单体分析器 {
             let obs_py = 观察者Py {
                 inner: Some(obs_rc.clone()),
-                配置缓存: std::sync::Mutex::new(None),
+                配置缓存: parking_lot::Mutex::new(None),
+                最后配置版本: AtomicU64::new(0),
             };
             dict.set_item(周期, obs_py)?;
         }

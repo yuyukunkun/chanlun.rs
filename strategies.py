@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json
 import backtrader as bt
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -7,9 +8,12 @@ import math
 
 import queue
 import threading
+import numpy as np
+
+import chanlun.chan_external as cet
 
 
-__all__ = ["订单类型", "市场类型", "自适应市场仓位", "交易信号", "批次", "订单执行器", "高级策略基类_", "高级策略基类", "自定义实时数据源", "回测"]
+__all__ = ["订单类型", "市场类型", "自适应市场仓位", "交易信号", "批次", "订单执行器", "高级策略基类_", "高级策略基类", "自定义实时数据源", "回测", "信号驱动策略", "NB数据源", "随机数据"]
 
 
 # ---------- 订单类型枚举 ----------
@@ -51,6 +55,12 @@ class 自适应市场仓位(bt.Sizer):
         ("期货最小手数", 1),
         ("允许部分开仓", False),
     )
+
+    def __init__(self):
+        super().__init__()
+        已设置 = sum(1 for x in [self.p.固定金额, self.p.风险百分比, self.p.固定数量] if x is not None)
+        if 已设置 != 1:
+            raise ValueError(f"自适应市场仓位: 必须且只能设置 固定金额/风险百分比/固定数量 之一，当前设置了{已设置}个")
 
     def _getsizing(self, 佣金信息, 可用现金, 数据, 是否买入):
         """返回最终下单数量（股/币/手）"""
@@ -735,7 +745,11 @@ class 自定义实时数据源(bt.feed.DataBase):
             print(f"[{datetime.now()}] 自定义数据源: 数据格式错误，跳过: {e}")
             return True
 
-        self.lines.datetime[0] = bt.date2num(datetime.utcfromtimestamp(int(dt)))
+        # 兼容 int (Unix timestamp) 和 datetime 两种时间戳格式
+        if isinstance(dt, datetime):
+            self.lines.datetime[0] = bt.date2num(dt)
+        else:
+            self.lines.datetime[0] = bt.date2num(datetime.utcfromtimestamp(int(dt)))
         self.lines.open[0] = o
         self.lines.high[0] = h
         self.lines.low[0] = l
@@ -1049,6 +1063,222 @@ class 回测(高级策略基类):
     def log(self, 文本, dt=None):
         dt = dt or bt.num2date(self.data.datetime[0])
         print(f"[{dt.strftime('%Y-%m-%d %H:%M')}] {self.p.观察员.__class__.__name__}: {self.p.符号} | {文本}")
+
+
+# ==================== NB 数据源 — .nb 文件读取 ====================
+
+
+class NB数据源(bt.feeds.DataBase):
+    """从 .nb 文件读取K线数据作为 Backtrader 数据源
+
+    .nb 格式: 48字节大端序 — time:8, open:8, high:8, low:8, close:8, volume:8 (f64)
+    """
+
+    def __init__(self, 文件路径: str, 最大条数: int = None):
+        super().__init__()
+        import struct
+
+        with open(文件路径, "rb") as f:
+            self._buffer = f.read()
+        self._记录总数 = len(self._buffer) // 48
+        if 最大条数:
+            self._记录总数 = min(self._记录总数, 最大条数)
+        self._索引 = 0
+
+    def _load(self):
+        import struct
+
+        if self._索引 >= self._记录总数:
+            return False
+        offset = self._索引 * 48
+        ts, o, h, l, c, v = struct.unpack(">6d", self._buffer[offset : offset + 48])
+        self.lines.datetime[0] = bt.date2num(datetime.fromtimestamp(int(ts)))
+        self.lines.open[0] = o
+        self.lines.high[0] = h
+        self.lines.low[0] = l
+        self.lines.close[0] = c
+        self.lines.volume[0] = v
+        self._索引 += 1
+        return True
+
+
+# ==================== 信号驱动策略 — 立体分析器 + 信号计算器 + Backtrader ====================
+
+
+class 信号驱动策略(高级策略基类):
+    """基于 立体分析器 / 信号计算器 的多周期信号驱动策略。
+
+    Backtrader 负责仓位管理和订单执行，信号计算器只负责产出信号字典。
+    策略在 ``next()`` 中直接读取信号字典判断买卖。
+
+    数据流::
+
+        Backtrader bar → 立体分析器.投喂K线()
+            → 各周期缠论分析 → 信号计算器.更新() → 信号字典
+            → 策略读取 v2 判多空 → Backtrader 订单
+
+    使用方式::
+
+        cerebro.addstrategy(信号驱动策略, 符号="btcusd",
+                            多头信号=["三买"], 空头信号=["三卖"])
+    """
+
+    params = (
+        ("符号", "btcusd"),
+        ("基础周期", 300),
+        ("高级周期组", ()),
+        ("信号模块", "chanlun.signals"),
+        ("持仓", None),
+        ("信号配置", None),
+        ("投喂预热数", 2),
+        ("指标计算", True),
+    )
+
+    def __init__(self):
+        super().__init__()
+        self.投喂计数 = 0
+        self.已处理信号 = set()
+
+        self.持仓列表 = self.p.持仓 if self.p.持仓 is not None else []
+        self._上次操作数 = {p.name: 0 for p in self.持仓列表}
+
+        from chanlun.signal_orchestrator import (
+            SignalOrchestrator as _信号计算器,
+            get_signals_config,
+        )
+
+        信号配置 = self.p.信号配置
+        if 信号配置 is None and self.持仓列表:
+            所有信号 = set()
+            for p in self.持仓列表:
+                所有信号.update(p.unique_signals)
+            信号配置 = get_signals_config(list(所有信号))
+
+        self.缠论配置 = self._构建缠论配置()
+        周期组 = [self.p.基础周期]
+        if self.p.高级周期组:
+            周期组.extend(self.p.高级周期组)
+        if len(周期组) < 2:
+            周期组.append(self.p.基础周期 * 5)
+        from chanlun import 立体分析器 as _立体分析器
+
+        self.分析器 = _立体分析器(self.p.符号, 周期组, self.缠论配置)
+        self.计算器 = _信号计算器(
+            分析器=self.分析器,
+            信号配置=信号配置 or [],
+            信号模块=self.p.信号模块,
+        )
+
+    def _构建缠论配置(self):
+        from chanlun import 缠论配置 as _缠论配置
+
+        配置 = _缠论配置()
+        if self.p.指标计算:
+            配置.设置指标(
+                均线=[("SMA_5", "收", "SMA", 5), ("SMA_10", "收", "SMA", 10), ("SMA_20", "收", "SMA", 20)],
+                MACD=[("macd", "收", 13, 31, 11)],
+            )
+        配置.图表展示 = False
+        配置.图表展示标签 = []
+        return 配置
+
+    def _从数据源创建K线(self) -> "K线":
+        dt = bt.num2date(self.data.datetime[0])
+        from chanlun import K线
+
+        return K线.创建普K(
+            self.p.符号,
+            int(dt.timestamp()),
+            float(self.data.open[0]),
+            float(self.data.high[0]),
+            float(self.data.low[0]),
+            float(self.data.close[0]),
+            float(self.data.volume[0]),
+            0,
+            self.p.基础周期,
+        )
+
+    def _检测新操作(self) -> list:
+        新操作 = []
+        for pos in self.持仓列表:
+            curr = len(pos.operates)
+            prev = self._上次操作数.get(pos.name, 0)
+            if curr > prev:
+                新操作.extend(pos.operates[prev:])
+                self._上次操作数[pos.name] = curr
+        return 新操作
+
+    def next(self):
+        dt = self.datas[0].datetime.datetime(0)
+        bar = len(self.data)
+
+        # ── 1. 投喂 ──
+        k线 = self._从数据源创建K线()
+        self.分析器.投喂K线(k线)
+        self.投喂计数 += 1
+
+        if self.投喂计数 < self.p.投喂预热数:
+            # K线合成器缓冲中，尚无完整高级K线
+            return
+        if bar < 50:
+            return  # 缠论分析预热
+
+        # ── 2. 信号计算 ──
+        try:
+            self.计算器.更新()
+        except Exception:
+            import traceback
+
+            self.日志(f"❌ 计算器异常:\n{traceback.format_exc()}")
+            return
+
+        if self.计算器.信号:
+            k, v = next(iter(self.计算器.信号.items()))
+            self.日志(f"📡 信号={k}→{v} 持仓={self.position.size:+d}")
+
+        # ── 3. 去重 ──
+        try:
+            信号ID = json.dumps(self.计算器.信号, sort_keys=True, default=str)
+        except Exception:
+            信号ID = str(self.计算器.信号)
+        if 信号ID in self.已处理信号:
+            return
+        self.已处理信号.add(信号ID)
+
+        # ── 4. 止损 ──
+        if self.position:
+            self.更新止损订单(self.position.size > 0, self.data.close[0])
+
+        # ── 5. 仓位匹配 ──
+        for pos in self.持仓列表:
+            try:
+                prev_ops = len(pos.operates)
+                pos.update(self.计算器.信号字典)
+                if len(pos.operates) > prev_ops:
+                    self.日志(f"  ✓ {pos.name} 匹配 → {pos.operates[-1]['op']}")
+            except ValueError:
+                pass  # 信号键尚不存在
+
+        # ── 6. 执行操作 ──
+        for op_record in self._检测新操作():
+            op = op_record["op"]
+            price = op_record.get("price", self.data.close[0])
+            self.日志(f"  ▶ {op} @{price:.0f}  {op_record.get('op_desc', '')}")
+
+            if op == cet.Operate.LE and self.position.size > 0:
+                self.平仓(self.data)
+            elif op == cet.Operate.SE and self.position.size < 0:
+                self.平仓(self.data)
+            elif op == cet.Operate.LO and not self.position and self.p.允许做多:
+                self.开仓(self.data, 是否做多=True)
+            elif op == cet.Operate.SO and not self.position and self.p.允许做空:
+                self.开仓(self.data, 是否做多=False)
+            else:
+                self.日志(f"  ✗ {op} 跳过 (持仓={self.position.size:+d} 允许做多={self.p.允许做多} 允许做空={self.p.允许做空})")
+
+    def 日志(self, 文本: str):
+        dt = self.datas[0].datetime.datetime(0)
+        print(f"[{dt.strftime('%m-%d %H:%M')}] {文本}")
 
 
 # ==================== 回测运行入口 ====================

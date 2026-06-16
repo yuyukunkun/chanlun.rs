@@ -22,8 +22,8 @@
  * SOFTWARE.
  */
 
+use crate::warn;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 
 /// 分型结构 —— 三根K线构成的结构形态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

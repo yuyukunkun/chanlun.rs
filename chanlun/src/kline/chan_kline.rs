@@ -29,9 +29,10 @@ use crate::structure::fractal_obj::分型;
 use crate::types::SyncF64;
 use crate::types::分型结构;
 use crate::types::相对方向;
+use parking_lot::RwLock;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, RwLock};
 
 /// 缠论K线 — 经包含处理过后的K线
 ///
@@ -74,15 +75,15 @@ impl Clone for 缠论K线 {
             时间戳: AtomicI64::new(self.时间戳.load(Ordering::Relaxed)),
             高: SyncF64::new(self.高.get()),
             低: SyncF64::new(self.低.get()),
-            方向: RwLock::new(*self.方向.read().unwrap()),
-            分型: RwLock::new(*self.分型.read().unwrap()),
+            方向: RwLock::new(*self.方向.read()),
+            分型: RwLock::new(*self.分型.read()),
             周期: self.周期,
             标识: self.标识.clone(),
             分型特征值: SyncF64::new(self.高.get()),
             原始起始序号: self.原始起始序号,
             原始结束序号: AtomicI64::new(self.原始结束序号.load(Ordering::Relaxed)),
-            标的K线: RwLock::new(Arc::clone(&self.标的K线.read().unwrap())),
-            买卖点信息: RwLock::new(self.买卖点信息.read().unwrap().clone()),
+            标的K线: RwLock::new(Arc::clone(&self.标的K线.read())),
+            买卖点信息: RwLock::new(self.买卖点信息.read().clone()),
         }
     }
 }
@@ -97,10 +98,9 @@ impl std::fmt::Display for 缠论K线 {
             self.序号.load(Ordering::Relaxed),
             self.分型
                 .read()
-                .unwrap()
                 .map_or("None".to_string(), |fx| fx.to_string()),
             self.周期,
-            *self.方向.read().unwrap(),
+            *self.方向.read(),
             self.时间戳.load(Ordering::Relaxed),
             format_f64_g(self.高.get()),
             format_f64_g(self.低.get())
@@ -116,23 +116,23 @@ impl 缠论K线 {
             时间戳: AtomicI64::new(self.时间戳.load(Ordering::Relaxed)),
             高: SyncF64::new(self.高.get()),
             低: SyncF64::new(self.低.get()),
-            方向: RwLock::new(*self.方向.read().unwrap()),
-            分型: RwLock::new(*self.分型.read().unwrap()),
+            方向: RwLock::new(*self.方向.read()),
+            分型: RwLock::new(*self.分型.read()),
             周期: self.周期,
             标识: self.标识.clone(),
             分型特征值: SyncF64::new(self.高.get()),
             原始起始序号: self.原始起始序号,
             原始结束序号: AtomicI64::new(self.原始结束序号.load(Ordering::Relaxed)),
-            标的K线: RwLock::new(Arc::clone(&self.标的K线.read().unwrap())),
-            买卖点信息: RwLock::new(self.买卖点信息.read().unwrap().clone()),
+            标的K线: RwLock::new(Arc::clone(&self.标的K线.read())),
+            买卖点信息: RwLock::new(self.买卖点信息.read().clone()),
         }
     }
 
     /// 与MACD柱子匹配 — 底分型时MACD柱应<0, 顶分型时>0
     pub fn 与MACD柱子匹配(&self) -> bool {
-        let 标 = self.标的K线.read().unwrap();
-        let 容器 = 标.指标.read().unwrap();
-        match *self.分型.read().unwrap() {
+        let 标 = self.标的K线.read();
+        let 容器 = 标.指标.read();
+        match *self.分型.read() {
             Some(分型结构::底) | Some(分型结构::下) => {
                 if let Some(macd) = 容器.macd() {
                     macd.MACD柱 < 0.0
@@ -153,9 +153,9 @@ impl 缠论K线 {
 
     /// 与RSI匹配 — 底分型时RSI应低于SMA, 顶分型时高于SMA
     pub fn 与RSI匹配(&self) -> bool {
-        let 标 = self.标的K线.read().unwrap();
-        let 容器 = 标.指标.read().unwrap();
-        match *self.分型.read().unwrap() {
+        let 标 = self.标的K线.read();
+        let 容器 = 标.指标.read();
+        match *self.分型.read() {
             Some(分型结构::底) | Some(分型结构::下) => {
                 if let Some(rsi) = 容器.rsi() {
                     match (rsi.RSI, rsi.RSI_SMA) {
@@ -182,9 +182,9 @@ impl 缠论K线 {
 
     /// 与KDJ匹配 — 底分型时K应低于D(死叉后), 顶分型时K应高于D(金叉后)
     pub fn 与KDJ匹配(&self) -> bool {
-        let 标 = self.标的K线.read().unwrap();
-        let 容器 = 标.指标.read().unwrap();
-        match *self.分型.read().unwrap() {
+        let 标 = self.标的K线.read();
+        let 容器 = 标.指标.read();
+        match *self.分型.read() {
             Some(分型结构::底) | Some(分型结构::下) => {
                 if let Some(kdj) = 容器.kdj() {
                     match (kdj.K, kdj.D) {
@@ -356,12 +356,12 @@ impl 缠论K线 {
         // 逆序包含时更新时间和标的K线
         if 关系 != 相对方向::顺 {
             当前缠K.时间戳.store(当前普K.时间戳, Ordering::Relaxed);
-            *当前缠K.标的K线.write().unwrap() = Arc::clone(当前普K);
+            *当前缠K.标的K线.write() = Arc::clone(当前普K);
         }
         当前缠K.高.set(取值函数(当前缠K.高.get(), 当前普K.高));
         当前缠K.低.set(取值函数(当前缠K.低.get(), 当前普K.低));
         当前缠K.原始结束序号.store(当前普K.序号, Ordering::Relaxed);
-        *当前缠K.方向.write().unwrap() = 当前普K.方向();
+        *当前缠K.方向.write() = 当前普K.方向();
 
         if let Some(之前) = 之前缠K {
             当前缠K
@@ -466,29 +466,29 @@ impl 缠论K线 {
         let 结构 = 分型结构::分析(&*左, &*中, &*右, false, false);
 
         // 对齐 Python：无条件设置 中.分型、中.分型特征值、右.分型特征值、右.分型
-        *缠K序列[idx - 2].分型.write().unwrap() = 结构;
+        *缠K序列[idx - 2].分型.write() = 结构;
 
         if let Some(结构) = 结构 {
             match 结构 {
                 分型结构::底 => {
                     缠K序列[idx - 2].分型特征值.set(缠K序列[idx - 2].低.get());
                     缠K序列[idx - 1].分型特征值.set(缠K序列[idx - 1].高.get());
-                    *缠K序列[idx - 1].分型.write().unwrap() = Some(分型结构::顶);
+                    *缠K序列[idx - 1].分型.write() = Some(分型结构::顶);
                 }
                 分型结构::顶 => {
                     缠K序列[idx - 2].分型特征值.set(缠K序列[idx - 2].高.get());
                     缠K序列[idx - 1].分型特征值.set(缠K序列[idx - 1].低.get());
-                    *缠K序列[idx - 1].分型.write().unwrap() = Some(分型结构::底);
+                    *缠K序列[idx - 1].分型.write() = Some(分型结构::底);
                 }
                 分型结构::上 => {
                     缠K序列[idx - 2].分型特征值.set(缠K序列[idx - 2].高.get());
                     缠K序列[idx - 1].分型特征值.set(缠K序列[idx - 1].高.get());
-                    *缠K序列[idx - 1].分型.write().unwrap() = Some(分型结构::顶);
+                    *缠K序列[idx - 1].分型.write() = Some(分型结构::顶);
                 }
                 分型结构::下 => {
                     缠K序列[idx - 2].分型特征值.set(缠K序列[idx - 2].低.get());
                     缠K序列[idx - 1].分型特征值.set(缠K序列[idx - 1].低.get());
-                    *缠K序列[idx - 1].分型.write().unwrap() = Some(分型结构::底);
+                    *缠K序列[idx - 1].分型.write() = Some(分型结构::底);
                 }
                 分型结构::散 => {}
             }
@@ -573,23 +573,23 @@ impl 缠论K线 {
                 ),
             );
         }
-        if *self.方向.read().unwrap() != *other.方向.read().unwrap() {
+        if *self.方向.read() != *other.方向.read() {
             return (
                 false,
                 format!(
                     "缠论K线: [方向] 不等 A={},B={}",
-                    self.方向.read().unwrap(),
-                    other.方向.read().unwrap()
+                    self.方向.read(),
+                    other.方向.read()
                 ),
             );
         }
-        if *self.分型.read().unwrap() != *other.分型.read().unwrap() {
+        if *self.分型.read() != *other.分型.read() {
             return (
                 false,
                 format!(
                     "缠论K线: [分型] 不等 A={:?},B={:?}",
-                    self.分型.read().unwrap(),
-                    other.分型.read().unwrap()
+                    self.分型.read(),
+                    other.分型.read()
                 ),
             );
         }
@@ -636,17 +636,13 @@ impl 缠论K线 {
             );
         }
         // 标的K线 递归
-        let (eq, msg) = self
-            .标的K线
-            .read()
-            .unwrap()
-            .相等(&other.标的K线.read().unwrap(), 浮点容差);
+        let (eq, msg) = self.标的K线.read().相等(&other.标的K线.read(), 浮点容差);
         if !eq {
             return (false, format!("缠论K线: 标的K线子项异常 >> {msg}"));
         }
         // 买卖点信息
-        let a_guard = self.买卖点信息.read().unwrap();
-        let b_guard = other.买卖点信息.read().unwrap();
+        let a_guard = self.买卖点信息.read();
+        let b_guard = other.买卖点信息.read();
         let a_set: std::collections::HashSet<&String> = a_guard.iter().collect();
         let b_set: std::collections::HashSet<&String> = b_guard.iter().collect();
         if a_set != b_set {
@@ -654,12 +650,44 @@ impl 缠论K线 {
                 false,
                 format!(
                     "缠论K线: [买卖点信息] 集合不等 A={:?},B={:?}",
-                    self.买卖点信息.read().unwrap(),
-                    other.买卖点信息.read().unwrap()
+                    self.买卖点信息.read(),
+                    other.买卖点信息.read()
                 ),
             );
         }
         (true, "缠论K线: 全部字段一致".into())
+    }
+
+    // ── 便捷指标访问（委托给标的K线）──
+
+    /// 读取 MACD 指标
+    pub fn macd(&self) -> Option<crate::indicators::平滑异同移动平均线> {
+        self.标的K线.read().macd()
+    }
+
+    /// 读取 RSI 指标
+    pub fn rsi(&self) -> Option<crate::indicators::相对强弱指数> {
+        self.标的K线.read().rsi()
+    }
+
+    /// 读取 KDJ 指标
+    pub fn kdj(&self) -> Option<crate::indicators::随机指标> {
+        self.标的K线.read().kdj()
+    }
+
+    /// 读取 BOLL 指标
+    pub fn boll(&self) -> Option<crate::indicators::布林带> {
+        self.标的K线.read().boll()
+    }
+
+    /// 读取均线值
+    pub fn ma(&self, key: &str) -> Option<f64> {
+        self.标的K线.read().ma(key)
+    }
+
+    /// 读取收盘价（委托给标的K线）
+    pub fn 收盘价(&self) -> f64 {
+        self.标的K线.read().收盘价
     }
 }
 

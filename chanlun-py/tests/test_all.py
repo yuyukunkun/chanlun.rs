@@ -1693,8 +1693,8 @@ class Test指标挂载(unittest.TestCase):
         for i in range(100):
             if i == 50:
                 obs.配置.MACD_参数列表 = [
-                    ("macd", 12, 26, 9),
-                    ("macd_10_20_7", 10, 20, 7),
+                    ("macd", "收", 12, 26, 9),
+                    ("macd_10_20_7", "收", 10, 20, 7),
                 ]
             obs.增加原始K线(self._make_k(i))
 
@@ -1708,9 +1708,9 @@ class Test指标挂载(unittest.TestCase):
 
         for i in range(80):
             if i == 40:
-                obs.配置.MACD_参数列表 = [("macd", 12, 26, 9), ("macd_fast", 5, 13, 5)]
-                obs.配置.RSI_周期列表 = [("rsi", 14), ("rsi_7", 7)]
-                obs.配置.KDJ_参数列表 = [("kdj", 9, 3, 3), ("kdj_5", 5, 2, 2)]
+                obs.配置.MACD_参数列表 = [("macd", "收", 12, 26, 9), ("macd_fast", "收", 5, 13, 5)]
+                obs.配置.RSI_周期列表 = [("rsi", "收", 14, 13, 75.0, 25.0), ("rsi_7", "收", 7, 6, 75.0, 25.0)]
+                obs.配置.KDJ_参数列表 = [("kdj", "收", 9, 3, 3, 80.0, 20.0), ("kdj_5", "收", 5, 2, 2, 80.0, 20.0)]
             obs.增加原始K线(self._make_k(i))
 
         for k in obs.普通K线序列:
@@ -1721,7 +1721,7 @@ class Test指标挂载(unittest.TestCase):
     def test_回填后增量计算一致(self):
         """回填后的指标值应与从头计算一致."""
         cfg_full = chanlun.缠论配置()
-        cfg_full.MACD_参数列表 = [("macd", 12, 26, 9), ("macd_extra", 8, 16, 6)]
+        cfg_full.MACD_参数列表 = [("macd", "收", 12, 26, 9), ("macd_extra", "收", 8, 16, 6)]
         obs_full = chanlun.观察者("btcusd", 300, cfg_full)
 
         cfg_late = chanlun.缠论配置()
@@ -1729,7 +1729,7 @@ class Test指标挂载(unittest.TestCase):
 
         for i in range(100):
             if i == 50:
-                obs_late.配置.MACD_参数列表 = [("macd", 12, 26, 9), ("macd_extra", 8, 16, 6)]
+                obs_late.配置.MACD_参数列表 = [("macd", "收", 12, 26, 9), ("macd_extra", "收", 8, 16, 6)]
             obs_full.增加原始K线(self._make_k(i))
             obs_late.增加原始K线(self._make_k(i))
 
@@ -2542,13 +2542,21 @@ class Test缠论配置双端一致(unittest.TestCase):
         d_rs = cfg_rs.to_dict()
         d_py = cfg_py.to_dict()
 
+        # Rust (serde_json) 产 list-of-list，Python 产 list-of-tuple，统一为 list 比较
+        def _normalize(v):
+            if isinstance(v, list):
+                return [_normalize(x) for x in v]
+            if isinstance(v, tuple):
+                return [_normalize(x) for x in v]
+            return v
+
         mismatches = []
         for k in d_rs:
             v_rs = d_rs[k]
             v_py = d_py.get(k)
             if v_rs is None and v_py is None:
                 continue
-            if v_rs != v_py:
+            if _normalize(v_rs) != _normalize(v_py):
                 mismatches.append(f"  {k}: R={v_rs!r} P={v_py!r}")
         self.assertEqual(len(mismatches), 0, f"to_dict 值不一致 ({len(mismatches)}处):\n" + "\n".join(mismatches[:10]))
 
@@ -2625,15 +2633,13 @@ class Test缠论配置双端一致(unittest.TestCase):
         from chanlun import chan
 
         cfg_rs, cfg_py = self._make_configs()
-        update = {"标识": "copied", "推送K线": False, "笔内元素数量": 10}
+        update = {"标识": "copied", "买卖点偏移": 5, "笔内元素数量": 10}
 
         copy_rs = cfg_rs.model_copy(update)
         copy_py = cfg_py.model_copy(update)
 
         self.assertEqual(copy_rs.标识, copy_py.标识)
         self.assertEqual(copy_rs.笔内元素数量, copy_py.笔内元素数量)
-        self.assertFalse(copy_rs.推送K线)
-        self.assertFalse(copy_py.推送K线)
         # 未更新字段保持原值一致
         self.assertEqual(copy_rs.买卖点偏移, copy_py.买卖点偏移)
 
@@ -2660,8 +2666,6 @@ class Test缠论配置双端一致(unittest.TestCase):
         cfg_rs = chanlun.缠论配置.不推送()
         cfg_py = chan.缠论配置.不推送()
 
-        self.assertFalse(cfg_rs.推送K线)
-        self.assertFalse(cfg_py.推送K线)
         self.assertFalse(cfg_rs.图表展示)
         self.assertFalse(cfg_py.图表展示)
         self.assertEqual(cfg_rs.笔内元素数量, cfg_py.笔内元素数量)
@@ -2774,6 +2778,75 @@ class Test缠论配置双端一致(unittest.TestCase):
         for k in diff_rs:
             self.assertFalse(diff_rs[k], f"不推送差异字段 {k} 应为 False")
             self.assertFalse(diff_py[k], f"不推送差异字段 {k} 应为 False")
+
+
+class Test生成K线双端一致(unittest.TestCase):
+    """根据当前K线生成新K线 Rust vs chan.py 输出一致."""
+
+    def test_生成K线_居中各方向双端一致(self):
+        """居中模式下各方向生成K线双端OHLC一致（居中=确定性输出）"""
+        import chanlun
+        from chanlun import chan
+
+        bar_rs = chanlun.K线.创建普K("btcusd", 1000000000, 50000, 50200, 49800, 50100, 100, 0, 300)
+        bar_py = chan.K线.创建普K("btcusd", chan.转化为时间戳(1000000000), 50000, 50200, 49800, 50100, 100, 0, 300)
+
+        directions = {
+            "向上": 0,
+            "向下": 1,
+            "向上缺口": 2,
+            "向下缺口": 3,
+            "衔接向上": 4,
+            "衔接向下": 5,
+        }
+        py_dirs = {
+            "向上": chan.相对方向.向上,
+            "向下": chan.相对方向.向下,
+            "向上缺口": chan.相对方向.向上缺口,
+            "向下缺口": chan.相对方向.向下缺口,
+            "衔接向上": chan.相对方向.衔接向上,
+            "衔接向下": chan.相对方向.衔接向下,
+        }
+
+        for name in directions:
+            new_rs = bar_rs.根据当前K线生成新K线(directions[name], 居中=True)
+            new_py = bar_py.根据当前K线生成新K线(py_dirs[name], 居中=True)
+
+            # 居中模式下，高和低是确定性的（偏移=高低差*0.5）
+            # 开盘价/收盘价/成交量含随机，不比较
+            tol = 1.0 + abs(new_py.高) * 1e-6
+            self.assertAlmostEqual(new_rs.高, new_py.高, delta=tol, msg=f"{name}: 最高价不一致 (R={new_rs.高}, P={new_py.高})")
+            self.assertAlmostEqual(new_rs.低, new_py.低, delta=tol, msg=f"{name}: 最低价不一致 (R={new_rs.低}, P={new_py.低})")
+
+        # 时间戳和序号
+        self.assertEqual(new_rs.序号, new_py.序号)
+        self.assertEqual(int(new_rs.时间戳), int(chan.转化为时间戳_数字(new_py.时间戳)))
+
+    def test_生成K线_居中外推验证(self):
+        """居中向上生成：新K线的高/低应整体高于原K线."""
+        import chanlun
+
+        bar = chanlun.K线.创建普K("btcusd", 1000000000, 50000, 50200, 49800, 50100, 100, 0, 300)
+        new = bar.根据当前K线生成新K线(0, 居中=True)
+
+        self.assertGreater(new.高, bar.高, "向上：新高应高于原高")
+        self.assertGreater(new.低, bar.低, "向上：新低应高于原低")
+
+        new_down = bar.根据当前K线生成新K线(1, 居中=True)
+        self.assertLess(new_down.高, bar.高, "向下：新高应低于原高")
+        self.assertLess(new_down.低, bar.低, "向下：新低应低于原低")
+
+    def test_生成K线_衔接验证(self):
+        """衔接向上：新K线的低 = 原K线的高（无缝衔接）."""
+        import chanlun
+
+        bar = chanlun.K线.创建普K("btcusd", 1000000000, 50000, 50200, 49800, 50100, 100, 0, 300)
+        new = bar.根据当前K线生成新K线(4, 居中=True)
+
+        self.assertAlmostEqual(new.低, bar.高, delta=1e-6, msg="衔接向上：新低应=原高")
+
+        new_down = bar.根据当前K线生成新K线(5, 居中=True)
+        self.assertAlmostEqual(new_down.高, bar.低, delta=1e-6, msg="衔接向下：新高应=原低")
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@
 
 use crate::kline::bar::K线;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 /// 布林带（BOLL）— 基于移动平均和标准差的波动率通道
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +44,7 @@ pub struct 布林带 {
     pub 下轨: f64,
     /// 内部历史队列（不序列化）
     #[serde(skip)]
-    _历史队列: Vec<f64>,
+    _历史队列: VecDeque<f64>,
     /// 内部均值缓存（不序列化）
     #[serde(skip)]
     _均值: f64,
@@ -61,7 +62,7 @@ impl Default for 布林带 {
             上轨: 0.0,
             中轨: 0.0,
             下轨: 0.0,
-            _历史队列: Vec::new(),
+            _历史队列: VecDeque::new(),
             _均值: 0.0,
             _方差和: 0.0,
         }
@@ -98,7 +99,7 @@ impl 布林带 {
             上轨: 价格,
             中轨: 价格,
             下轨: 价格,
-            _历史队列: vec![价格],
+            _历史队列: VecDeque::from([价格]),
             _均值: 价格,
             _方差和: 0.0,
         }
@@ -110,9 +111,9 @@ impl 布林带 {
         let 标准差倍数 = prev.标准差倍数;
 
         let mut q = prev._历史队列.clone();
-        q.push(价格);
+        q.push_back(价格);
         if q.len() > 周期 {
-            q.remove(0);
+            q.pop_front();
         }
 
         let (_均值, _方差和) = if q.len() < 周期 {

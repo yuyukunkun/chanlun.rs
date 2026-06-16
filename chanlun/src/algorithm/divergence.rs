@@ -39,13 +39,13 @@ impl 背驰分析 {
     ) -> bool {
         let 进入MACD = Self::_获取MACD面积(
             K线序列,
-            &进入段.文.中.标的K线.read().unwrap(),
-            &进入段.武.read().unwrap().中.标的K线.read().unwrap(),
+            &进入段.文.中.标的K线.read(),
+            &进入段.武.read().中.标的K线.read(),
         );
         let 离开MACD = Self::_获取MACD面积(
             K线序列,
-            &离开段.文.中.标的K线.read().unwrap(),
-            &离开段.武.read().unwrap().中.标的K线.read().unwrap(),
+            &离开段.文.中.标的K线.read(),
+            &离开段.武.read().中.标的K线.read(),
         );
 
         // 计算面积（绝对值求和）
@@ -69,18 +69,18 @@ impl 背驰分析 {
 
     /// 斜率背驰 — 价格斜率背驰
     pub fn 斜率背驰(进入段: &虚线, 离开段: &虚线) -> bool {
-        let dx = (进入段.武.read().unwrap().时间戳() - 进入段.文.时间戳()) as f64;
+        let dx = (进入段.武.read().时间戳() - 进入段.文.时间戳()) as f64;
         if dx == 0.0 {
             return false;
         }
-        let dy = 进入段.武.read().unwrap().分型特征值 - 进入段.文.分型特征值;
+        let dy = 进入段.武.read().分型特征值 - 进入段.文.分型特征值;
         let 进入斜率 = dy / dx;
 
-        let dx = (离开段.武.read().unwrap().时间戳() - 离开段.文.时间戳()) as f64;
+        let dx = (离开段.武.read().时间戳() - 离开段.文.时间戳()) as f64;
         if dx == 0.0 {
             return false;
         }
-        let dy = 离开段.武.read().unwrap().分型特征值 - 离开段.文.分型特征值;
+        let dy = 离开段.武.read().分型特征值 - 离开段.文.分型特征值;
         let 离开斜率 = dy / dx;
 
         if 进入段.方向() == 相对方向::向上 {
@@ -92,12 +92,12 @@ impl 背驰分析 {
 
     /// 测度背驰 — 价格时间测度背驰
     pub fn 测度背驰(进入段: &虚线, 离开段: &虚线) -> bool {
-        let dx = (进入段.武.read().unwrap().时间戳() - 进入段.文.时间戳()) as f64;
-        let dy = 进入段.武.read().unwrap().分型特征值 - 进入段.文.分型特征值;
+        let dx = (进入段.武.read().时间戳() - 进入段.文.时间戳()) as f64;
+        let dy = 进入段.武.read().分型特征值 - 进入段.文.分型特征值;
         let 进入测度 = (dx * dx + dy * dy).sqrt();
 
-        let dx = (离开段.武.read().unwrap().时间戳() - 离开段.文.时间戳()) as f64;
-        let dy = 离开段.武.read().unwrap().分型特征值 - 离开段.文.分型特征值;
+        let dx = (离开段.武.read().时间戳() - 离开段.文.时间戳()) as f64;
+        let dy = 离开段.武.read().分型特征值 - 离开段.文.分型特征值;
         let 离开测度 = (dx * dx + dy * dy).sqrt();
 
         if 进入段.方向() == 相对方向::向上 {
@@ -187,12 +187,8 @@ impl 背驰分析 {
     // ---- 内部辅助 ----
 
     fn _获取MACD面积(K线序列: &[Arc<K线>], 始: &Arc<K线>, 终: &Arc<K线>) -> MACD面积 {
-        let 始_idx = K线序列
-            .iter()
-            .position(|k| Arc::as_ptr(k) == Arc::as_ptr(始));
-        let 终_idx = K线序列
-            .iter()
-            .position(|k| Arc::as_ptr(k) == Arc::as_ptr(终));
+        let 始_idx = K线序列.iter().position(|k| Arc::ptr_eq(k, 始));
+        let 终_idx = K线序列.iter().position(|k| Arc::ptr_eq(k, 终));
 
         let mut 阳 = 0.0f64;
         let mut 阴 = 0.0f64;
@@ -200,7 +196,7 @@ impl 背驰分析 {
         if let (Some(始), Some(终)) = (始_idx, 终_idx) {
             let (始, 终) = if 始 <= 终 { (始, 终) } else { (终, 始) };
             for k in &K线序列[始..=终] {
-                if let Some(macd) = k.指标.read().unwrap().macd() {
+                if let Some(macd) = k.指标.read().macd() {
                     let hist = macd.MACD柱;
                     if hist >= 0.0 {
                         阳 += hist;

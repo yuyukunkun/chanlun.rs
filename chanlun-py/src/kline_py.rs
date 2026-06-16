@@ -22,16 +22,16 @@
  * SOFTWARE.
  */
 
+use parking_lot::RwLock;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList, PyType};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::atomic::Ordering;
 
 use crate::config_py::缠论配置Py;
 use crate::indicators_py::{
-    平滑异同移动平均线Py, 指标容器Py, 相对强弱指数Py, 随机指标Py
+    平滑异同移动平均线Py, 指标容器Py, 相对强弱指数Py, 随机指标Py, 布林带Py,
 };
 use crate::structure_py::fractal_to_py;
 use crate::types_py::相对方向Py;
@@ -149,7 +149,6 @@ impl K线Py {
         self.inner
             .指标
             .read()
-            .unwrap()
             .macd_cloned()
             .map(|m| 平滑异同移动平均线Py { inner: m })
     }
@@ -159,7 +158,6 @@ impl K线Py {
         self.inner
             .指标
             .read()
-            .unwrap()
             .rsi_cloned()
             .map(|r| 相对强弱指数Py { inner: r })
     }
@@ -169,16 +167,29 @@ impl K线Py {
         self.inner
             .指标
             .read()
-            .unwrap()
             .kdj_cloned()
             .map(|k| 随机指标Py { inner: k })
+    }
+
+    #[getter]
+    fn boll(&self) -> Option<布林带Py> {
+        self.inner
+            .指标
+            .read()
+            .boll_cloned()
+            .map(|b| 布林带Py { inner: b })
+    }
+
+    /// 读取均线值，如 `k.ma("SMA_5")` → `Optional[float]`
+    fn ma(&self, key: &str) -> Option<f64> {
+        self.inner.ma(key)
     }
 
     /// 指标容器 — 包含所有已注册指标（MACD/RSI/KDJ/BOLL/均线/单值）
     #[getter]
     fn 指标(&self) -> 指标容器Py {
         指标容器Py {
-            inner: self.inner.指标.read().unwrap().clone(),
+            inner: self.inner.指标.read().clone(),
         }
     }
 
@@ -339,6 +350,39 @@ impl K线Py {
             .take(end_idx - start_idx + 1)
             .collect())
     }
+
+    /// 根据当前K线和方向生成下一根K线（用于随机回测）
+    #[pyo3(signature = (方向, 居中 = false))]
+    fn 根据当前K线生成新K线(
+        &self, 方向: &Bound<'_, PyAny>, 居中: bool
+    ) -> PyResult<Self> {
+        let dir: chanlun::types::相对方向 = if let Ok(d) = 方向.extract::<PyRef<'_, 相对方向Py>>()
+        {
+            d.inner
+        } else if let Ok(i) = 方向.extract::<i64>() {
+            match i {
+                0 => chanlun::types::相对方向::向上,
+                1 => chanlun::types::相对方向::向下,
+                2 => chanlun::types::相对方向::向上缺口,
+                3 => chanlun::types::相对方向::向下缺口,
+                4 => chanlun::types::相对方向::衔接向上,
+                5 => chanlun::types::相对方向::衔接向下,
+                _ => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "无效方向: {i}"
+                    )));
+                }
+            }
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "方向 必须是 相对方向 或 int (0-5)",
+            ));
+        };
+        let new_bar = self.inner.根据当前K线生成新K线(dir, 居中);
+        Ok(Self {
+            inner: Arc::new(new_bar),
+        })
+    }
 }
 
 // ========== 缠论K线 ==========
@@ -371,57 +415,29 @@ impl 缠论K线Py {
     }
 }
 
-/// 对象标识缓存：Arc 地址 → 规范 Python 对象
-/// 确保同一底层 Arc 指针在 Python 侧始终映射到同一 PyObject
-/// 使用全局 static 而非 thread_local!，保证跨线程对象标识和买卖点信息一致性
-static BAR_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<K线Py>>>> =
-    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
-
-static KLINE_IDENTITY: std::sync::LazyLock<RwLock<HashMap<usize, Py<缠论K线Py>>>> =
-    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
-
-/// 买卖点信息缓存 — 按 Arc 指针全局共享，确保所有 wrapper 看到同一 PySet
-static BSP_CACHE: std::sync::LazyLock<RwLock<HashMap<usize, Py<pyo3::types::PySet>>>> =
-    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
-
-/// 将 Rc<K线> 转为 Py<K线Py>，确保同一 Rc 地址总是返回同一 Python 对象
 pub(crate) fn bar_to_py(
     py: Python<'_>,
     inner: std::sync::Arc<chanlun::kline::bar::K线>,
 ) -> Py<K线Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) = BAR_IDENTITY
-        .read()
-        .unwrap()
-        .get(&key)
-        .map(|p| p.clone_ref(py))
-    {
+    if let Some(cached) = crate::cache::bar_get(py, key) {
         return cached;
     }
     let obj = Py::new(py, K线Py { inner }).unwrap();
-    BAR_IDENTITY.write().unwrap().insert(key, obj.clone_ref(py));
+    crate::cache::bar_insert(py, key, &obj);
     obj
 }
 
-/// 将 Rc<缠论K线> 转为 Py<缠论K线Py>，确保同一 Rc 地址总是返回同一 Python 对象
 pub(crate) fn chan_kline_to_py(
     py: Python<'_>,
     inner: std::sync::Arc<chanlun::kline::chan_kline::缠论K线>,
 ) -> Py<缠论K线Py> {
     let key = Arc::as_ptr(&inner) as usize;
-    if let Some(cached) = KLINE_IDENTITY
-        .read()
-        .unwrap()
-        .get(&key)
-        .map(|p| p.clone_ref(py))
-    {
+    if let Some(cached) = crate::cache::kline_get(py, key) {
         return cached;
     }
     let obj = Py::new(py, 缠论K线Py::from_rc(inner)).unwrap();
-    KLINE_IDENTITY
-        .write()
-        .unwrap()
-        .insert(key, obj.clone_ref(py));
+    crate::cache::kline_insert(py, key, &obj);
     obj
 }
 
@@ -462,7 +478,7 @@ impl 缠论K线Py {
 
     #[getter]
     fn 方向(&self, py: Python<'_>) -> Py<相对方向Py> {
-        crate::types_py::获取相对方向单例(py, *self.inner.方向.read().unwrap())
+        crate::types_py::获取相对方向单例(py, *self.inner.方向.read())
     }
 
     #[getter]
@@ -470,7 +486,6 @@ impl 缠论K线Py {
         self.inner
             .分型
             .read()
-            .unwrap()
             .map(|f| crate::types_py::获取分型结构单例(py, f))
     }
 
@@ -501,7 +516,7 @@ impl 缠论K线Py {
 
     #[getter]
     fn 标的K线(&self, py: Python<'_>) -> Py<K线Py> {
-        bar_to_py(py, self.inner.标的K线.read().unwrap().clone())
+        bar_to_py(py, self.inner.标的K线.read().clone())
     }
 
     /// pandas 兼容 — 返回所有字段构成的字典
@@ -556,11 +571,7 @@ impl 缠论K线Py {
         // 复制买卖点信息到镜像
         let src_key = Arc::as_ptr(&self.inner) as usize;
         let dst_key = Arc::as_ptr(&mirror.inner) as usize;
-        let cached_src = BSP_CACHE
-            .read()
-            .unwrap()
-            .get(&src_key)
-            .map(|p| p.clone_ref(py));
+        let cached_src = crate::cache::bsp_get(py, src_key);
         if let Some(cached_src) = cached_src
             && let Ok(new_set) = pyo3::types::PySet::empty(py)
         {
@@ -568,7 +579,7 @@ impl 缠论K线Py {
                 let _ = new_set.add(item);
             }
             let py_set: Py<pyo3::types::PySet> = new_set.into();
-            BSP_CACHE.write().unwrap().insert(dst_key, py_set);
+            crate::cache::bsp_insert(py, dst_key, py_set);
         }
         mirror
     }
@@ -595,25 +606,19 @@ impl 缠论K线Py {
     fn 买卖点信息(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let key = Arc::as_ptr(&self.inner) as usize;
         // 检查全局缓存
-        let cached = BSP_CACHE.read().unwrap().get(&key).map(|p| p.clone_ref(py));
+        let cached = crate::cache::bsp_get(py, key);
         if let Some(set) = cached {
             return Ok(set.into_any());
         }
         // 创建新的 PySet，从 Rust HashSet 同步已有内容
         let set = pyo3::types::PySet::empty(py)?;
-        let bsp_info = self.inner.买卖点信息.read().unwrap();
+        let bsp_info = self.inner.买卖点信息.read();
         for item in bsp_info.iter() {
             set.add(item.as_str())?;
         }
         drop(bsp_info);
-        BSP_CACHE.write().unwrap().insert(key, set.into());
-        Ok(BSP_CACHE
-            .read()
-            .unwrap()
-            .get(&key)
-            .unwrap()
-            .clone_ref(py)
-            .into_any())
+        crate::cache::bsp_insert(py, key, set.into());
+        Ok(crate::cache::bsp_get(py, key).unwrap().into_any())
     }
 
     #[classmethod]

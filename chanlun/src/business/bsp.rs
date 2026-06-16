@@ -347,7 +347,7 @@ impl 买卖点 {
         let 破位值 = 买卖点分型.分型特征值();
 
         // 当前K线 — 从缠K获取其标的K线
-        let 当前K线 = Arc::clone(&*当前缠K.标的K线.read().unwrap());
+        let 当前K线 = Arc::clone(&*当前缠K.标的K线.read());
         // 当前缠K序号 — 与买卖点K线（分型.中.序号）同尺度，用于偏移计算
         let 当前缠K序号 = 当前缠K.序号.load(Ordering::Relaxed);
 

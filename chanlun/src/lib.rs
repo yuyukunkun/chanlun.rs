@@ -30,6 +30,8 @@ pub mod business;
 pub mod config;
 pub mod indicators;
 pub mod kline;
+pub mod log;
+pub mod signal;
 pub mod structure;
 pub mod types;
 pub mod utils;

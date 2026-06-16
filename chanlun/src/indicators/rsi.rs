@@ -24,6 +24,7 @@
 
 use crate::kline::bar::K线;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 /// 相对强弱指数 (RSI)
 ///
@@ -58,7 +59,9 @@ pub struct 相对强弱指数 {
     /// RSI SMA 值
     pub RSI_SMA: Option<f64>,
     /// RSI 历史队列（用于滚动计算）
-    pub RSI历史队列: Vec<f64>,
+    pub RSI历史队列: VecDeque<f64>,
+    /// RSI 历史队列运行和（O(1) SMA）
+    pub RSI和: f64,
 }
 
 impl Default for 相对强弱指数 {
@@ -77,7 +80,8 @@ impl Default for 相对强弱指数 {
             下跌幅度: 0.0,
             平滑系数: 0.0,
             RSI_SMA: None,
-            RSI历史队列: Vec::new(),
+            RSI历史队列: VecDeque::new(),
+            RSI和: 0.0,
         }
     }
 }
@@ -106,7 +110,8 @@ impl 相对强弱指数 {
             下跌幅度: 0.0,
             平滑系数: 1.0 / 周期 as f64,
             RSI_SMA: None,
-            RSI历史队列: Vec::new(),
+            RSI历史队列: VecDeque::new(),
+            RSI和: 0.0,
         }
     }
 
@@ -167,21 +172,25 @@ impl 相对强弱指数 {
         };
 
         // RSI_SMA
-        let (RSI_SMA, RSI历史队列) = match RSI_SMA周期 {
+        let (RSI_SMA, RSI历史队列, RSI和) = match RSI_SMA周期 {
             Some(sma周期) if sma周期 > 0 => {
                 let mut 队列 = 前一个RSI.RSI历史队列.clone();
-                队列.push(RSI);
-                if 队列.len() > sma周期 as usize {
-                    队列.remove(0);
+                let mut sum = 前一个RSI.RSI和;
+                队列.push_back(RSI);
+                sum += RSI;
+                if 队列.len() > sma周期 as usize
+                    && let Some(old) = 队列.pop_front()
+                {
+                    sum -= old;
                 }
                 let sma = if 队列.is_empty() {
                     None
                 } else {
-                    Some(队列.iter().sum::<f64>() / 队列.len() as f64)
+                    Some(sum / 队列.len() as f64)
                 };
-                (sma, 队列)
+                (sma, 队列, sum)
             }
-            _ => (None, Vec::new()),
+            _ => (None, VecDeque::new(), 0.0),
         };
 
         Self {
@@ -199,6 +208,7 @@ impl 相对强弱指数 {
             平滑系数,
             RSI_SMA,
             RSI历史队列,
+            RSI和,
         }
     }
 }

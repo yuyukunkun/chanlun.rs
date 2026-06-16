@@ -22,8 +22,8 @@
  * SOFTWARE.
  */
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 use pyo3::basic::CompareOp;
 use pyo3::prelude::*;
@@ -37,7 +37,7 @@ pub fn 获取分型结构单例(
     py: Python<'_>,
     inner: chanlun::types::分型结构,
 ) -> Py<分型结构Py> {
-    let mut guard = 分型结构_单例缓存.lock().unwrap();
+    let mut guard = 分型结构_单例缓存.lock();
     if let Some(ref map) = *guard {
         return map[&(inner as u8)].clone_ref(py);
     }
@@ -67,7 +67,7 @@ pub fn 获取相对方向单例(
     py: Python<'_>,
     inner: chanlun::types::相对方向,
 ) -> Py<相对方向Py> {
-    let mut guard = 相对方向_单例缓存.lock().unwrap();
+    let mut guard = 相对方向_单例缓存.lock();
     if let Some(ref map) = *guard {
         return map[&(inner as u8)].clone_ref(py);
     }
@@ -311,6 +311,22 @@ impl 相对方向Py {
             _cls.py(),
             chanlun::types::相对方向::分析(前高, 前低, 后高, 后低),
         )
+    }
+
+    /// 从可选方向序列中随机选取指定数量
+    #[classmethod]
+    #[pyo3(signature = (数量, 可选方向, 可重复 = true))]
+    fn 从序列中机选(
+        _cls: &Bound<'_, PyType>,
+        数量: usize,
+        可选方向: Vec<Py<Self>>,
+        可重复: bool,
+        py: Python<'_>,
+    ) -> Vec<Py<Self>> {
+        let dirs: Vec<chanlun::types::相对方向> =
+            可选方向.iter().map(|d| d.borrow(py).inner).collect();
+        let result = chanlun::types::相对方向::从序列中机选(数量, &dirs, 可重复);
+        result.iter().map(|d| 获取相对方向单例(py, *d)).collect()
     }
 }
 

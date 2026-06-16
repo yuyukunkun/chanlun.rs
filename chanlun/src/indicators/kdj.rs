@@ -24,6 +24,7 @@
 
 use crate::kline::bar::K线;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 /// 随机指标 (KDJ)
 ///
@@ -58,9 +59,9 @@ pub struct 随机指标 {
     /// J 值 (3K - 2D)
     pub J: Option<f64>,
     /// 历史最高价队列（滑动窗口）
-    pub 历史最高价队列: Vec<f64>,
+    pub 历史最高价队列: VecDeque<f64>,
     /// 历史最低价队列（滑动窗口）
-    pub 历史最低价队列: Vec<f64>,
+    pub 历史最低价队列: VecDeque<f64>,
     /// 前一个 RSV（用于平滑递推）
     pub 前一个RSV: Option<f64>,
     /// 前一个 K（用于平滑递推）
@@ -85,8 +86,8 @@ impl Default for 随机指标 {
             K: None,
             D: None,
             J: None,
-            历史最高价队列: Vec::new(),
-            历史最低价队列: Vec::new(),
+            历史最高价队列: VecDeque::new(),
+            历史最低价队列: VecDeque::new(),
             前一个RSV: None,
             前一个K: None,
             前一个D: None,
@@ -124,8 +125,8 @@ impl 随机指标 {
             K: None,
             D: None,
             J: None,
-            历史最高价队列: vec![初始最高价],
-            历史最低价队列: vec![初始最低价],
+            历史最高价队列: VecDeque::from([初始最高价]),
+            历史最低价队列: VecDeque::from([初始最低价]),
             前一个RSV: None,
             前一个K: None,
             前一个D: None,
@@ -181,16 +182,16 @@ impl 随机指标 {
 
         // 更新历史最高价队列
         let mut 历史最高价 = 前一个KDJ.历史最高价队列.clone();
-        历史最高价.push(当前最高价);
+        历史最高价.push_back(当前最高价);
         if 历史最高价.len() > N as usize {
-            历史最高价.remove(0);
+            历史最高价.pop_front();
         }
 
         // 更新历史最低价队列
         let mut 历史最低价 = 前一个KDJ.历史最低价队列.clone();
-        历史最低价.push(当前最低价);
+        历史最低价.push_back(当前最低价);
         if 历史最低价.len() > N as usize {
-            历史最低价.remove(0);
+            历史最低价.pop_front();
         }
 
         // RSV
@@ -260,8 +261,8 @@ mod tests {
     #[test]
     fn test_first_calc() {
         let kdj = 随机指标::首次计算(110.0, 90.0, 100.0, 1000, 9, 3, 3, 80.0, 20.0);
-        assert_eq!(kdj.历史最高价队列, vec![110.0]);
-        assert_eq!(kdj.历史最低价队列, vec![90.0]);
+        assert_eq!(kdj.历史最高价队列, VecDeque::from([110.0]));
+        assert_eq!(kdj.历史最低价队列, VecDeque::from([90.0]));
         assert_eq!(kdj.K, None);
     }
 

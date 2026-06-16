@@ -290,7 +290,7 @@ impl 相对强弱指数Py {
     }
     #[getter]
     fn RSI历史队列(&self) -> Vec<f64> {
-        self.inner.RSI历史队列.clone()
+        self.inner.RSI历史队列.iter().copied().collect()
     }
 
     fn __str__(&self) -> String {
@@ -470,11 +470,11 @@ impl 随机指标Py {
     }
     #[getter]
     fn 历史最高价队列(&self) -> Vec<f64> {
-        self.inner.历史最高价队列.clone()
+        self.inner.历史最高价队列.iter().copied().collect()
     }
     #[getter]
     fn 历史最低价队列(&self) -> Vec<f64> {
-        self.inner.历史最低价队列.clone()
+        self.inner.历史最低价队列.iter().copied().collect()
     }
     #[getter]
     fn 前一个RSV(&self) -> Option<f64> {
@@ -796,16 +796,12 @@ impl 指标容器Py {
     }
 
     fn __getitem__(&self, 名称: &str, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        if self.包含(名称) {
-            match self.inner.获取(名称) {
-                Some(v) => 指标值_to_py(v, py),
-                None => Ok(py.None()),
-            }
-        } else {
-            Err(pyo3::exceptions::PyKeyError::new_err(format!(
+        match self.inner.获取(名称) {
+            Some(v) => 指标值_to_py(v, py),
+            None => Err(pyo3::exceptions::PyKeyError::new_err(format!(
                 "指标 '{}' 不存在",
                 名称
-            )))
+            ))),
         }
     }
 
@@ -822,16 +818,12 @@ impl 指标容器Py {
             }
             return Ok(dict.into());
         }
-        if self.包含(名称) {
-            match self.inner.获取(名称) {
-                Some(v) => 指标值_to_py(v, py),
-                None => Ok(py.None()),
-            }
-        } else {
-            Err(pyo3::exceptions::PyAttributeError::new_err(format!(
+        match self.inner.获取(名称) {
+            Some(v) => 指标值_to_py(v, py),
+            None => Err(pyo3::exceptions::PyAttributeError::new_err(format!(
                 "指标 '{}' 不存在于 指标容器 中",
                 名称
-            )))
+            ))),
         }
     }
 
@@ -917,7 +909,12 @@ impl 均线工具Py {
             return Ok(sum / (n.max(1)) as f64);
         }
 
-        let prev_key = format!("SMA_{}", period);
+        let prev_key = {
+            let mut s = String::with_capacity(8);
+            use std::fmt::Write;
+            write!(&mut s, "SMA_{}", period).unwrap();
+            s
+        };
         // 尝试从前一根K线的均线缓存中读取
         let prev_cached = 普K序列[n - 2]
             .bind(py)
@@ -925,7 +922,6 @@ impl 均线工具Py {
             .inner
             .指标
             .read()
-            .unwrap()
             .均线()
             .and_then(|m| m.get(&prev_key))
             .copied();

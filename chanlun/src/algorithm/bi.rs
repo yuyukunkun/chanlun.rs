@@ -29,9 +29,9 @@ use crate::kline::chan_kline::缠论K线;
 use crate::structure::dash_line::虚线;
 use crate::structure::fractal_obj::分型;
 use crate::types::{分型结构, 相对方向};
+use crate::{error, warn};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tracing::{error, warn};
 
 /// 笔 — 从分型生成笔的算法集合（静态方法命名空间）
 pub struct 笔;
@@ -54,8 +54,7 @@ impl 笔 {
 
             if let (Some(高点), Some(低点)) = (&实际高点, &实际低点) {
                 let 原始数量 = 1
-                    + (低点.标的K线.read().unwrap().序号 - 高点.标的K线.read().unwrap().序号)
-                        .unsigned_abs() as usize;
+                    + (低点.标的K线.read().序号 - 高点.标的K线.read().序号).unsigned_abs() as usize;
                 if 原始数量 >= 配置.笔内元素数量 as usize {
                     return 配置.笔内元素数量 as usize;
                 }
@@ -76,8 +75,8 @@ impl 笔 {
                     && let (Some(高_k), Some(低_k)) = (&实际高点, &实际低点)
                 {
                     let 原始数量 = 1
-                        + (低_k.标的K线.read().unwrap().序号 - 高_k.标的K线.read().unwrap().序号)
-                            .unsigned_abs() as usize;
+                        + (低_k.标的K线.read().序号 - 高_k.标的K线.read().序号).unsigned_abs()
+                            as usize;
                     // 向上笔
                     if 筆.方向().是否向上()
                         && 低_k.低.get() < 筆.低()
@@ -219,7 +218,7 @@ impl 笔 {
     /// 判断笔的相对关系是否合理
     pub fn _相对关系(筆: &虚线, 配置: &缠论配置) -> bool {
         let 文分型 = &筆.文;
-        let 武分型 = 筆.武.read().unwrap();
+        let 武分型 = 筆.武.read();
 
         let 相对关系 = if 配置.笔内起始分型包含整笔 {
             let 文中_rc = Arc::clone(&文分型.中);
@@ -261,8 +260,8 @@ impl 笔 {
                 武分型.中.低.get(),
             );
             if 配置.笔内原始K线包含整笔 {
-                let 文标的 = 文分型.中.标的K线.read().unwrap();
-                let 武标的 = 武分型.中.标的K线.read().unwrap();
+                let 文标的 = 文分型.中.标的K线.read();
+                let 武标的 = 武分型.中.标的K线.read();
                 if crate::types::相对方向::分析(文标的.高, 文标的.低, 武标的.高, 武标的.低)
                     .是否包含()
                 {
@@ -280,10 +279,7 @@ impl 笔 {
 
     /// 以文会友 — 根据起点分型找笔
     pub fn 以文会友(笔序列: &[Arc<虚线>], 文: &Arc<分型>) -> Option<Arc<虚线>> {
-        笔序列
-            .iter()
-            .find(|b| Arc::as_ptr(&b.文) == Arc::as_ptr(文))
-            .cloned()
+        笔序列.iter().find(|b| Arc::ptr_eq(&b.文, 文)).cloned()
     }
 
     /// 以武会友 — 根据终点分型找笔
@@ -291,7 +287,7 @@ impl 笔 {
         笔序列
             .iter()
             .rev()
-            .find(|b| Arc::as_ptr(&*b.武.read().unwrap()) == Arc::as_ptr(武))
+            .find(|b| Arc::ptr_eq(&*b.武.read(), 武))
             .cloned()
     }
 
@@ -305,8 +301,7 @@ impl 笔 {
         for b in 笔序列.iter().rev() {
             // Python: 筆.文.中.序号 - 偏移 <= 缠K.序号 <= 筆.武.中.序号
             if b.文.中.序号.load(Ordering::Relaxed) - 偏移 <= 缠K.序号.load(Ordering::Relaxed)
-                && 缠K.序号.load(Ordering::Relaxed)
-                    <= b.武.read().unwrap().中.序号.load(Ordering::Relaxed)
+                && 缠K.序号.load(Ordering::Relaxed) <= b.武.read().中.序号.load(Ordering::Relaxed)
                 && b.文.中.周期 == 缠K.周期
                 && b.文.中.标识 == 缠K.标识
             {
@@ -323,7 +318,7 @@ impl 笔 {
         let 旧分型 = 分型序列.pop();
         if let (Some(旧笔), Some(旧分型)) = (笔序列.pop(), 旧分型) {
             assert!(
-                Arc::as_ptr(&旧笔.武.read().unwrap()) == Arc::as_ptr(&旧分型),
+                Arc::ptr_eq(&旧笔.武.read(), &旧分型),
                 "最后一笔终点错误{}",
                 行号
             );
@@ -388,7 +383,7 @@ impl 笔 {
         // Python line 2343-2348: 笔弱化模式
         if 配置.笔弱化 && !笔序列.is_empty() {
             let 前一笔 = 笔序列.last().unwrap();
-            let 前一笔缠K数 = 前一笔.武.read().unwrap().中.序号.load(Ordering::Relaxed)
+            let 前一笔缠K数 = 前一笔.武.read().中.序号.load(Ordering::Relaxed)
                 - 前一笔.文.中.序号.load(Ordering::Relaxed)
                 + 1;
             if 前一笔缠K数 == 3 {
@@ -434,7 +429,7 @@ impl 笔 {
 
                     // Python line 2359-2367: 文官调整
                     if let Some(ref 文官_k) = 文官
-                        && Arc::as_ptr(文官_k) != Arc::as_ptr(&之前分型.中)
+                        && !Arc::ptr_eq(文官_k, &之前分型.中)
                         && let Some(临时分型) =
                             分型::从缠K序列中获取分型(缠K序列, 文官_k)
                     {
@@ -476,7 +471,7 @@ impl 笔 {
 
                     if Self::_相对关系(&当前笔, 配置)
                         && let Some(ref 武将_k) = 武将
-                        && Arc::as_ptr(武将_k) == Arc::as_ptr(&当前分型.中)
+                        && Arc::ptr_eq(武将_k, &当前分型.中)
                     {
                         // 直接添加（对照 Python _添加新笔：直接 append）
                         Self::_添加新笔(分型序列, 笔序列, 当前分型, 当前笔, line!());
@@ -490,7 +485,7 @@ impl 笔 {
                             _ => Self::_次高(&基础序列, 配置.笔内相同终点取舍),
                         };
                         if let Some(ref 武将_k) = 武将
-                            && Arc::as_ptr(武将_k) == Arc::as_ptr(&当前分型.中)
+                            && Arc::ptr_eq(武将_k, &当前分型.中)
                             && Self::_相对关系(&当前笔, 配置)
                         {
                             Self::_添加新笔(分型序列, 笔序列, 当前分型, 当前笔, line!());
@@ -557,13 +552,12 @@ impl 笔 {
                             if !分型序列.is_empty()
                                 && Arc::as_ptr(分型序列.last().unwrap())
                                     == Arc::as_ptr(&临时分型_rc)
-                                && let Some(武_idx) = 缠K序列
-                                    .iter()
-                                    .position(|k| Arc::as_ptr(k) == Arc::as_ptr(武将_k))
+                                && let Some(武_idx) =
+                                    缠K序列.iter().position(|k| Arc::ptr_eq(k, 武将_k))
                             {
                                 for ck in &缠K序列[武_idx..] {
-                                    if (*ck.分型.read().unwrap() == Some(分型结构::底)
-                                        || *ck.分型.read().unwrap() == Some(分型结构::顶))
+                                    if (*ck.分型.read() == Some(分型结构::底)
+                                        || *ck.分型.read() == Some(分型结构::顶))
                                         && let Some(错过分型) =
                                             分型::从缠K序列中获取分型(缠K序列, ck)
                                     {
@@ -577,6 +571,15 @@ impl 笔 {
                                             递归层次 + 1,
                                             配置,
                                         );
+                                        if !分型序列.is_empty()
+                                            && Arc::as_ptr(分型序列.last().unwrap())
+                                                == Arc::as_ptr(&错过分型_rc)
+                                        {
+                                            warn!(
+                                                "笔.分析 事后修复错过的笔:{}, 当前分型: {}",
+                                                错过分型_rc, 当前分型
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -649,14 +652,10 @@ impl 笔 {
             新筆
                 .序号
                 .store(前一笔.序号.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
-            if 新筆.武.read().unwrap().左.is_none() || 新筆.武.read().unwrap().右.is_none()
-            {
+            if 新筆.武.read().左.is_none() || 新筆.武.read().右.is_none() {
                 新筆.有效性.store(false, Ordering::Relaxed);
             }
-            if matches!(
-                前一笔.武.read().unwrap().结构(),
-                分型结构::上 | 分型结构::下
-            ) {
+            if matches!(前一笔.武.read().结构(), 分型结构::上 | 分型结构::下) {
                 error!("_添加新笔[{}] 出现无效分型 {}", 行号, 前一笔);
             }
         }
@@ -676,7 +675,7 @@ impl 笔 {
                     Self::_实际低点(&基础序列, 配置.笔内相同终点取舍),
                 )
                 && Arc::ptr_eq(&筆.文.中, &实际高)
-                && Arc::ptr_eq(&筆.武.read().unwrap().中, &实际低)
+                && Arc::ptr_eq(&筆.武.read().中, &实际低)
             {
                 return true;
             }
@@ -686,7 +685,7 @@ impl 笔 {
                     Self::_实际高点(&基础序列, 配置.笔内相同终点取舍),
                 )
                 && Arc::ptr_eq(&筆.文.中, &实际低)
-                && Arc::ptr_eq(&筆.武.read().unwrap().中, &实际高)
+                && Arc::ptr_eq(&筆.武.read().中, &实际高)
             {
                 return true;
             }
@@ -696,9 +695,9 @@ impl 笔 {
 
     /// 获取所有停顿位置 — 在笔范围内找出所有能成笔的分型组合
     pub fn 获取所有停顿位置(筆: &虚线, 观察员: &观察者) -> Vec<虚线> {
-        let mut 笔序列 = Vec::new();
-        let 文 = Arc::clone(&筆.文);
         let 基础序列 = 筆.获取缠K序列(&观察员.缠论K线序列);
+        let mut 笔序列 = Vec::with_capacity(基础序列.len() / 2);
+        let 文 = Arc::clone(&筆.文);
 
         if 基础序列.len() < 5 {
             return 笔序列;
@@ -707,10 +706,8 @@ impl 笔 {
         for i in 3..基础序列.len() - 1 {
             let k = &基础序列[i];
 
-            let 匹配顶 =
-                *k.分型.read().unwrap() == Some(分型结构::顶) && 筆.方向() == 相对方向::向上;
-            let 匹配底 =
-                *k.分型.read().unwrap() == Some(分型结构::底) && 筆.方向() == 相对方向::向下;
+            let 匹配顶 = *k.分型.read() == Some(分型结构::顶) && 筆.方向() == 相对方向::向上;
+            let 匹配底 = *k.分型.read() == Some(分型结构::底) && 筆.方向() == 相对方向::向下;
             if 匹配顶 || 匹配底 {
                 let 左 = Arc::clone(&基础序列[i - 1]);
                 let 中 = Arc::clone(k);
@@ -737,12 +734,12 @@ impl 笔 {
         for 筆 in &停顿位置 {
             let k线范围 = K线::截取rc(
                 &观察员.普通K线序列,
-                &当前筆.文.中.标的K线.read().unwrap().clone(),
-                &当前筆.武.read().unwrap().中.标的K线.read().unwrap().clone(),
+                &当前筆.文.中.标的K线.read().clone(),
+                &当前筆.武.read().中.标的K线.read().clone(),
             );
             let 背驰信号 = 虚线::计算K线序列MACD趋向背驰(&k线范围, 筆.方向());
             if 背驰信号.iter().all(|&x| x) {
-                结果.push(Arc::clone(&筆.武.read().unwrap().中));
+                结果.push(Arc::clone(&筆.武.read().中));
             }
         }
 

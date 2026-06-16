@@ -23,16 +23,19 @@
  */
 
 use crate::indicators::指标容器;
+use crate::indicators::{布林带, 平滑异同移动平均线, 相对强弱指数, 随机指标};
+use crate::info;
 use crate::types::相对方向;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 mod rwlock_container_serde {
+    use parking_lot::RwLock;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use std::sync::RwLock;
 
     /// Serde 序列化辅助（RwLock<指标容器> → 序列化器）
     pub fn serialize<S>(
@@ -42,7 +45,7 @@ mod rwlock_container_serde {
     where
         S: Serializer,
     {
-        val.read().unwrap().serialize(ser)
+        val.read().serialize(ser)
     }
 
     /// Serde 反序列化辅助（反序列化器 → RwLock<指标容器>）
@@ -115,7 +118,7 @@ impl Clone for K线 {
             开盘价: self.开盘价,
             收盘价: self.收盘价,
             成交量: self.成交量,
-            指标: RwLock::new(self.指标.read().unwrap().clone()),
+            指标: RwLock::new(self.指标.read().clone()),
         }
     }
 }
@@ -223,6 +226,7 @@ impl K线 {
 
     /// 保存K线序列到 DAT 文件
     pub fn 保存到DAT文件(路径: &str, K线序列: &[&Self]) -> std::io::Result<()> {
+        info!("保存到DAT文件: {}", 路径);
         let mut f = std::fs::File::create(路径)?;
         for k in K线序列 {
             f.write_all(&k.to_bytes())?;
@@ -245,7 +249,7 @@ impl K线 {
         let mut 阳 = 0.0f64;
         let mut 阴 = 0.0f64;
         for k in 基序 {
-            if let Some(macd) = k.指标.read().unwrap().macd() {
+            if let Some(macd) = k.指标.read().macd() {
                 let hist = macd.MACD柱;
                 if hist >= 0.0 {
                     阳 += hist;
@@ -314,6 +318,73 @@ impl K线 {
         (true, "K线: 全部字段一致".into())
     }
 
+    /// 根据当前K线和方向生成下一根K线（与 chan.py 对齐）
+    pub fn 根据当前K线生成新K线(&self, 方向: 相对方向, 居中: bool) -> Self {
+        let 高低差 = self.高 - self.低;
+        let 偏移 = if 居中 {
+            高低差 * 0.5
+        } else {
+            let lo = (高低差 * 0.1279) as i64;
+            let hi = (高低差 * 0.883) as i64;
+            if hi > lo {
+                fastrand::i64(lo..=hi) as f64
+            } else {
+                lo as f64
+            }
+        };
+        let 缺口偏移 = if 居中 {
+            高低差 * 1.5
+        } else {
+            let lo = (高低差 * 1.1279) as i64;
+            let hi = (高低差 * 1.883) as i64;
+            if hi > lo {
+                fastrand::i64(lo..=hi) as f64
+            } else {
+                lo as f64
+            }
+        };
+        let (高, 低) = match 方向 {
+            相对方向::向上 => (self.高 + 偏移, self.低 + 偏移),
+            相对方向::向下 => (self.高 - 偏移, self.低 - 偏移),
+            相对方向::向上缺口 => (self.高 + 缺口偏移, self.低 + 缺口偏移),
+            相对方向::向下缺口 => (self.高 - 缺口偏移, self.低 - 缺口偏移),
+            相对方向::衔接向上 => {
+                let off = 高低差;
+                (self.高 + off, self.高)
+            }
+            相对方向::衔接向下 => {
+                let off = 高低差;
+                (self.低, self.低 - off)
+            }
+            _ => (self.高, self.低),
+        };
+        let 小数点 = [self.开盘价, self.高, self.低, self.收盘价]
+            .iter()
+            .map(|v| {
+                let s = format!("{v}");
+                s.split('.').nth(1).map(|d| d.len()).unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(2);
+        let round = |v: f64| -> f64 {
+            let scale = 10_f64.powi(小数点 as i32);
+            (v * scale).round() / scale
+        };
+        let 开 = round(低 + (高 - 低) * fastrand::f64());
+        let 收 = round(低 + (高 - 低) * fastrand::f64());
+        Self::创建普K(
+            &self.标识,
+            self.时间戳 + self.周期,
+            开,
+            round(高),
+            round(低),
+            收,
+            998.0 * fastrand::f64(),
+            self.序号 + 1,
+            self.周期,
+        )
+    }
+
     /// 截取Arc<K线>序列中从始到终的片段
     pub fn 截取rc(序列: &[Arc<Self>], 始: &Arc<Self>, 终: &Arc<Self>) -> Vec<Arc<Self>> {
         let 始_ptr = Arc::as_ptr(始);
@@ -324,6 +395,33 @@ impl K线 {
             (Some(s), Some(e)) => 序列[s..=e].to_vec(),
             _ => Vec::new(),
         }
+    }
+
+    // ── 便捷指标访问（封装 RwLock<指标容器> boilerplate）──
+
+    /// 读取 MACD 指标（已计算则返回克隆，否则 None）
+    pub fn macd(&self) -> Option<平滑异同移动平均线> {
+        self.指标.read().macd_cloned()
+    }
+
+    /// 读取 RSI 指标
+    pub fn rsi(&self) -> Option<相对强弱指数> {
+        self.指标.read().rsi_cloned()
+    }
+
+    /// 读取 KDJ 指标
+    pub fn kdj(&self) -> Option<随机指标> {
+        self.指标.read().kdj_cloned()
+    }
+
+    /// 读取 BOLL 指标
+    pub fn boll(&self) -> Option<布林带> {
+        self.指标.read().boll_cloned()
+    }
+
+    /// 读取均线值，如 `ma("SMA_5")` → `Option<f64>`
+    pub fn ma(&self, key: &str) -> Option<f64> {
+        self.指标.read().均线().and_then(|m| m.get(key).copied())
     }
 }
 
@@ -384,5 +482,119 @@ mod tests {
         assert_eq!(result.get("阳"), Some(&0.0));
         assert_eq!(result.get("阴"), Some(&0.0));
         assert_eq!(result.get("总"), Some(&0.0));
+    }
+
+    // ---- 根据当前K线生成新K线 ----
+
+    #[test]
+    fn test_生成K线_居中向上() {
+        let bar = K线::创建普K(
+            "test", 1000, 50000.0, 50200.0, 49800.0, 50100.0, 100.0, 0, 300,
+        );
+        let new = bar.根据当前K线生成新K线(相对方向::向上, true);
+        // 居中: 偏移 = (50200-49800)*0.5 = 200
+        assert!((new.高 - 50400.0).abs() < 1.0); // 50200 + 200
+        assert!((new.低 - 50000.0).abs() < 1.0); // 49800 + 200
+        assert_eq!(new.序号, 1);
+        assert_eq!(new.时间戳, 1300);
+    }
+
+    #[test]
+    fn test_生成K线_居中向下() {
+        let bar = K线::创建普K(
+            "test", 1000, 50000.0, 50200.0, 49800.0, 50100.0, 100.0, 0, 300,
+        );
+        let new = bar.根据当前K线生成新K线(相对方向::向下, true);
+        assert!((new.高 - 50000.0).abs() < 1.0); // 50200 - 200
+        assert!((new.低 - 49600.0).abs() < 1.0); // 49800 - 200
+    }
+
+    #[test]
+    fn test_生成K线_居中向上缺口() {
+        let bar = K线::创建普K(
+            "test", 1000, 50000.0, 50200.0, 49800.0, 50100.0, 100.0, 0, 300,
+        );
+        let new = bar.根据当前K线生成新K线(相对方向::向上缺口, true);
+        // 居中缺口: 偏移 = 400*1.5 = 600
+        assert!((new.高 - 50800.0).abs() < 1.0); // 50200 + 600
+        assert!((new.低 - 50400.0).abs() < 1.0); // 49800 + 600
+    }
+
+    #[test]
+    fn test_生成K线_衔接向上() {
+        let bar = K线::创建普K(
+            "test", 1000, 50000.0, 50200.0, 49800.0, 50100.0, 100.0, 0, 300,
+        );
+        let new = bar.根据当前K线生成新K线(相对方向::衔接向上, true);
+        let 高低差 = 50200.0 - 49800.0;
+        assert!((new.高 - (50200.0 + 高低差)).abs() < 1.0);
+        assert!((new.低 - 50200.0).abs() < 1.0); // 衔接向上: 低 = 原高
+    }
+
+    #[test]
+    fn test_生成K线_衔接向下() {
+        let bar = K线::创建普K(
+            "test", 1000, 50000.0, 50200.0, 49800.0, 50100.0, 100.0, 0, 300,
+        );
+        let new = bar.根据当前K线生成新K线(相对方向::衔接向下, true);
+        assert!((new.高 - 49800.0).abs() < 1.0); // 衔接向下: 高 = 原低
+    }
+
+    #[test]
+    fn test_生成K线_非居中随机范围() {
+        let bar = K线::创建普K(
+            "test", 1000, 50000.0, 50200.0, 49800.0, 50100.0, 100.0, 0, 300,
+        );
+        // 非居中：偏移在 [高低差*0.1279, 高低差*0.883] 范围内随机
+        for _ in 0..20 {
+            let new = bar.根据当前K线生成新K线(相对方向::向上, false);
+            assert!(new.高 > bar.高, "向上：新高应高于原高");
+            assert!(new.低 > bar.低, "向上：新低应高于原低");
+            let 偏移 = new.高 - bar.高;
+            let 高低差 = bar.高 - bar.低;
+            let lo = 高低差 * 0.1279;
+            let hi = 高低差 * 0.883;
+            assert!(
+                偏移 >= lo && 偏移 <= hi + 1.0,
+                "偏移 {偏移} 应在 [{lo}, {hi}] 范围内"
+            );
+        }
+    }
+
+    // ---- 从序列中机选 ----
+
+    #[test]
+    fn test_从序列中机选_可重复() {
+        let dirs = vec![相对方向::向上, 相对方向::向下, 相对方向::向上缺口];
+        let result = 相对方向::从序列中机选(5, &dirs, true);
+        assert_eq!(result.len(), 5);
+        for d in &result {
+            assert!(dirs.contains(d));
+        }
+    }
+
+    #[test]
+    fn test_从序列中机选_不可重复() {
+        let dirs = vec![相对方向::向上, 相对方向::向下, 相对方向::向上缺口];
+        let result = 相对方向::从序列中机选(3, &dirs, false);
+        assert_eq!(result.len(), 3);
+        for (i, d) in result.iter().enumerate() {
+            for prev in result[..i].iter() {
+                assert_ne!(prev, d, "重复方向: {:?}", d);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "数量超过可选方向数")]
+    fn test_从序列中机选_数量超限() {
+        let dirs = vec![相对方向::向上, 相对方向::向下];
+        相对方向::从序列中机选(3, &dirs, false);
+    }
+
+    #[test]
+    fn test_从序列中机选_空序列() {
+        let result = 相对方向::从序列中机选(0, &[], true);
+        assert!(result.is_empty());
     }
 }

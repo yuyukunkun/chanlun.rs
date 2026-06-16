@@ -80,10 +80,9 @@ fn 测试_读取数据(文件路径: &str) {
     let 观察员 = 观察者::new("".into(), 0, 缠论配置::default());
     观察员
         .write()
-        .unwrap()
         .读取数据文件(文件路径, 配置)
         .expect("读取数据文件失败");
-    let 观察员 = 观察员.read().unwrap();
+    let 观察员 = 观察员.read();
     let 消耗用时 = 启动时间.elapsed();
     println!(
         "测试_读取数据 耗时 {:.2?} 普K数量 {}",
@@ -160,7 +159,7 @@ fn 测试_周期合成(文件路径: &str) {
     // Display stats per period
     for &p in &[周期, 周期 * 5, 周期 * 5 * 6] {
         if let Some(观察员) = 多级别分析.获取观察者(p) {
-            let 观察员 = 观察员.read().unwrap();
+            let 观察员 = 观察员.read();
             println!(
                 "周期<{}>: 缠K={}, 分型={}, 笔={}, 线段={}, 中枢={}",
                 p,
