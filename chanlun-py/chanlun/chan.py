@@ -846,7 +846,7 @@ class 缠论配置:
     **[线段]** 线段_特征序列忽视老阴老阳, 线段_缺口后紧急修正, 线段内部中枢图显 等 \\
     **[分析开关]** 分析笔, 分析线段, 分析扩展线段, 分析笔中枢, 分析线段中枢 \\
     **[指标]** 计算指标, 指标计算方式, MACD/RSI/KDJ 参数 \\
-    **[推送/显示]** 图表展示, 推送K线/笔/线段/中枢 等 \\
+    **[推送/显示]** 图表展示 (主开关), 图表展示标签 (标签列表) 等 \\
     **[买卖点]** 买卖点偏移, 买卖点激进识别, 买卖点_背离率, 买卖点_计算方式 等 \\
     **[背驰]** 线段内部背驰_MACD, 线段内部背驰_斜率 等 \\
     **[其他]** 手动终止, 加载文件路径
@@ -885,45 +885,15 @@ class 缠论配置:
         分析线段中枢: bool = True,
         手动终止: str = "",  # 2099-12-31 00:00:00
         计算指标: bool = True,
-        指标计算方式: str = "收",  # (开, 高, 低, 收, 高低均值, 高低收均值, 开高低收均值), 默认 收盘价
-        平滑异同移动平均线_快线周期: int = 13,
-        平滑异同移动平均线_慢线周期: int = 31,
-        平滑异同移动平均线_信号周期: int = 11,
-        相对强弱指数_周期: int = 13,
-        相对强弱指数_移动平均线周期: int = 13,
-        相对强弱指数_超买阈值: float = 75.0,
-        相对强弱指数_超卖阈值: float = 25.0,
-        随机指标_RSV周期: int = 13,
-        随机指标_K值平滑周期: int = 5,
-        随机指标_D值平滑周期: int = 5,
-        随机指标_超买阈值: float = 80.0,
-        随机指标_超卖阈值: float = 20.0,
-        计算BOLL: bool = False,
-        布林带_周期: int = 20,
-        布林带_标准差倍数: float = 2.0,
-        均线_类型列表: List[str] = None,
-        均线_周期列表: List[int] = None,
+        指标计算方式: str = "收",  # 均线计算方式
+        均线参数列表: List[tuple] = None,  # [(key, 计算方式, 类型, 周期), ...]
         # 多参数指标列表（None/空列表 = 使用默认单参数）
-        MACD_参数列表: List[tuple] = None,  # [(key, 快线, 慢线, 信号), ...]
-        RSI_周期列表: List[tuple] = None,  # [(key, 周期), ...]
-        KDJ_参数列表: List[tuple] = None,  # [(key, RSV周期, K平滑, D平滑), ...]
-        BOLL_参数列表: List[tuple] = None,  # [(key, 周期, 标准差倍数), ...]
-        图表展示: bool = True,
-        推送K线: bool = True,
-        推送笔: bool = True,
-        推送线段: bool = True,
-        推送中枢: bool = True,
-        图表展示_笔: bool = True,
-        图表展示_线段: bool = True,
-        图表展示_扩展线段: bool = True,
-        图表展示_扩展线段_线段: bool = True,
-        图表展示_线段_线段: bool = True,
-        图表展示_中枢_笔: bool = True,
-        图表展示_中枢_线段: bool = True,
-        图表展示_中枢_扩展线段: bool = True,
-        图表展示_中枢_扩展线段_线段: bool = True,
-        图表展示_中枢_线段_线段: bool = True,
-        图表展示_中枢_线段内部: bool = True,
+        MACD_参数列表: List[tuple] = None,  # [(key, 计算方式, 快线, 慢线, 信号), ...]
+        RSI_周期列表: List[tuple] = None,  # [(key, 计算方式, 周期), ...]
+        KDJ_参数列表: List[tuple] = None,  # [(key, 计算方式, RSV周期, K平滑, D平滑), ...]
+        BOLL_参数列表: List[tuple] = None,  # [(key, 计算方式, 周期, 标准差倍数), ...]
+        图表展示: bool = True,  # 图表系统主开关
+        图表展示标签: Optional[List[str]] = None,  # None=全部展示, []=不展示, [\"笔\",\"线段\"]=指定
         买卖点偏移: int = 1,  # 最大偏移
         买卖点激进识别: bool = False,  # 激进模式下将不考虑分型的完整性
         买卖点与MACD柱强相关: bool = False,  # True: 卖点需正值 买点需负值
@@ -963,43 +933,13 @@ class 缠论配置:
         self.手动终止 = 手动终止
         self.计算指标 = 计算指标
         self.指标计算方式 = 指标计算方式
-        self.平滑异同移动平均线_快线周期 = 平滑异同移动平均线_快线周期
-        self.平滑异同移动平均线_慢线周期 = 平滑异同移动平均线_慢线周期
-        self.平滑异同移动平均线_信号周期 = 平滑异同移动平均线_信号周期
-        self.相对强弱指数_周期 = 相对强弱指数_周期
-        self.相对强弱指数_移动平均线周期 = 相对强弱指数_移动平均线周期
-        self.相对强弱指数_超买阈值 = 相对强弱指数_超买阈值
-        self.相对强弱指数_超卖阈值 = 相对强弱指数_超卖阈值
-        self.随机指标_RSV周期 = 随机指标_RSV周期
-        self.随机指标_K值平滑周期 = 随机指标_K值平滑周期
-        self.随机指标_D值平滑周期 = 随机指标_D值平滑周期
-        self.随机指标_超买阈值 = 随机指标_超买阈值
-        self.随机指标_超卖阈值 = 随机指标_超卖阈值
-        self.计算BOLL = 计算BOLL
-        self.布林带_周期 = 布林带_周期
-        self.布林带_标准差倍数 = 布林带_标准差倍数
-        self.均线_类型列表 = 均线_类型列表 if 均线_类型列表 is not None else []
-        self.均线_周期列表 = 均线_周期列表 if 均线_周期列表 is not None else []
-        self.MACD_参数列表 = MACD_参数列表 if MACD_参数列表 is not None else []
-        self.RSI_周期列表 = RSI_周期列表 if RSI_周期列表 is not None else []
-        self.KDJ_参数列表 = KDJ_参数列表 if KDJ_参数列表 is not None else []
-        self.BOLL_参数列表 = BOLL_参数列表 if BOLL_参数列表 is not None else []
+        self.均线参数列表 = 均线参数列表 if 均线参数列表 is not None else []
+        self.MACD_参数列表 = MACD_参数列表 if MACD_参数列表 is not None else [("macd", "收", 13, 31, 11)]
+        self.RSI_周期列表 = RSI_周期列表 if RSI_周期列表 is not None else [("rsi", "收", 14, 13, 75.0, 25.0)]
+        self.KDJ_参数列表 = KDJ_参数列表 if KDJ_参数列表 is not None else [("kdj", "收", 13, 5, 5, 80.0, 20.0)]
+        self.BOLL_参数列表 = BOLL_参数列表 if BOLL_参数列表 is not None else [("boll", "收", 20, 2.0)]
         self.图表展示 = 图表展示
-        self.推送K线 = 推送K线
-        self.推送笔 = 推送笔
-        self.推送线段 = 推送线段
-        self.推送中枢 = 推送中枢
-        self.图表展示_笔 = 图表展示_笔
-        self.图表展示_线段 = 图表展示_线段
-        self.图表展示_扩展线段 = 图表展示_扩展线段
-        self.图表展示_扩展线段_线段 = 图表展示_扩展线段_线段
-        self.图表展示_线段_线段 = 图表展示_线段_线段
-        self.图表展示_中枢_笔 = 图表展示_中枢_笔
-        self.图表展示_中枢_线段 = 图表展示_中枢_线段
-        self.图表展示_中枢_扩展线段 = 图表展示_中枢_扩展线段
-        self.图表展示_中枢_扩展线段_线段 = 图表展示_中枢_扩展线段_线段
-        self.图表展示_中枢_线段_线段 = 图表展示_中枢_线段_线段
-        self.图表展示_中枢_线段内部 = 图表展示_中枢_线段内部
+        self.图表展示标签 = set(图表展示标签) if 图表展示标签 is not None else None
         self.买卖点偏移 = 买卖点偏移
         self.买卖点激进识别 = 买卖点激进识别
         self.买卖点与MACD柱强相关 = 买卖点与MACD柱强相关
@@ -1049,43 +989,13 @@ class 缠论配置:
             "手动终止": {"annotation": str, "default": ""},
             "计算指标": {"annotation": bool, "default": True},
             "指标计算方式": {"annotation": str, "default": "收"},
-            "平滑异同移动平均线_快线周期": {"annotation": int, "default": 13},
-            "平滑异同移动平均线_慢线周期": {"annotation": int, "default": 31},
-            "平滑异同移动平均线_信号周期": {"annotation": int, "default": 11},
-            "相对强弱指数_周期": {"annotation": int, "default": 13},
-            "相对强弱指数_移动平均线周期": {"annotation": int, "default": 13},
-            "相对强弱指数_超买阈值": {"annotation": float, "default": 75.0},
-            "相对强弱指数_超卖阈值": {"annotation": float, "default": 25.0},
-            "随机指标_RSV周期": {"annotation": int, "default": 13},
-            "随机指标_K值平滑周期": {"annotation": int, "default": 5},
-            "随机指标_D值平滑周期": {"annotation": int, "default": 5},
-            "随机指标_超买阈值": {"annotation": float, "default": 80.0},
-            "随机指标_超卖阈值": {"annotation": float, "default": 20.0},
-            "计算BOLL": {"annotation": bool, "default": False},
-            "布林带_周期": {"annotation": int, "default": 20},
-            "布林带_标准差倍数": {"annotation": float, "default": 2.0},
-            "均线_类型列表": {"annotation": List[str], "default": []},
-            "均线_周期列表": {"annotation": List[int], "default": []},
-            "MACD_参数列表": {"annotation": List[tuple], "default": []},
-            "RSI_周期列表": {"annotation": List[tuple], "default": []},
-            "KDJ_参数列表": {"annotation": List[tuple], "default": []},
-            "BOLL_参数列表": {"annotation": List[tuple], "default": []},
+            "均线参数列表": {"annotation": List[tuple], "default": []},
+            "MACD_参数列表": {"annotation": List[tuple], "default": [("macd", "收", 13, 31, 11)]},
+            "RSI_周期列表": {"annotation": List[tuple], "default": [("rsi", "收", 14, 13, 75.0, 25.0)]},
+            "KDJ_参数列表": {"annotation": List[tuple], "default": [("kdj", "收", 13, 5, 5, 80.0, 20.0)]},
+            "BOLL_参数列表": {"annotation": List[tuple], "default": [("boll", "收", 20, 2.0)]},
             "图表展示": {"annotation": bool, "default": True},
-            "推送K线": {"annotation": bool, "default": True},
-            "推送笔": {"annotation": bool, "default": True},
-            "推送线段": {"annotation": bool, "default": True},
-            "推送中枢": {"annotation": bool, "default": True},
-            "图表展示_笔": {"annotation": bool, "default": True},
-            "图表展示_线段": {"annotation": bool, "default": True},
-            "图表展示_扩展线段": {"annotation": bool, "default": True},
-            "图表展示_扩展线段_线段": {"annotation": bool, "default": True},
-            "图表展示_线段_线段": {"annotation": bool, "default": True},
-            "图表展示_中枢_笔": {"annotation": bool, "default": True},
-            "图表展示_中枢_线段": {"annotation": bool, "default": True},
-            "图表展示_中枢_扩展线段": {"annotation": bool, "default": True},
-            "图表展示_中枢_扩展线段_线段": {"annotation": bool, "default": True},
-            "图表展示_中枢_线段_线段": {"annotation": bool, "default": True},
-            "图表展示_中枢_线段内部": {"annotation": bool, "default": True},
+            "图表展示标签": {"annotation": Optional[List[str]], "default": None},
             "买卖点偏移": {"annotation": int, "default": 1},
             "买卖点激进识别": {"annotation": bool, "default": False},
             "买卖点与MACD柱强相关": {"annotation": bool, "default": False},
@@ -1137,27 +1047,45 @@ class 缠论配置:
                 logger.warning(f"[{fname}] = {value} 解析失败，使用默认值：{default}")
                 setattr(self, fname, default)
 
-    # ---- 参数列表解析：多参数列表为空时回退到默认单参数 ----
+    def 设置指标(
+        self,
+        *,
+        均线: List[tuple] = None,
+        MACD: List[tuple] = None,
+        RSI: List[tuple] = None,
+        KDJ: List[tuple] = None,
+        BOLL: List[tuple] = None,
+    ):
+        """统一设置所有指标参数。
 
-    def _解析MACD参数列表(self) -> List[tuple]:
-        if self.MACD_参数列表:
-            return self.MACD_参数列表
-        return [("macd", self.平滑异同移动平均线_快线周期, self.平滑异同移动平均线_慢线周期, self.平滑异同移动平均线_信号周期)]
+        元组格式 ``(key, 计算方式, *params)``：
+        - 均线: ``("SMA_5", "收", "SMA", 5)`` — key/计算方式/类型/周期
+        - MACD: ``("默认", "收", 13, 31, 11)`` — 快线/慢线/信号
+        - RSI:  ``("默认", "收", 14, 13, 75, 25)`` — 周期/MA周期/超买/超卖
+        - KDJ:  ``("默认", "收", 13, 5, 5, 80, 20)`` — RSV/K平滑/D平滑/超买/超卖
+        - BOLL: ``("默认", "收", 20, 2.0)`` — 周期/标准差倍数
 
-    def _解析RSI周期列表(self) -> List[tuple]:
-        if self.RSI_周期列表:
-            return self.RSI_周期列表
-        return [("rsi", self.相对强弱指数_周期)]
+        :param 均线: key 即均线名（如 ``"SMA_5"``），同时编码类型和周期
+        :param MACD: 首个 key 同时写入 ``"macd"`` 兼容槽位
+        :param BOLL: BOLL 参数元组列表，为空则不计算
+        """
+        self.计算指标 = True
+        if 均线 is not None:
+            self.均线参数列表 = 均线
+        if MACD is not None:
+            self.MACD_参数列表 = MACD
+        if RSI is not None:
+            self.RSI_周期列表 = RSI
+        if KDJ is not None:
+            self.KDJ_参数列表 = KDJ
+        if BOLL is not None:
+            self.BOLL_参数列表 = BOLL
 
-    def _解析KDJ参数列表(self) -> List[tuple]:
-        if self.KDJ_参数列表:
-            return self.KDJ_参数列表
-        return [("kdj", self.随机指标_RSV周期, self.随机指标_K值平滑周期, self.随机指标_D值平滑周期)]
-
-    def _解析BOLL参数列表(self) -> List[tuple]:
-        if self.BOLL_参数列表:
-            return self.BOLL_参数列表
-        return [("boll", self.布林带_周期, self.布林带_标准差倍数)]
+    def 展示标签(self, 标签: str) -> bool:
+        """判断指定标签是否应展示。None = 全部展示，空列表 = 全部隐藏。"""
+        if self.图表展示标签 is None:
+            return True
+        return 标签 in self.图表展示标签
 
     @classmethod
     def 兼容旧版本配置(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -1190,7 +1118,13 @@ class 缠论配置:
 
         :return: 包含所有配置字段的字典
         """
-        return {k: getattr(self, k) for k in self.model_fields().keys()}
+        result = {}
+        for k in self.model_fields().keys():
+            v = getattr(self, k)
+            if isinstance(v, set):
+                v = list(v)
+            result[k] = v
+        return result
 
     def to_json(self) -> str:
         """将配置序列化为 JSON 字符串。
@@ -1246,21 +1180,7 @@ class 缠论配置:
         return cls(
             线段内部中枢图显=False,
             图表展示=False,
-            推送K线=False,
-            推送笔=False,
-            推送线段=False,
-            推送中枢=False,
-            图表展示_笔=False,
-            图表展示_线段=False,
-            图表展示_扩展线段=False,
-            图表展示_扩展线段_线段=False,
-            图表展示_线段_线段=False,
-            图表展示_中枢_笔=False,
-            图表展示_中枢_线段=False,
-            图表展示_中枢_扩展线段=False,
-            图表展示_中枢_扩展线段_线段=False,
-            图表展示_中枢_线段_线段=False,
-            图表展示_中枢_线段内部=False,
+            图表展示标签=[],
         )
 
     def model_copy(self, update: dict = None, deep: bool = True):
@@ -2479,19 +2399,21 @@ class 指标计算器:
     @staticmethod
     def _计算MACD组(当前K线: K线, prev: Optional[指标容器], 配置: 缠论配置):
         idx = 当前K线.指标
-        计算方式 = 配置.指标计算方式
-        for key, 快, 慢, 信号 in 配置._解析MACD参数列表():
+        for i, (key, 计算方式, *params) in enumerate(配置.MACD_参数列表):
+            快, 慢, 信号 = params[0], params[1], params[2]
             prev_val = prev[key] if prev is not None and key in prev else None
             if prev_val is not None:
                 idx[key] = 平滑异同移动平均线.增量计算_K线(prev_val, 当前K线, 计算方式)
             else:
                 idx[key] = 平滑异同移动平均线.首次计算_K线(当前K线, 计算方式, 快, 慢, 信号)
+            if i == 0:
+                idx["macd"] = idx[key]
 
     @staticmethod
     def _计算RSI组(当前K线: K线, prev: Optional[指标容器], 配置: 缠论配置):
         idx = 当前K线.指标
-        计算方式 = 配置.指标计算方式
-        for key, 周期 in 配置._解析RSI周期列表():
+        for key, 计算方式, *params in 配置.RSI_周期列表:
+            周期, MA周期, 超买, 超卖 = params[0], params[1], params[2], params[3]
             prev_val = prev[key] if prev is not None and key in prev else None
             if prev_val is not None:
                 idx[key] = 相对强弱指数.增量计算_K线(prev_val, 当前K线, 计算方式)
@@ -2500,16 +2422,16 @@ class 指标计算器:
                     当前K线,
                     计算方式,
                     周期,
-                    配置.相对强弱指数_超买阈值,
-                    配置.相对强弱指数_超卖阈值,
-                    配置.相对强弱指数_移动平均线周期,
+                    超买,
+                    超卖,
+                    MA周期,
                 )
 
     @staticmethod
     def _计算KDJ组(当前K线: K线, prev: Optional[指标容器], 配置: 缠论配置):
         idx = 当前K线.指标
-        计算方式 = 配置.指标计算方式
-        for key, rsv, k平滑, d平滑 in 配置._解析KDJ参数列表():
+        for key, 计算方式, *params in 配置.KDJ_参数列表:
+            rsv, k平滑, d平滑, 超买, 超卖 = params[0], params[1], params[2], params[3], params[4]
             prev_val = prev[key] if prev is not None and key in prev else None
             if prev_val is not None:
                 idx[key] = 随机指标.增量计算_K线(prev_val, 当前K线, 计算方式)
@@ -2520,15 +2442,15 @@ class 指标计算器:
                     rsv,
                     k平滑,
                     d平滑,
-                    配置.随机指标_超买阈值,
-                    配置.随机指标_超卖阈值,
+                    超买,
+                    超卖,
                 )
 
     @staticmethod
     def _计算BOLL组(当前K线: K线, prev: Optional[指标容器], 配置: 缠论配置):
         idx = 当前K线.指标
-        计算方式 = 配置.指标计算方式
-        for key, 周期, 标准差倍数 in 配置._解析BOLL参数列表():
+        for key, 计算方式, *params in 配置.BOLL_参数列表:
+            周期, 标准差倍数 = params[0], params[1]
             prev_val = prev[key] if prev is not None and key in prev else None
             if prev_val is not None:
                 idx[key] = 布林带.增量计算(prev_val, 当前K线, 计算方式)
@@ -2537,18 +2459,16 @@ class 指标计算器:
 
     @staticmethod
     def _更新均线(当前K线: K线, 普K序列: List[K线], 配置: 缠论配置):
-        if not 配置.均线_类型列表 or not 配置.均线_周期列表:
+        if not 配置.均线参数列表:
             return
-        for ma_type in 配置.均线_类型列表:
-            for period in 配置.均线_周期列表:
-                key = f"{ma_type}_{period}"
-                if ma_type == "SMA":
-                    当前K线.指标.均线[key] = 均线工具.增量SMA(普K序列, period, 配置.指标计算方式)
-                elif ma_type == "EMA":
-                    前值 = None
-                    if len(普K序列) >= 2:
-                        前值 = 普K序列[-2].指标.均线.get(key)
-                    当前K线.指标.均线[key] = 均线工具.增量EMA(普K序列, period, 配置.指标计算方式, 前值)
+        for key, 计算方式, ma_type, period in 配置.均线参数列表:
+            if ma_type == "SMA":
+                当前K线.指标.均线[key] = 均线工具.增量SMA(普K序列, period, 计算方式)
+            elif ma_type == "EMA":
+                前值 = None
+                if len(普K序列) >= 2:
+                    前值 = 普K序列[-2].指标.均线.get(key)
+                当前K线.指标.均线[key] = 均线工具.增量EMA(普K序列, period, 计算方式, 前值)
 
     @staticmethod
     def _回填新指标(全序列: List[K线], 配置: 缠论配置):
@@ -2570,15 +2490,13 @@ class 指标计算器:
                     新参数.append(params)
             return 新参数
 
-        新MACD = _新键(尾K指标, 首K指标, 配置._解析MACD参数列表())
-        新RSI = _新键(尾K指标, 首K指标, 配置._解析RSI周期列表())
-        新KDJ = _新键(尾K指标, 首K指标, 配置._解析KDJ参数列表())
-        新BOLL = _新键(尾K指标, 首K指标, 配置._解析BOLL参数列表())
+        新MACD = _新键(尾K指标, 首K指标, 配置.MACD_参数列表)
+        新RSI = _新键(尾K指标, 首K指标, 配置.RSI_周期列表)
+        新KDJ = _新键(尾K指标, 首K指标, 配置.KDJ_参数列表)
+        新BOLL = _新键(尾K指标, 首K指标, 配置.BOLL_参数列表)
 
         if not (新MACD or 新RSI or 新KDJ or 新BOLL):
             return
-
-        计算方式 = 配置.指标计算方式
 
         for i, k线 in enumerate(全序列):
             if k线.指标 is None:
@@ -2587,43 +2505,32 @@ class 指标计算器:
             idx = k线.指标
             prev = 全序列[i - 1].指标 if i > 0 else None
 
-            for key, 快, 慢, 信号 in 新MACD:
+            for key, 计算方式, *params in 新MACD:
+                快, 慢, 信号 = params[0], params[1], params[2]
                 prev_val = prev[key] if prev is not None and key in prev else None
                 if prev_val is not None:
                     idx[key] = 平滑异同移动平均线.增量计算_K线(prev_val, k线, 计算方式)
                 else:
                     idx[key] = 平滑异同移动平均线.首次计算_K线(k线, 计算方式, 快, 慢, 信号)
 
-            for key, 周期 in 新RSI:
+            for key, 计算方式, *params in 新RSI:
+                周期, MA周期, 超买, 超卖 = params[0], params[1], params[2], params[3]
                 prev_val = prev[key] if prev is not None and key in prev else None
                 if prev_val is not None:
                     idx[key] = 相对强弱指数.增量计算_K线(prev_val, k线, 计算方式)
                 else:
-                    idx[key] = 相对强弱指数.首次计算_K线(
-                        k线,
-                        计算方式,
-                        周期,
-                        配置.相对强弱指数_超买阈值,
-                        配置.相对强弱指数_超卖阈值,
-                        配置.相对强弱指数_移动平均线周期,
-                    )
+                    idx[key] = 相对强弱指数.首次计算_K线(k线, 计算方式, 周期, 超买, 超卖, MA周期)
 
-            for key, rsv, k平滑, d平滑 in 新KDJ:
+            for key, 计算方式, *params in 新KDJ:
+                rsv, k平滑, d平滑, 超买, 超卖 = params[0], params[1], params[2], params[3], params[4]
                 prev_val = prev[key] if prev is not None and key in prev else None
                 if prev_val is not None:
                     idx[key] = 随机指标.增量计算_K线(prev_val, k线, 计算方式)
                 else:
-                    idx[key] = 随机指标.首次计算_K线(
-                        k线,
-                        计算方式,
-                        rsv,
-                        k平滑,
-                        d平滑,
-                        配置.随机指标_超买阈值,
-                        配置.随机指标_超卖阈值,
-                    )
+                    idx[key] = 随机指标.首次计算_K线(k线, 计算方式, rsv, k平滑, d平滑, 超买, 超卖)
 
-            for key, 周期, 标准差倍数 in 新BOLL:
+            for key, 计算方式, *params in 新BOLL:
+                周期, 标准差倍数 = params[0], params[1]
                 prev_val = prev[key] if prev is not None and key in prev else None
                 if prev_val is not None:
                     idx[key] = 布林带.增量计算(prev_val, k线, 计算方式)
@@ -4292,23 +4199,24 @@ class 虚线:
         dif_up = dif_down = dea_up = dea_down = 0
         for i in range(1, len(普K序列)):
             pre, cur = 普K序列[i - 1].macd, 普K序列[i].macd
-            if pre.DIF is None or cur.DIF is None:
+            if pre is None or cur is None or pre.DIF is None or cur.DIF is None:
                 continue
             if pre.DIF < 0 <= cur.DIF:
                 dif_up += 1
             elif pre.DIF > 0 >= cur.DIF:
                 dif_down += 1
-            if pre.DEA < 0 <= cur.DEA:
-                dea_up += 1
-            elif pre.DEA > 0 >= cur.DEA:
-                dea_down += 1
+            if pre.DEA is not None and cur.DEA is not None:
+                if pre.DEA < 0 <= cur.DEA:
+                    dea_up += 1
+                elif pre.DEA > 0 >= cur.DEA:
+                    dea_down += 1
 
         # 2. DIF与DEA交叉（带标记）
         golden = death = 0
         交叉标记 = [0]  # 第0个位置无前值，先填0
         for i in range(1, len(普K序列)):
             pre, cur = 普K序列[i - 1].macd, 普K序列[i].macd
-            if pre.DIF is None or cur.DIF is None or pre.DEA is None or cur.DEA is None:
+            if pre is None or cur is None or pre.DIF is None or cur.DIF is None or pre.DEA is None or cur.DEA is None:
                 交叉标记.append(0)
                 continue
             if pre.DIF <= pre.DEA and cur.DIF > cur.DEA:
@@ -7030,20 +6938,13 @@ class 立体分析器:
         for 周期 in self.周期组:
             临时配置 = 配置组.get(周期, 配置)
             当前配置 = 临时配置.model_copy(
-                update={
-                    "推送K线": False,
-                    # "推送笔": False,
-                    "推送线段": False,
-                    # "图表展示": False,
-                },
+                update={"图表展示标签": []},
                 deep=True,
             )
             self._单体分析器[周期] = 观察者(符号=符号, 周期=周期, 配置=当前配置)
 
-        self._单体分析器[self.__显示周期].配置.推送K线 = True
-        self._单体分析器[self.__显示周期].配置.推送笔 = True
-        self._单体分析器[self.__显示周期].配置.推送线段 = True
         self._单体分析器[self.__显示周期].配置.图表展示 = True
+        self._单体分析器[self.__显示周期].配置.图表展示标签 = None  # None = 全部展示
         self._单体分析器[self.__显示周期].重置基础序列()
 
         for 周期 in self.周期组:  # 将不同周期对其至显示周期
@@ -7156,7 +7057,7 @@ def 测试_指标挂载(配置: 缠论配置):
             size = struct.calcsize(">6d")
             for i in range(len(buffer) // size):
                 if i == 500:
-                    配置.MACD_参数列表 = [("macd", 配置.平滑异同移动平均线_快线周期, 配置.平滑异同移动平均线_慢线周期, 配置.平滑异同移动平均线_信号周期)]
+                    配置.MACD_参数列表 = [("macd", "收", 13, 31, 11)]
                     配置.MACD_参数列表.append(("macd_12_26_9", 12, 26, 9))
                 k线 = K线.读取大端字节数组(buffer[i * size : i * size + size], 周期, 符号)
                 观察员.增加原始K线(k线)

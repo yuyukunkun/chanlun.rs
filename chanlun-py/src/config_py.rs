@@ -252,6 +252,11 @@ impl 缠论配置Py {
         })
     }
 
+    /// 判断指定标签是否应展示。None = 全部展示，空列表 = 全部隐藏。
+    fn 展示标签(&self, 标签: &str) -> bool {
+        self.缓存.lock().as_ref().map_or(true, |c| c.展示标签(标签))
+    }
+
     #[classmethod]
     /// 将形如 "1_open", "1_close", "2_open", "name" 的字典重组为嵌套结构
     fn 按序号重组字典(

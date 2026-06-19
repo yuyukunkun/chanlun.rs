@@ -61,8 +61,7 @@ impl 立体分析器 {
                 .get(&周期)
                 .cloned()
                 .unwrap_or_else(|| 默认配置.clone());
-            当前配置.推送K线 = false;
-            当前配置.推送线段 = false;
+            当前配置.图表展示标签 = Some(vec![]);
             当前配置.标识 = 符号.clone();
 
             let 观察员 = 观察者::new(符号.clone(), 周期, 当前配置);
@@ -73,9 +72,7 @@ impl 立体分析器 {
         {
             let 显示观察员 = 单体分析器.get(&显示周期).expect("显示周期观察者不存在");
             let mut guard = 显示观察员.write();
-            guard.配置.推送K线 = true;
-            guard.配置.推送笔 = true;
-            guard.配置.推送线段 = true;
+            guard.配置.图表展示标签 = None; // None = 全部展示
             guard.配置.图表展示 = true;
             guard.重置基础序列();
         }

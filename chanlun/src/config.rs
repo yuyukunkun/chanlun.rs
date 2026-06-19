@@ -92,103 +92,34 @@ pub struct 缠论配置 {
     // ---- 指标 ----
     /// 是否计算技术指标
     pub 计算指标: bool,
-    /// 是否计算布林带
-    pub 计算BOLL: bool,
-    /// 指标计算方式（开/高/低/收/高低均值/高低收均值/开高低收均值）
+    /// 指标计算方式（均线使用，MACD/RSI/KDJ/BOLL 在参数元组中指定）
     #[serde(deserialize_with = "deserialize_指标计算方式")]
     pub 指标计算方式: String,
 
-    // ---- MACD ----
-    /// MACD 快线 EMA 周期
-    pub 平滑异同移动平均线_快线周期: i64,
-    /// MACD 慢线 EMA 周期
-    pub 平滑异同移动平均线_慢线周期: i64,
-    /// MACD 信号线周期
-    pub 平滑异同移动平均线_信号周期: i64,
-    /// MACD 多参数列表: Vec<(key, 快线, 慢线, 信号)>
+    /// MACD 参数列表 (key, 计算方式, 快线, 慢线, 信号)
     #[serde(default)]
-    pub MACD_参数列表: Vec<(String, i64, i64, i64)>,
+    pub MACD_参数列表: Vec<(String, String, i64, i64, i64)>,
 
-    // ---- RSI ----
-    /// RSI 计算周期
-    pub 相对强弱指数_周期: i64,
-    /// RSI SMA 平滑周期
-    pub 相对强弱指数_移动平均线周期: i64,
-    /// RSI 超买阈值
-    pub 相对强弱指数_超买阈值: f64,
-    /// RSI 超卖阈值
-    pub 相对强弱指数_超卖阈值: f64,
-    /// RSI 多周期列表: Vec<(key, 周期)>
+    /// RSI 参数列表 (key, 计算方式, 周期, MA周期, 超买, 超卖)
     #[serde(default)]
-    pub RSI_周期列表: Vec<(String, i64)>,
+    pub RSI_周期列表: Vec<(String, String, i64, i64, f64, f64)>,
 
-    // ---- KDJ ----
-    /// KDJ RSV 周期
-    pub 随机指标_RSV周期: i64,
-    /// KDJ K 值平滑周期
-    pub 随机指标_K值平滑周期: i64,
-    /// KDJ D 值平滑周期
-    pub 随机指标_D值平滑周期: i64,
-    /// KDJ 超买阈值
-    pub 随机指标_超买阈值: f64,
-    /// KDJ 超卖阈值
-    pub 随机指标_超卖阈值: f64,
-    /// KDJ 多参数列表: Vec<(key, RSV周期, K平滑, D平滑)>
+    /// KDJ 参数列表 (key, 计算方式, RSV, K平滑, D平滑, 超买, 超卖)
     #[serde(default)]
-    pub KDJ_参数列表: Vec<(String, i64, i64, i64)>,
+    pub KDJ_参数列表: Vec<(String, String, i64, i64, i64, f64, f64)>,
 
-    // ---- BOLL ----
-    /// 布林带周期
-    pub 布林带_周期: i64,
-    /// 布林带标准差倍数
-    pub 布林带_标准差倍数: f64,
-    /// BOLL 多参数列表: Vec<(key, 周期, 标准差倍数)>
+    /// BOLL 参数列表 (key, 计算方式, 周期, 标准差倍数)
     #[serde(default)]
-    pub BOLL_参数列表: Vec<(String, i64, f64)>,
+    pub BOLL_参数列表: Vec<(String, String, i64, f64)>,
 
-    // ---- 均线 ----
-    /// 均线类型列表: ["SMA", "EMA", ...]
+    /// 均线参数列表 (key, 计算方式, 类型, 周期) — 如 ("SMA_5", "收", "SMA", 5)
     #[serde(default)]
-    pub 均线_类型列表: Vec<String>,
-    /// 均线周期列表: [5, 10, 20, ...]
-    #[serde(default)]
-    pub 均线_周期列表: Vec<i64>,
+    pub 均线参数列表: Vec<(String, String, String, i64)>,
 
     // ---- 推送/显示 ----
-    /// 是否启用图表展示
     pub 图表展示: bool,
-    /// 是否推送K线
-    pub 推送K线: bool,
-    /// 是否推送笔
-    pub 推送笔: bool,
-    /// 是否推送线段
-    pub 推送线段: bool,
-    /// 是否推送中枢
-    pub 推送中枢: bool,
-
-    // ---- 图表展示细分 ----
-    /// 图表展示笔
-    pub 图表展示_笔: bool,
-    /// 图表展示线段
-    pub 图表展示_线段: bool,
-    /// 图表展示扩展线段
-    pub 图表展示_扩展线段: bool,
-    /// 图表展示扩展线段（线段级）
-    pub 图表展示_扩展线段_线段: bool,
-    /// 图表展示线段之线段
-    pub 图表展示_线段_线段: bool,
-    /// 图表展示笔中枢
-    pub 图表展示_中枢_笔: bool,
-    /// 图表展示线段中枢
-    pub 图表展示_中枢_线段: bool,
-    /// 图表展示扩展中枢
-    pub 图表展示_中枢_扩展线段: bool,
-    /// 图表展示扩展中枢（线段级）
-    pub 图表展示_中枢_扩展线段_线段: bool,
-    /// 图表展示线段之中枢
-    pub 图表展示_中枢_线段_线段: bool,
-    /// 图表展示线段内部中枢
-    pub 图表展示_中枢_线段内部: bool,
+    /// 图表展示标签: None=全部, [] = 不展示
+    pub 图表展示标签: Option<Vec<String>>,
 
     // ---- 买卖点 ----
     /// 买卖点偏移量
@@ -310,44 +241,14 @@ impl Default for 缠论配置 {
             分析线段中枢: true,
             手动终止: String::new(),
             计算指标: true,
-            计算BOLL: false,
             指标计算方式: "收".into(),
-            平滑异同移动平均线_快线周期: 13,
-            平滑异同移动平均线_慢线周期: 31,
-            平滑异同移动平均线_信号周期: 11,
-            相对强弱指数_周期: 13,
-            相对强弱指数_移动平均线周期: 13,
-            相对强弱指数_超买阈值: 75.0,
-            相对强弱指数_超卖阈值: 25.0,
-            随机指标_RSV周期: 13,
-            随机指标_K值平滑周期: 5,
-            随机指标_D值平滑周期: 5,
-            随机指标_超买阈值: 80.0,
-            随机指标_超卖阈值: 20.0,
-            MACD_参数列表: Vec::new(),
-            RSI_周期列表: Vec::new(),
-            KDJ_参数列表: Vec::new(),
-            布林带_周期: 20,
-            布林带_标准差倍数: 2.0,
-            BOLL_参数列表: Vec::new(),
-            均线_类型列表: Vec::new(),
-            均线_周期列表: Vec::new(),
+            MACD_参数列表: vec![("macd".into(), "收".into(), 13, 31, 11)],
+            RSI_周期列表: vec![("rsi".into(), "收".into(), 14, 13, 75.0, 25.0)],
+            KDJ_参数列表: vec![("kdj".into(), "收".into(), 13, 5, 5, 80.0, 20.0)],
+            BOLL_参数列表: vec![("boll".into(), "收".into(), 20, 2.0)],
+            均线参数列表: Vec::new(),
             图表展示: true,
-            推送K线: true,
-            推送笔: true,
-            推送线段: true,
-            推送中枢: true,
-            图表展示_笔: true,
-            图表展示_线段: true,
-            图表展示_扩展线段: true,
-            图表展示_扩展线段_线段: true,
-            图表展示_线段_线段: true,
-            图表展示_中枢_笔: true,
-            图表展示_中枢_线段: true,
-            图表展示_中枢_扩展线段: true,
-            图表展示_中枢_扩展线段_线段: true,
-            图表展示_中枢_线段_线段: true,
-            图表展示_中枢_线段内部: true,
+            图表展示标签: None,
             买卖点偏移: 1,
             买卖点激进识别: false,
             买卖点与MACD柱强相关: false,
@@ -366,46 +267,12 @@ impl Default for 缠论配置 {
 }
 
 impl 缠论配置 {
-    /// 解析MACD参数列表 — 如果列表非空则使用列表，否则返回默认单组
-    pub fn _解析MACD参数列表(&self) -> Vec<(String, i64, i64, i64)> {
-        if !self.MACD_参数列表.is_empty() {
-            return self.MACD_参数列表.clone();
+    /// 展示标签判定 — None=全部, [] = 全关
+    pub fn 展示标签(&self, 标签: &str) -> bool {
+        match &self.图表展示标签 {
+            None => true,
+            Some(tags) => tags.iter().any(|t| t == 标签),
         }
-        vec![(
-            "macd".into(),
-            self.平滑异同移动平均线_快线周期,
-            self.平滑异同移动平均线_慢线周期,
-            self.平滑异同移动平均线_信号周期,
-        )]
-    }
-
-    /// 解析RSI周期列表 — 如果列表非空则使用列表，否则返回默认单组
-    pub fn _解析RSI周期列表(&self) -> Vec<(String, i64)> {
-        if !self.RSI_周期列表.is_empty() {
-            return self.RSI_周期列表.clone();
-        }
-        vec![("rsi".into(), self.相对强弱指数_周期)]
-    }
-
-    /// 解析KDJ参数列表 — 如果列表非空则使用列表，否则返回默认单组
-    pub fn _解析KDJ参数列表(&self) -> Vec<(String, i64, i64, i64)> {
-        if !self.KDJ_参数列表.is_empty() {
-            return self.KDJ_参数列表.clone();
-        }
-        vec![(
-            "kdj".into(),
-            self.随机指标_RSV周期,
-            self.随机指标_K值平滑周期,
-            self.随机指标_D值平滑周期,
-        )]
-    }
-
-    /// 解析BOLL参数列表 — 如果列表非空则使用列表，否则返回默认单组
-    pub fn _解析BOLL参数列表(&self) -> Vec<(String, i64, f64)> {
-        if !self.BOLL_参数列表.is_empty() {
-            return self.BOLL_参数列表.clone();
-        }
-        vec![("boll".into(), self.布林带_周期, self.布林带_标准差倍数)]
     }
 
     /// 序列化为 JSON 字典（对应 Python to_dict，仅返回 model_fields 中的字段）
@@ -576,21 +443,7 @@ impl 缠论配置 {
         Self {
             线段内部中枢图显: false,
             图表展示: false,
-            推送K线: false,
-            推送笔: false,
-            推送线段: false,
-            推送中枢: false,
-            图表展示_笔: false,
-            图表展示_线段: false,
-            图表展示_扩展线段: false,
-            图表展示_扩展线段_线段: false,
-            图表展示_线段_线段: false,
-            图表展示_中枢_笔: false,
-            图表展示_中枢_线段: false,
-            图表展示_中枢_扩展线段: false,
-            图表展示_中枢_扩展线段_线段: false,
-            图表展示_中枢_线段_线段: false,
-            图表展示_中枢_线段内部: false,
+            图表展示标签: Some(vec![]),
             ..self.clone()
         }
     }

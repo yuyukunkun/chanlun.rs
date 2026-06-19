@@ -56,7 +56,7 @@ impl 指标计算器 {
                 Self::_计算KDJ组(当前K线, prev, 配置);
                 Self::_计算BOLL组(当前K线, prev, 配置);
             }
-            Self::_更新均线(当前K线, 现有序列, 配置);
+            Self::_更新均线(当前K线, 现有序列, 配置); // 当前K线在 全序列[n-1], 现有序列不含它
             has_prev = n > 1;
         } // prev_guard dropped here
 
@@ -66,10 +66,9 @@ impl 指标计算器 {
     }
 
     fn _计算MACD组(当前K线: &K线, prev: Option<&指标容器>, 配置: &缠论配置) {
-        let 计算方式 = &配置.指标计算方式;
-        for (i, (key, 快, 慢, 信号)) in 配置._解析MACD参数列表().into_iter().enumerate()
+        for (i, (key, 计算方式, 快, 慢, 信号)) in 配置.MACD_参数列表.iter().enumerate()
         {
-            let val = if let Some(prev_val) = prev.and_then(|p| p.获取(&key)) {
+            let val = if let Some(prev_val) = prev.and_then(|p| p.获取(key)) {
                 if let 指标值::MACD(prev_macd) = prev_val {
                     指标值::MACD(平滑异同移动平均线::增量计算(
                         prev_macd,
@@ -95,21 +94,18 @@ impl 指标计算器 {
                         计算方式,
                     ),
                     当前K线.时间戳,
-                    快,
-                    慢,
-                    信号,
+                    *快,
+                    *慢,
+                    *信号,
                 ))
             };
-            当前K线.指标.write().设置(&key, val.clone());
-            if i == 0 {
-                当前K线.指标.write().设置("macd", val);
-            }
+            当前K线.指标.write().设置(key, val.clone());
         }
     }
 
     fn _计算RSI组(当前K线: &K线, prev: Option<&指标容器>, 配置: &缠论配置) {
-        let 计算方式 = &配置.指标计算方式;
-        for (i, (key, 周期)) in 配置._解析RSI周期列表().into_iter().enumerate() {
+        for (key, 计算方式, 周期, ma周期, 超买, 超卖) in 配置.RSI_周期列表.iter()
+        {
             let val = if let Some(prev_val) = prev.and_then(|p| p.获取(&key)) {
                 if let 指标值::RSI(prev_rsi) = prev_val {
                     指标值::RSI(相对强弱指数::增量计算(
@@ -136,23 +132,19 @@ impl 指标计算器 {
                         计算方式,
                     ),
                     当前K线.时间戳,
-                    周期,
-                    配置.相对强弱指数_超买阈值,
-                    配置.相对强弱指数_超卖阈值,
-                    Some(配置.相对强弱指数_移动平均线周期),
+                    *周期,
+                    *超买,
+                    *超卖,
+                    Some(*ma周期),
                 ))
             };
             当前K线.指标.write().设置(&key, val.clone());
-            if i == 0 {
-                当前K线.指标.write().设置("rsi", val);
-            }
         }
     }
 
     fn _计算KDJ组(当前K线: &K线, prev: Option<&指标容器>, 配置: &缠论配置) {
-        for (i, (key, rsv, k平滑, d平滑)) in 配置._解析KDJ参数列表().into_iter().enumerate()
-        {
-            let val = if let Some(prev_val) = prev.and_then(|p| p.获取(&key)) {
+        for (key, _fm, rsv, k平滑, d平滑, 超买, 超卖) in 配置.KDJ_参数列表.iter() {
+            let val = if let Some(prev_val) = prev.and_then(|p| p.获取(key)) {
                 if let 指标值::KDJ(prev_kdj) = prev_val {
                     指标值::KDJ(随机指标::增量计算(
                         prev_kdj,
@@ -170,24 +162,19 @@ impl 指标计算器 {
                     当前K线.低,
                     当前K线.收盘价,
                     当前K线.时间戳,
-                    rsv,
-                    k平滑,
-                    d平滑,
-                    配置.随机指标_超买阈值,
-                    配置.随机指标_超卖阈值,
+                    *rsv,
+                    *k平滑,
+                    *d平滑,
+                    *超买,
+                    *超卖,
                 ))
             };
-            当前K线.指标.write().设置(&key, val.clone());
-            if i == 0 {
-                当前K线.指标.write().设置("kdj", val);
-            }
+            当前K线.指标.write().设置(key, val.clone());
         }
     }
 
     fn _计算BOLL组(当前K线: &K线, prev: Option<&指标容器>, 配置: &缠论配置) {
-        let 计算方式 = &配置.指标计算方式;
-        for (i, (key, 周期, 标准差倍数)) in 配置._解析BOLL参数列表().into_iter().enumerate()
-        {
+        for (key, 计算方式, 周期, 标准差倍数) in 配置.BOLL_参数列表.iter() {
             let val = if let Some(prev_val) = prev.and_then(|p| p.获取(&key)) {
                 if let 指标值::BOLL(prev_boll) = prev_val {
                     指标值::BOLL(布林带::增量计算(
@@ -214,22 +201,37 @@ impl 指标计算器 {
                         当前K线.收盘价,
                         计算方式,
                     ),
-                    周期 as usize,
-                    标准差倍数,
+                    *周期 as usize,
+                    *标准差倍数,
                 ))
             };
             当前K线.指标.write().设置(&key, val.clone());
-            if i == 0 {
-                当前K线.指标.write().设置("boll", val);
-            }
         }
     }
 
     fn _更新均线(当前K线: &K线, 现有序列: &[Arc<K线>], 配置: &缠论配置) {
-        if 配置.均线_类型列表.is_empty() || 配置.均线_周期列表.is_empty() {
+        if 配置.均线参数列表.is_empty() {
             return;
         }
-        let 计算方式 = &配置.指标计算方式;
+        for (key, 计算方式, ma_type, period) in &配置.均线参数列表 {
+            let 值 = match ma_type.as_str() {
+                "SMA" => Self::_增量SMA(当前K线, 现有序列, 计算方式, *period, key),
+                "EMA" => Self::_增量EMA(当前K线, 现有序列, 计算方式, *period, key),
+                _ => continue,
+            };
+            if let Some(均线_map) = 当前K线.指标.write().均线_mut() {
+                均线_map.insert(key.clone(), 值);
+            }
+        }
+    }
+
+    fn _增量SMA(
+        当前K线: &K线,
+        现有序列: &[Arc<K线>],
+        计算方式: &str,
+        period: i64,
+        prev_key: &str,
+    ) -> f64 {
         let 当前价 = super::K线取值(
             当前K线.开盘价,
             当前K线.高,
@@ -237,46 +239,20 @@ impl 指标计算器 {
             当前K线.收盘价,
             计算方式,
         );
-        for ma_type in &配置.均线_类型列表 {
-            for period in &配置.均线_周期列表 {
-                let key = format!("{}_{}", ma_type, period);
-                let 值 = match ma_type.as_str() {
-                    "SMA" => Self::_增量SMA(现有序列, 当前价, *period, 计算方式, &key),
-                    "EMA" => Self::_增量EMA(现有序列, 当前价, *period, 计算方式, &key),
-                    _ => continue,
-                };
-                if let Some(均线_map) = 当前K线.指标.write().均线_mut() {
-                    均线_map.insert(key, 值);
-                }
-            }
-        }
-    }
-
-    /// 增量 SMA: 现有序列 (不含当前K线) + 当前价
-    fn _增量SMA(
-        现有序列: &[Arc<K线>],
-        当前价: f64,
-        period: i64,
-        计算方式: &str,
-        prev_key: &str,
-    ) -> f64 {
         let existing_len = 现有序列.len();
         let p = period as usize;
-        // 现有序列 + 当前 = total_len
-        let total_len = existing_len + 1;
-        if total_len <= p {
-            let mut sum: f64 = 现有序列[existing_len.saturating_sub(p.saturating_sub(1))..]
+        if existing_len + 1 <= p {
+            let sum: f64 = 现有序列
                 .iter()
                 .map(|k| super::K线取值(k.开盘价, k.高, k.低, k.收盘价, 计算方式))
-                .sum();
-            sum += 当前价;
-            return sum / (total_len as f64).max(1.0);
+                .sum::<f64>()
+                + 当前价;
+            return sum / ((existing_len + 1) as f64).max(1.0);
         }
-        // 尝试从前一根K线获取缓存的SMA
-        if let Some(prev) = 现有序列.last().and_then(|k| {
-            let guard = k.指标.read();
-            guard.均线().and_then(|m| m.get(prev_key)).copied()
-        }) {
+        if let Some(prev_sma) = 现有序列
+            .last()
+            .and_then(|k| k.指标.read().均线().and_then(|m| m.get(prev_key)).copied())
+        {
             let oldest = super::K线取值(
                 现有序列[existing_len - p].开盘价,
                 现有序列[existing_len - p].高,
@@ -284,29 +260,33 @@ impl 指标计算器 {
                 现有序列[existing_len - p].收盘价,
                 计算方式,
             );
-            return prev + (当前价 - oldest) / period as f64;
+            return prev_sma + (当前价 - oldest) / period as f64;
         }
-        // 回退：完整计算
-        let mut sum: f64 = 现有序列[existing_len.saturating_sub(p.saturating_sub(1))..]
+        let sum: f64 = 现有序列[existing_len.saturating_sub(p.saturating_sub(1))..]
             .iter()
             .map(|k| super::K线取值(k.开盘价, k.高, k.低, k.收盘价, 计算方式))
-            .sum();
-        sum += 当前价;
-        sum / (total_len as f64).min(p as f64)
+            .sum::<f64>()
+            + 当前价;
+        sum / ((existing_len + 1) as f64).min(p as f64)
     }
 
-    /// 增量 EMA: 现有序列 (不含当前K线) + 当前价
     fn _增量EMA(
+        当前K线: &K线,
         现有序列: &[Arc<K线>],
-        当前价: f64,
+        计算方式: &str,
         period: i64,
-        _计算方式: &str,
         prev_key: &str,
     ) -> f64 {
-        let 前值 = 现有序列.last().and_then(|k| {
-            let guard = k.指标.read();
-            guard.均线().and_then(|m| m.get(prev_key)).copied()
-        });
+        let 当前价 = super::K线取值(
+            当前K线.开盘价,
+            当前K线.高,
+            当前K线.低,
+            当前K线.收盘价,
+            计算方式,
+        );
+        let 前值 = 现有序列
+            .last()
+            .and_then(|k| k.指标.read().均线().and_then(|m| m.get(prev_key)).copied());
         match 前值 {
             None => 当前价,
             Some(prev) => {
@@ -318,42 +298,40 @@ impl 指标计算器 {
 
     /// 运行中新增指标参数时，回填所有历史K线
     fn _回填新指标(全序列: &[Arc<K线>], 配置: &缠论配置) {
-        // 作用域化首尾读锁：在回填写循环之前释放，避免读锁与写锁冲突
         let (新MACD, 新RSI, 新KDJ, 新BOLL) = {
             let 首K_guard = 全序列[0].指标.read();
             let 尾K_guard = 全序列[全序列.len() - 1].指标.read();
-
             let 新MACD: Vec<_> = 配置
-                ._解析MACD参数列表()
-                .into_iter()
-                .filter(|(key, _, _, _)| 尾K_guard.包含(key) && !首K_guard.包含(key))
+                .MACD_参数列表
+                .iter()
+                .filter(|(key, ..)| 尾K_guard.包含(key) && !首K_guard.包含(key))
+                .cloned()
                 .collect();
             let 新RSI: Vec<_> = 配置
-                ._解析RSI周期列表()
-                .into_iter()
-                .filter(|(key, _)| 尾K_guard.包含(key) && !首K_guard.包含(key))
+                .RSI_周期列表
+                .iter()
+                .filter(|(key, ..)| 尾K_guard.包含(key) && !首K_guard.包含(key))
+                .cloned()
                 .collect();
             let 新KDJ: Vec<_> = 配置
-                ._解析KDJ参数列表()
-                .into_iter()
-                .filter(|(key, _, _, _)| 尾K_guard.包含(key) && !首K_guard.包含(key))
+                .KDJ_参数列表
+                .iter()
+                .filter(|(key, ..)| 尾K_guard.包含(key) && !首K_guard.包含(key))
+                .cloned()
                 .collect();
             let 新BOLL: Vec<_> = 配置
-                ._解析BOLL参数列表()
-                .into_iter()
-                .filter(|(key, _, _)| 尾K_guard.包含(key) && !首K_guard.包含(key))
+                .BOLL_参数列表
+                .iter()
+                .filter(|(key, ..)| 尾K_guard.包含(key) && !首K_guard.包含(key))
+                .cloned()
                 .collect();
-
             (新MACD, 新RSI, 新KDJ, 新BOLL)
-        }; // 首K_guard, 尾K_guard dropped here
+        };
 
         if 新MACD.is_empty() && 新RSI.is_empty() && 新KDJ.is_empty() && 新BOLL.is_empty() {
             return;
         }
 
-        let 计算方式 = &配置.指标计算方式;
-
-        // 从第一根K线开始逐根回填，每次只持有一根prev读锁
         for i in 0..全序列.len() {
             let k线 = &全序列[i];
             let prev_guard = if i > 0 {
@@ -362,112 +340,62 @@ impl 指标计算器 {
                 None
             };
 
-            for (key, 快, 慢, 信号) in &新MACD {
-                let val = if let Some(ref prev) = prev_guard {
-                    if let Some(指标值::MACD(prev_macd)) = prev.获取(key) {
-                        指标值::MACD(平滑异同移动平均线::增量计算_K线(
-                            prev_macd,
-                            k线,
-                            计算方式,
-                        ))
-                    } else {
-                        指标值::MACD(平滑异同移动平均线::首次计算_K线(
-                            k线,
-                            计算方式,
-                            *快,
-                            *慢,
-                            *信号,
-                        ))
-                    }
-                } else {
-                    指标值::MACD(平滑异同移动平均线::首次计算_K线(
+            for (key, 计算方式, 快, 慢, 信号) in &新MACD {
+                let val = match prev_guard.as_ref().and_then(|p| p.获取(key)) {
+                    Some(指标值::MACD(prev_macd)) => 指标值::MACD(
+                        平滑异同移动平均线::增量计算_K线(prev_macd, k线, 计算方式),
+                    ),
+                    _ => 指标值::MACD(平滑异同移动平均线::首次计算_K线(
                         k线,
                         计算方式,
                         *快,
                         *慢,
                         *信号,
-                    ))
+                    )),
                 };
                 k线.指标.write().设置(key, val);
             }
 
-            for (key, 周期) in &新RSI {
-                let val = if let Some(ref prev) = prev_guard {
-                    if let Some(指标值::RSI(prev_rsi)) = prev.获取(key) {
-                        指标值::RSI(相对强弱指数::增量计算_K线(
-                            prev_rsi,
-                            k线,
-                            计算方式,
-                        ))
-                    } else {
-                        指标值::RSI(相对强弱指数::首次计算_K线(
-                            k线,
-                            计算方式,
-                            *周期,
-                            配置.相对强弱指数_超买阈值,
-                            配置.相对强弱指数_超卖阈值,
-                            Some(配置.相对强弱指数_移动平均线周期),
-                        ))
-                    }
-                } else {
-                    指标值::RSI(相对强弱指数::首次计算_K线(
+            for (key, 计算方式, 周期, ma周期, 超买, 超卖) in &新RSI {
+                let val = match prev_guard.as_ref().and_then(|p| p.获取(key)) {
+                    Some(指标值::RSI(prev_rsi)) => 指标值::RSI(
+                        相对强弱指数::增量计算_K线(prev_rsi, k线, 计算方式),
+                    ),
+                    _ => 指标值::RSI(相对强弱指数::首次计算_K线(
                         k线,
                         计算方式,
                         *周期,
-                        配置.相对强弱指数_超买阈值,
-                        配置.相对强弱指数_超卖阈值,
-                        Some(配置.相对强弱指数_移动平均线周期),
-                    ))
+                        *超买,
+                        *超卖,
+                        Some(*ma周期),
+                    )),
                 };
                 k线.指标.write().设置(key, val);
             }
 
-            for (key, rsv, k平滑, d平滑) in &新KDJ {
-                let val = if let Some(ref prev) = prev_guard {
-                    if let Some(指标值::KDJ(prev_kdj)) = prev.获取(key) {
+            for (key, _fm, rsv, k平滑, d平滑, 超买, 超卖) in &新KDJ {
+                let val = match prev_guard.as_ref().and_then(|p| p.获取(key)) {
+                    Some(指标值::KDJ(prev_kdj)) => {
                         指标值::KDJ(随机指标::增量计算_K线(prev_kdj, k线))
-                    } else {
-                        指标值::KDJ(随机指标::首次计算_K线(
-                            k线,
-                            *rsv,
-                            *k平滑,
-                            *d平滑,
-                            配置.随机指标_超买阈值,
-                            配置.随机指标_超卖阈值,
-                        ))
                     }
-                } else {
-                    指标值::KDJ(随机指标::首次计算_K线(
-                        k线,
-                        *rsv,
-                        *k平滑,
-                        *d平滑,
-                        配置.随机指标_超买阈值,
-                        配置.随机指标_超卖阈值,
-                    ))
+                    _ => 指标值::KDJ(随机指标::首次计算_K线(
+                        k线, *rsv, *k平滑, *d平滑, *超买, *超卖,
+                    )),
                 };
                 k线.指标.write().设置(key, val);
             }
 
-            for (key, 周期, 标准差倍数) in &新BOLL {
-                let val = if let Some(ref prev) = prev_guard {
-                    if let Some(指标值::BOLL(prev_boll)) = prev.获取(key) {
+            for (key, 计算方式, 周期, 标准差倍数) in &新BOLL {
+                let val = match prev_guard.as_ref().and_then(|p| p.获取(key)) {
+                    Some(指标值::BOLL(prev_boll)) => {
                         指标值::BOLL(布林带::增量计算_K线(prev_boll, k线, 计算方式))
-                    } else {
-                        指标值::BOLL(布林带::首次计算_K线(
-                            k线,
-                            计算方式,
-                            *周期 as usize,
-                            *标准差倍数,
-                        ))
                     }
-                } else {
-                    指标值::BOLL(布林带::首次计算_K线(
+                    _ => 指标值::BOLL(布林带::首次计算_K线(
                         k线,
                         计算方式,
                         *周期 as usize,
                         *标准差倍数,
-                    ))
+                    )),
                 };
                 k线.指标.write().设置(key, val);
             }
